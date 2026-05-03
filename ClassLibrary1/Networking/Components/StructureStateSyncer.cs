@@ -60,7 +60,6 @@ namespace ONI_MP.Networking.Components
                 default:
                     break;
 			}
-            DebugConsole.Log($"Structure init as: " + structureType);
 		}
 
 		private void Update()

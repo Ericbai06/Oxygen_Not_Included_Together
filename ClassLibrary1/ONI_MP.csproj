@@ -3,7 +3,7 @@
 	<!-- General Package Properties -->
 	<PropertyGroup>
 		<PackageId>ItsLukesMultiplayerMod</PackageId>
-		<Version>0.5.2-alpha</Version>
+		<Version>0.5.3-alpha</Version>
 		<Authors>ItsLuke,Sgt_Lmalas</Authors>
 		<Copyright>$(AssemblyCopyright)</Copyright>
 	</PropertyGroup>

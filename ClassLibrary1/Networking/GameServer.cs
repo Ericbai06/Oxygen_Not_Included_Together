@@ -7,6 +7,7 @@ using Shared;
 using Steamworks;
 using System;
 using System.Runtime.InteropServices;
+using ONI_MP.Networking.Components;
 
 namespace ONI_MP.Networking
 {
@@ -35,6 +36,7 @@ namespace ONI_MP.Networking
 
             NetworkConfig.TransportServer.OnError = () => SetState(ServerState.Error);
             NetworkConfig.TransportServer.Prepare();
+			CursorManager.Instance.AssignColor();
 
 			SetState(ServerState.Starting);
 

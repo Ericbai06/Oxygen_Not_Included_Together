@@ -11,10 +11,10 @@ namespace ONI_MP
 			{
 				public class HEADERS
 				{
-					public static LocString HOST_SETTINGS = "Host Settings";
-					public static LocString CLIENT_SETTINGS = "Client Settings";
-					public static LocString CURSOR_SETTINGS = "Cursor Settings";
-					public static LocString MISC_SETTINGS = "Misc Settings";
+					public static LocString A_HOST_SETTINGS = "Host Settings";
+					public static LocString B_CLIENT_SETTINGS = "Client Settings";
+					public static LocString C_CURSOR_SETTINGS = "Cursor Settings";
+					public static LocString D_MISC_SETTINGS = "Misc Settings";
 				}
 
                 public class TITLES
@@ -33,9 +33,7 @@ namespace ONI_MP
                     public class CURSOR_SETTINGS
                     {
 						public static LocString RANDOM_COLOR = "Use Random Color";
-						public static LocString RED = "Red";
-						public static LocString GREEN = "Green";
-						public static LocString BLUE = "Blue";
+						public static LocString CURSOR_COLOR = "Cursor Color";
                     }
 
                     public class MISC_SETTINGS
@@ -61,9 +59,7 @@ namespace ONI_MP
                     public class CURSOR_SETTINGS
                     {
 						public static LocString RANDOM_COLOR = "Select a random color for your cursor during online sessions.";
-						public static LocString RED = "The Red RGB Value of your cursor during online sessions (0-255)";
-						public static LocString GREEN = "The Green RGB Value of your cursor during online sessions (0-255)";
-						public static LocString BLUE = "The Blue RGB Value of your cursor during online sessions (0-255)";
+						public static LocString CURSOR_COLOR = "The color of your player cursor for yourself during an online session\n(visible to other players in the session)";
                     }
 
                     public class MISC_SETTINGS

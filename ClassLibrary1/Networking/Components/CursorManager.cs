@@ -1,4 +1,5 @@
-﻿using ONI_MP.Misc;
+﻿using ONI_MP.DebugTools;
+using ONI_MP.Misc;
 using ONI_MP.Networking.Packets.Core;
 using ONI_MP.Networking.States;
 using Shared.Profiling;
@@ -51,13 +52,17 @@ namespace ONI_MP.Networking.Components
 			using var _ = Profiler.Scope();
 
             bool useRandom = Configuration.GetClientProperty<bool>("UseRandomPlayerColor");
-            if (useRandom)
-                color = UnityEngine.Random.ColorHSV(0f, 1f, 0.6f, 1f, 0.8f, 1f);
-            else
-            {
-                ColorRGB color_rgb = Configuration.GetClientProperty<ColorRGB>("PlayerColor");
-                color = color_rgb.ToColor();
+			if (useRandom)
+			{
+				color = UnityEngine.Random.ColorHSV(0f, 1f, 0.6f, 1f, 0.8f, 1f);
+                DebugConsole.Log("[CursorManager] Setting cursor color to random color " + color.ToString());
             }
+            else
+			{
+				Color32 set_color = Configuration.Instance.CursorColor;
+				color = set_color;
+				DebugConsole.Log("[CursorManager] Setting cursor color from config to " + set_color.ToString() + " | " + color.ToString());
+			}
         }
 
 		private void Update()

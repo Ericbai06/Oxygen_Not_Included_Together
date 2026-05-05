@@ -106,7 +106,8 @@ namespace ONI_MP.Networking
                 MP_Timer.Instance.StartDelayedAction(10, () => CoroutineRunner.RunOne(ShowMessageAndReturnToTitle()));
             };
             NetworkConfig.TransportClient.Prepare();
-		}
+            CursorManager.Instance.AssignColor();
+        }
 
 		public static void ConnectToHost(bool showLoadingScreen = true, string ip = "", int port = 7777)
 		{

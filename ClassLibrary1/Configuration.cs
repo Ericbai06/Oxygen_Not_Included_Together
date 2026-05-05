@@ -19,63 +19,56 @@ namespace ONI_MP
         [JsonProperty]
         public ClientSettings Client { get; set; } = new ClientSettings();
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.HOST_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.A_HOST_SETTINGS")]
+        [JsonIgnore]
         public int HostMaxMessagesPerPoll
         {
             get => Host.MaxMessagesPerPoll;
             set => Host.MaxMessagesPerPoll = Mathf.Clamp(value, 1, 1024);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.SAVE_FILE_TRANSFER_CHUNK", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.SAVE_FILE_TRANSFER_CHUNK", "STRINGS.UI.CONFIGURATION.HEADERS.HOST_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.SAVE_FILE_TRANSFER_CHUNK", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.SAVE_FILE_TRANSFER_CHUNK", "STRINGS.UI.CONFIGURATION.HEADERS.A_HOST_SETTINGS")]
+        [JsonIgnore]
         public int SaveFileTransferChunkKB
         {
             get => Host.SaveFileTransferChunkKB;
             set => Host.SaveFileTransferChunkKB = Mathf.Clamp(value, 1, 1024);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.CLIENT_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.B_CLIENT_SETTINGS")]
+        [JsonIgnore]
         public int ClientMaxMessagesPerPoll
         {
             get => Client.MaxMessagesPerPoll;
             set => Client.MaxMessagesPerPoll = Mathf.Clamp(value, 1, 1024);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.CURSOR_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.C_CURSOR_SETTINGS")]
+        [JsonIgnore]
         public bool UseRandomPlayerColor
         {
             get => Client.UseRandomPlayerColor;
             set => Client.UseRandomPlayerColor = value;
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RED", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RED", "STRINGS.UI.CONFIGURATION.HEADERS.CURSOR_SETTINGS")]
-        public int CursorRed
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.C_CURSOR_SETTINGS")]
+        [JsonIgnore]
+        public Color32 CursorColor
         {
-            get => (int) Client.PlayerColor.R;
-            set => Client.PlayerColor.R = (byte)Mathf.Clamp(value, 0, 255);
+            get => Client.PlayerColor.ToColor32();
+            set => Client.PlayerColor.SetFromColor32(value);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.GREEN", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.GREEN", "STRINGS.UI.CONFIGURATION.HEADERS.CURSOR_SETTINGS")]
-        public int CursorGreen
-        {
-            get => (int) Client.PlayerColor.G;
-            set => Client.PlayerColor.G = (byte)Mathf.Clamp(value, 0, 255);
-        }
-
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.BLUE", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.BLUE", "STRINGS.UI.CONFIGURATION.HEADERS.CURSOR_SETTINGS")]
-        public int CursorBlue
-        {
-            get => (int) Client.PlayerColor.B;
-            set => Client.PlayerColor.B = (byte)Mathf.Clamp(value, 0, 255);
-        }
-
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.HEADERS.MISC_SETTINGS")]
+        [JsonIgnore]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.HEADERS.D_MISC_SETTINGS")]
         public bool PuftAsLoadingIcon
         {
             get => Client.PuftAsLoadingIcon;
             set => Client.PuftAsLoadingIcon = value;
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.MISC_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.D_MISC_SETTINGS")]
+        [JsonIgnore]
         public bool UseCustomLoadingScreenColor
         {
             get => Client.UseCustomLoadingScreenColor;
@@ -218,5 +211,22 @@ namespace ONI_MP
                 (byte)(color.g * 255),
                 (byte)(color.b * 255)
             );
+
+        public Color32 ToColor32()
+        {
+            return new Color32(R, G, B, 255);
+        }
+
+        public void SetFromColor32(Color32 color)
+        {
+            R = color.r;
+            G = color.g;
+            B = color.b;
+        }
+
+        public override string ToString()
+        {
+            return $"({R}, {G}, {B})";
+        }
     }
 }

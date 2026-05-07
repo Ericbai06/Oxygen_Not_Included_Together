@@ -94,8 +94,7 @@ namespace ONI_MP.Networking.Packets.Tools.Build
             Vector3 pos  = Grid.CellToPosCBC(Cell, Grid.SceneLayer.Building);
 
             GameObject visualizer = Util.KInstantiate(def.BuildingPreview, pos);
-            GameObject gameObject = def.TryPlace(visualizer, pos, Orientation, tags, "DEFAULT_FACADE", false, (int) def.SceneLayer);
-
+            GameObject gameObject = def.TryPlace(visualizer, pos, Orientation, tags, "DEFAULT_FACADE");
 
             Prioritizable prioritizable = gameObject?.GetComponent<Prioritizable>();
             prioritizable?.SetMasterPriority(Priority);

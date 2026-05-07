@@ -142,7 +142,7 @@ namespace ONI_MP.Networking.Packets.World
 				var kMono = go.GetComponent<KMonoBehaviour>();
 				if (kMono != null)
 				{
-					kMono.Trigger(644822890); // Storage update event
+					kMono.Trigger(644822890); // Storage update event (OnlyFetchMarkedItemsSettingChanged)
 					DebugConsole.Log($"[BuildingConfigPacket] Triggered UI refresh event on {go.name}");
 				}
 			}
@@ -162,8 +162,6 @@ namespace ONI_MP.Networking.Packets.World
 			using var _ = Profiler.Scope();
 
 			if (go == null) return;
-
-            RefreshSideScreenIfOpen(go);
 
             // All handlers are now in the registry
             if (BuildingConfigHandlerRegistry.TryHandle(go, this))

@@ -170,9 +170,9 @@ namespace ONI_MP.Networking.Packets.Tools.Build
 
 			if(PlanScreen.Instance?.ProductInfoScreen?.materialSelectionPanel?.PriorityScreen == null)
 			{
-				DebugConsole.LogWarning("[UtilityBuildPacket] PlanScreen or PriorityScreen is null, opening PlanScreen to initialize.");
+				//DebugConsole.LogWarning("[UtilityBuildPacket] PlanScreen or PriorityScreen is null, opening PlanScreen to initialize.");
 				PlanScreen.Instance.CopyBuildingOrder(def,FacadeID);
-				DebugConsole.LogWarning("[UtilityBuildPacket] Planscreen initialized, closing it again");
+				//DebugConsole.LogWarning("[UtilityBuildPacket] Planscreen initialized, closing it again");
 				PlanScreen.Instance.OnActiveToolChanged(SelectTool.Instance);
 			}
 
@@ -192,7 +192,7 @@ namespace ONI_MP.Networking.Packets.Tools.Build
 			ProcessingIncoming = true;
 			try
 			{
-				DebugConsole.Log($"[UtilityBuildPacket] Building path with {path.Count} nodes of prefab {def.PrefabID}");
+				//DebugConsole.Log($"[UtilityBuildPacket] Building path with {path.Count} nodes of prefab {def.PrefabID}");
 				tool.BuildPath();
 
 				foreach (BaseUtilityBuildTool.PathNode node in path)

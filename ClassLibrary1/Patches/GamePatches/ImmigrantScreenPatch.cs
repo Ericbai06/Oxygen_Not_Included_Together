@@ -263,6 +263,8 @@ namespace ONI_MP.Patches.GamePatches
 
             if (__instance.Telepad == null) return true;
 
+			if (__instance.selectedDeliverables.Count == 0) return false; // Even though selectedDeliverables should always have something at index 0 for whatever reason its empty, so return false to stop crashing
+
             ITelepadDeliverable selectedDeliverable = __instance.selectedDeliverables[0];
 
 			var packet = new ImmigrantSelectionPacket { selectedOption = ImmigrantOptionEntry.FromGameDeliverable(selectedDeliverable), PrintingPodWorldIndex = __instance.Telepad?.GetMyWorldId() ?? 0 };

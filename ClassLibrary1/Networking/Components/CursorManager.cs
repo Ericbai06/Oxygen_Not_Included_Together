@@ -111,6 +111,32 @@ namespace ONI_MP.Networking.Components
 				maxX = x2; maxY = y2;
 			}
 
+			string buildToolPrefabId = string.Empty;
+			Orientation buildingOrientation = Orientation.Neutral;
+			PlayerBuildingVisualizer.VisualizerType buildingVisualizerType = PlayerBuildingVisualizer.VisualizerType.BUILDING;
+
+			var interfaceTool = PlayerController.Instance.ActiveTool;
+			if (interfaceTool is BuildTool buildTool)
+			{
+				if(buildTool.def != null)
+				{
+					buildToolPrefabId = buildTool.def.PrefabID;
+					buildingOrientation = buildTool.buildingOrientation;
+
+					bool isTile = buildTool.def.IsTilePiece;
+					bool isUtility = buildTool.def.BuildingComplete.GetComponent<IHaveUtilityNetworkMgr>() != null;
+					if(isUtility)
+					{
+                        buildingVisualizerType = PlayerBuildingVisualizer.VisualizerType.UTILITY;
+                    }
+					else if(isTile)
+					{
+                        buildingVisualizerType = PlayerBuildingVisualizer.VisualizerType.TILE;
+                    }
+					// Otherwise default to building
+                }
+			}
+
 			var packet = new PlayerCursorPacket
 			{
 				PlayerID = MultiplayerSession.LocalUserID,
@@ -120,7 +146,10 @@ namespace ONI_MP.Networking.Components
 				ViewMinX = minX,
 				ViewMinY = minY,
 				ViewMaxX = maxX,
-				ViewMaxY = maxY
+				ViewMaxY = maxY,
+				BuildingPrefabId = buildToolPrefabId,
+				BuildingOrientation = buildingOrientation,
+				BuildingVisualizerType = buildingVisualizerType
 			};
 
 			if (MultiplayerSession.IsHost)

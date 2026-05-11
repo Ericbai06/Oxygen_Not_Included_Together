@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.IO;
 using Shared.Profiling;
 using UnityEngine;
+using YamlDotNet.Core;
 
 namespace ONI_MP.Networking.Packets.Core
 {
@@ -17,6 +18,9 @@ namespace ONI_MP.Networking.Packets.Core
 		public Vector3 Position;
 		public Color Color;
 		public CursorState CursorState;
+		public string BuildingPrefabId;
+		public Orientation BuildingOrientation = Orientation.Neutral;
+		public PlayerBuildingVisualizer.VisualizerType BuildingVisualizerType = PlayerBuildingVisualizer.VisualizerType.BUILDING;
 
 		// Viewport for targeted sync
 		public int ViewMinX, ViewMinY, ViewMaxX, ViewMaxY;
@@ -33,7 +37,10 @@ namespace ONI_MP.Networking.Packets.Core
 			writer.Write(ViewMinY);
 			writer.Write(ViewMaxX);
 			writer.Write(ViewMaxY);
-		}
+			writer.Write(BuildingPrefabId);
+            writer.Write((int)BuildingOrientation);
+			writer.Write((int)BuildingVisualizerType);
+        }
 
 		public void Deserialize(BinaryReader reader)
 		{
@@ -47,6 +54,9 @@ namespace ONI_MP.Networking.Packets.Core
 			ViewMinY = reader.ReadInt32();
 			ViewMaxX = reader.ReadInt32();
 			ViewMaxY = reader.ReadInt32();
+			BuildingPrefabId = reader.ReadString();
+			BuildingOrientation = (Orientation)reader.ReadInt32();
+			BuildingVisualizerType = (PlayerBuildingVisualizer.VisualizerType)reader.ReadInt32();
 		}
 
 		public void OnDispatched()
@@ -64,7 +74,7 @@ namespace ONI_MP.Networking.Packets.Core
                     cursor.SetColor(Color);
                     cursor.SetVisibility(true);
                     cursor.StopCoroutine("InterpolateCursorPosition");
-                    cursor.StartCoroutine(InterpolateCursorPosition(cursor.transform, Position));
+                    cursor.StartCoroutine(InterpolateCursorPosition(cursor, cursor.transform, Position));
 				}
 			}
 			else
@@ -89,7 +99,7 @@ namespace ONI_MP.Networking.Packets.Core
 			}
 		}
 
-		private IEnumerator InterpolateCursorPosition(Transform target, Vector3 targetPos)
+		private IEnumerator InterpolateCursorPosition(PlayerCursor cursor, Transform target, Vector3 targetPos)
 		{
 			using var _ = Profiler.Scope();
 
@@ -102,11 +112,18 @@ namespace ONI_MP.Networking.Packets.Core
 				elapsed += Time.unscaledDeltaTime;
 				float t = elapsed / duration;
 				target.position = Vector3.Lerp(start, targetPos, t);
-				yield return null;
+				UpdateVisualizer(cursor, target.position);
+                yield return null;
 			}
 
 			target.position = targetPos;
-		}
+            UpdateVisualizer(cursor, target.position);
+        }
+
+		private void UpdateVisualizer(PlayerCursor cursor, Vector3 position)
+		{
+			cursor.buildingVisualiser.UpdateVisualizer(BuildingVisualizerType, BuildingPrefabId, position, BuildingOrientation, Color);
+        }
 
 	}
 }

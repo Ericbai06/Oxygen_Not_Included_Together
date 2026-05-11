@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.Text;
 using HarmonyLib;
+using ONI_MP.Menus;
+using ONI_MP.Networking;
 
 namespace ONI_MP.Patches.World
 {
@@ -33,6 +35,29 @@ namespace ONI_MP.Patches.World
 
             __result = __instance.storage.GetMassAvailable(__instance.elementTag);
             return false; // skip original
+        }
+    }
+
+    [HarmonyPatch(typeof(SuitTank), nameof(SuitTank.ConsumeGas))]
+    public static class SuitTank_ConsumeGas_Patch
+    {
+        public static bool Prefix(SuitTank __instance, ref bool __result)
+        {
+            __result = true;
+
+            if (__instance == null)
+            {
+                __result = false;
+                return false;
+            }
+
+            if (MultiplayerSession.IsClient)
+            {
+                __result = false;
+                return false;
+            }
+
+            return __result;
         }
     }
 }

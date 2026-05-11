@@ -33,7 +33,9 @@ namespace ONI_MP.Networking
 		private Material playerCursorMaterial = null;
 		private Material originalMaterial = null;
 
-		private readonly Dictionary<CursorState, float> cursorActionThresholds = new Dictionary<CursorState, float>()
+		public PlayerBuildingVisualizer buildingVisualiser = new PlayerBuildingVisualizer();
+
+        private readonly Dictionary<CursorState, float> cursorActionThresholds = new Dictionary<CursorState, float>()
 				{
 						{ CursorState.NONE, 0.36f },
 						{ CursorState.SELECT, 0.36f },
@@ -128,6 +130,12 @@ namespace ONI_MP.Networking
 			else
 			{
 				UpdateCursor(icon, 0.15f, 0.15f);
+			}
+
+			// Handle visualiser
+			if(!cursorState.Equals(CursorState.BUILD))
+			{
+				buildingVisualiser.UpdateVisualizer(PlayerBuildingVisualizer.VisualizerType.BUILDING, string.Empty, Vector3.zero, Orientation.Neutral, Color.white); // Flag visualizer for removal
 			}
 		}
 

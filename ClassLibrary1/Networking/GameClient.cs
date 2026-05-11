@@ -209,15 +209,18 @@ namespace ONI_MP.Networking
 				if (missingMods.Any())
 					text += string.Format(STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.MISSING, missingMods.Count) + "\n";
 
-
-				DialogUtil.CreateConfirmDialogFrontend(STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.TITLE, text,
-	   STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.CONFIRM_SYNC,
-				() => { SaveHelper.SyncModsAndRestart(notEnabled, notDisabled, missingMods); },
-				STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.CANCEL,
-				BackToMainMenu,
-				STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.DENY_SYNC,
-				ContinueConnectionFlow);
-				DebugConsole.Log("mods not synced!");
+				// Ignore this if we're in game already
+				if (Utils.IsInMenu())
+				{
+					DialogUtil.CreateConfirmDialogFrontend(STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.TITLE, text,
+		   STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.CONFIRM_SYNC,
+					() => { SaveHelper.SyncModsAndRestart(notEnabled, notDisabled, missingMods); },
+					STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.CANCEL,
+					BackToMainMenu,
+					STRINGS.UI.MP_OVERLAY.SYNC.MODSYNC.DENY_SYNC,
+					ContinueConnectionFlow);
+					DebugConsole.Log("mods not synced!");
+				}
 				return;
 			}
 

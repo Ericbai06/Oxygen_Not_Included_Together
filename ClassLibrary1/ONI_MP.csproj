@@ -58,6 +58,7 @@
 
 	<ItemGroup>
 	  <Folder Include="ModAssets\translations\" />
+	  <Folder Include="Networking\Visualizers\" />
 	  <Folder Include="Networking\Packets\BulkDataPackets\" />
 	</ItemGroup>
 

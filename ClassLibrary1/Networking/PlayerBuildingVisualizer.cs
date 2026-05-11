@@ -166,6 +166,7 @@ namespace ONI_MP.Networking
 			if (def == CurrentDef) // Same def somehow leaked through
 				return;
 			CurrentDef = def;
+			lastPrefabId = buildingPrefabId;
 			InstantiateNewVisualizer(position);
 		}
 

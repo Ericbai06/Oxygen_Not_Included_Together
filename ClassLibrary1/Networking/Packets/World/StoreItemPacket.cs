@@ -6,13 +6,14 @@ using Shared.Profiling;
 using UnityEngine;
 using static Storage;
 using Klei;
+using Shared.Interfaces.Networking;
 
 namespace ONI_MP.Networking.Packets.World
 {
     /// <summary>
     /// Modified version of GroundItemPickedUpPacket
     /// </summary>
-    public class StoreItemPacket : IPacket
+    public class StoreItemPacket : IPacket, IBulkablePacket
     {
         private static readonly HashSet<int> PendingPickupNetIds = [];
 
@@ -20,6 +21,10 @@ namespace ONI_MP.Networking.Packets.World
         public int StorageNetId;
         public FXPrefix FxPrefix;
         public bool DoDiseaseTransfer;
+
+        public int MaxPackSize => 500;
+
+        public uint IntervalMs => 250;
 
         public static bool TryConsumePending(int netId)
         {

@@ -6,15 +6,20 @@ using Shared.Profiling;
 using UnityEngine;
 using static Storage;
 using static Klei.AI.Attribute;
+using Shared.Interfaces.Networking;
 
 namespace ONI_MP.Networking.Packets.World
 {
     /// <summary>
     /// Modified version of GroundItemPickedUpPacket
     /// </summary>
-    public class PickupItemPacket : IPacket
+    public class PickupItemPacket : IPacket, IBulkablePacket
     {
         public int NetId;
+
+        public int MaxPackSize => 500;
+
+        public uint IntervalMs => 250;
 
         public void Serialize(BinaryWriter writer)
         {

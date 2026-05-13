@@ -1,8 +1,11 @@
 ﻿using ONI_MP.DebugTools;
 using ONI_MP.Misc;
+using Rendering;
+using Rendering.World;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using UnityEngine;
 namespace ONI_MP.Networking
@@ -13,8 +16,6 @@ namespace ONI_MP.Networking
 	/// </summary>
 	public class PlayerBuildingVisualizer
 	{
-		public static Dictionary<int, Color> ColoredCells = [];
-
 		public enum VisualizerType
 		{
 			BUILDING,
@@ -24,7 +25,7 @@ namespace ONI_MP.Networking
 			INVALID = -1
 		}
 
-		private GameObject visualizer;
+		private GameObject _visualizer;
 		private string lastPrefabId = string.Empty;
 
 		private Color _color = Color.white;
@@ -69,6 +70,62 @@ namespace ONI_MP.Networking
 
 		public System.Action<int> OnCellChanged; // Leave this incase we want to do something with it later
 
+		SpriteRenderer TileSpriteRenderer;
+		static Dictionary<BuildingDef, BlockTileRenderer.RenderInfo> _tileInfos = [];
+		static Dictionary<BuildingDef, Sprite> _placeSprites = [];
+		void SetTileRenderer()
+		{
+			if (TileSpriteRenderer == null)
+				InstantiateTileRenderer();
+			UpdateTileTexture(CurrentDef);
+		}
+		void MoveTileRenderer(int cell)
+		{
+			var pos = Grid.CellToPosCCC(cell, Grid.SceneLayer.FXFront);
+			TileSpriteRenderer.transform.SetPosition(pos);
+			UpdateVisualColor(cell);
+			TileSpriteRenderer.color = currentColor;
+		}
+
+		void UpdateTileTexture(BuildingDef def)
+		{
+			if (!_placeSprites.TryGetValue(def, out var sprite))
+			{
+				if (!_tileInfos.TryGetValue(def, out var renderInfo))
+				{
+					renderInfo = _tileInfos[def] = new BlockTileRenderer.RenderInfo(World.Instance.blockTileRenderer, (int)def.TileLayer, LayerMask.NameToLayer("Overlay"), def, SimHashes.Void);
+				}
+				var tex = renderInfo.material.mainTexture as Texture2D;
+				var uv = renderInfo.atlasInfo.First().uvBox;
+				float uMin = uv.x;
+				float vMin = uv.y;
+				float uMax = uv.z;
+				float vMax = uv.w;
+
+				UnityEngine.Rect rect = new UnityEngine.Rect(
+					uMin * tex.width,
+					vMin * tex.height,
+					(uMax - uMin) * tex.width,
+					(vMax - vMin) * tex.height
+				);
+				sprite = Sprite.Create(tex, rect, new(0.5f, 0.5f), 128); // 128 ppu 
+			}
+			TileSpriteRenderer.sprite = sprite;
+		}
+
+		void InstantiateTileRenderer()
+		{
+			var textureGO = new GameObject("TileRenderer");
+			var renderer = textureGO.AddComponent<SpriteRenderer>();
+			var mat = new Material(Shader.Find("TextMeshPro/Sprite"))
+			{
+				renderQueue = 3500
+			};
+			mat.SetInt("_ZWrite", 1);
+			renderer.material = mat;
+			TileSpriteRenderer = renderer;
+		}
+
 
 		VisualizerType DermineBuildingType(string prefabId)
 		{
@@ -98,15 +155,15 @@ namespace ONI_MP.Networking
 		{
 			int posCell = Grid.PosToCell(targetPos);
 			Vector3 pos = Grid.CellToPosCBC(posCell, CurrentDef.SceneLayer);
-			visualizer = GameUtil.KInstantiate(CurrentDef.BuildingPreview, pos, Grid.SceneLayer.Front, "OtherPlayerBuildingVisualizer", LayerMask.NameToLayer("Place"));
-			visualizer.transform.SetPosition(pos);
-			visualizer.SetActive(true);
+			_visualizer = GameUtil.KInstantiate(CurrentDef.BuildingPreview, pos, Grid.SceneLayer.Front, "OtherPlayerBuildingVisualizer", LayerMask.NameToLayer("Place"));
+			_visualizer.transform.SetPosition(pos);
+			_visualizer.SetActive(true);
 
-			if (visualizer.TryGetComponent<Rotatable>(out var rotatable))
+			if (_visualizer.TryGetComponent<Rotatable>(out var rotatable))
 			{
 				rotatable.SetOrientation(CurrentOrientation);
 			}
-			if (visualizer.TryGetComponent<KBatchedAnimController>(out var kbac))
+			if (_visualizer.TryGetComponent<KBatchedAnimController>(out var kbac))
 			{
 				kbac.visibilityType = KAnimControllerBase.VisibilityType.Always;
 				kbac.isMovable = true;
@@ -120,17 +177,18 @@ namespace ONI_MP.Networking
 			}
 			else
 			{
-				visualizer.SetLayerRecursively(LayerMask.NameToLayer("Place"));
+				_visualizer.SetLayerRecursively(LayerMask.NameToLayer("Place"));
 			}
 			UpdatePosition(targetPos, true);
 		}
 		void DestroyVisualizer()
 		{
-			if (!visualizer.IsNullOrDestroyed())
+			if (!_visualizer.IsNullOrDestroyed())
 			{
-				Util.KDestroyGameObject(visualizer); // Destroy the visualiser
-				visualizer = null;
+				Util.KDestroyGameObject(_visualizer); // Destroy the visualiser
+				_visualizer = null;
 			}
+			RemoveTileVisual();
 		}
 
 		public void UpdateVisualizer(string buildingPrefabId, Vector3 position, Orientation orientation, Color visualColor)
@@ -141,18 +199,13 @@ namespace ONI_MP.Networking
 			}
 			this.CurrentOrientation = orientation;
 
-			if (lastPrefabId.Equals(buildingPrefabId) && !visualizer.IsNullOrDestroyed())
+			if (lastPrefabId.Equals(buildingPrefabId) && !_visualizer.IsNullOrDestroyed())
 			{
 				UpdatePosition(position); // Instead of updating the visualizer object update its position
 				return;
 			}
 			//determine new vis type
 			var newVisType = DermineBuildingType(buildingPrefabId);
-			//cleanup tile visual of old tile
-			if (newVisType != VisualizerType.TILE && _visualizerType == VisualizerType.TILE)
-			{
-				CleanTileVisual();
-			}
 			DestroyVisualizer();
 			Cell = Grid.InvalidCell;
 
@@ -173,118 +226,36 @@ namespace ONI_MP.Networking
 			//	return;
 			CurrentDef = def;
 			lastPrefabId = buildingPrefabId;
-			InstantiateNewVisualizer(position);
+			if (newVisType == VisualizerType.TILE)
+				SetTileRenderer();
+			else
+				InstantiateNewVisualizer(position);
 		}
 
 		private void UpdateBuildingVisual(int cell)
 		{
-			visualizer.transform.SetPosition(Grid.CellToPosCBC(cell, CurrentDef.SceneLayer));
-			if (visualizer.TryGetComponent<Rotatable>(out var rotatable))
+			_visualizer.transform.SetPosition(Grid.CellToPosCBC(cell, CurrentDef.SceneLayer));
+			if (_visualizer.TryGetComponent<Rotatable>(out var rotatable))
 			{
 				rotatable.SetOrientation(CurrentOrientation);
 			}
 
-			if (visualizer.TryGetComponent<KBatchedAnimController>(out var kbac))
+			if (_visualizer.TryGetComponent<KBatchedAnimController>(out var kbac))
 			{
 				UpdateVisualColor(cell);
 				kbac.TintColour = currentColor;
 			}
 		}
 
-		public void ForceCleanupTile(int cellToClean)
+		private void RemoveTileVisual()
 		{
-			if(cellToClean == Cell)
-				CleanTileVisual();
-		}
-
-		void CleanTileVisual()
-		{
-			if (!Grid.IsValidBuildingCell(Cell))
-			{
+			if (TileSpriteRenderer == null)
 				return;
-			}
-			ColoredCells.Remove(Cell);
-			if (!CurrentDef.isKAnimTile)
-				return;
-			bool hasReplacementLayer = CurrentDef.ReplacementLayer != ObjectLayer.NumLayers;
-			if (Grid.Objects[Cell, (int)CurrentDef.TileLayer] == visualizer)
-			{
-				World.Instance.blockTileRenderer.RemoveBlock(CurrentDef, false, SimHashes.Void, Cell);
-				Grid.Objects[Cell, (int)CurrentDef.TileLayer] = null;
-			}
-			if (hasReplacementLayer && Grid.Objects[Cell, (int)CurrentDef.ReplacementLayer] == visualizer)
-			{
-				World.Instance.blockTileRenderer.RemoveBlock(CurrentDef, true, SimHashes.Void, Cell);
-				Grid.Objects[Cell, (int)CurrentDef.ReplacementLayer] = null;
-			}
-			TileVisualizer.RefreshCell(Cell, CurrentDef.TileLayer, CurrentDef.ReplacementLayer);
-		}
-		private bool CanReplace(int cell)
-		{
-			if (!Grid.IsValidBuildingCell(cell) || Grid.Objects[cell, (int)CurrentDef.ObjectLayer] == null || Grid.Objects[cell, (int)CurrentDef.ReplacementLayer] != null)
-			{
-				return false;
-			}
-			return true;
-		}
-		void SeatTileVisual(int targetCell)
-		{
-			visualizer.transform.SetPosition(Grid.CellToPosCBC(targetCell, CurrentDef.SceneLayer));
-			if (targetCell != -1 && Grid.IsValidBuildingCell(targetCell))
-			{
-
-				if (Grid.Objects[targetCell, (int)CurrentDef.TileLayer] == visualizer
-				|| Grid.Objects[targetCell, (int)CurrentDef.ReplacementLayer] == visualizer)
-				{
-					UpdateVisualColor(Cell);
-					ColoredCells[Cell] = currentColor;
-					return;
-				}
-
-				bool visualizerSeated = false;
-				bool hasReplacementLayer = CurrentDef.ReplacementLayer != ObjectLayer.NumLayers;
-
-				if (Grid.Objects[targetCell, (int)CurrentDef.TileLayer] == null)
-				{
-					Grid.Objects[targetCell, (int)CurrentDef.TileLayer] = visualizer;
-					visualizerSeated = true;
-				}
-
-				if (CurrentDef.isKAnimTile)
-				{
-					GameObject tileLayerObject = Grid.Objects[targetCell, (int)CurrentDef.TileLayer];
-					GameObject replacementLayerObject = hasReplacementLayer ? Grid.Objects[targetCell, (int)CurrentDef.ReplacementLayer] : null;
-
-					if (tileLayerObject == null || tileLayerObject.GetComponent<Constructable>() == null && replacementLayerObject == null)
-					{
-						if (CurrentDef.BlockTileAtlas != null)
-						{
-							bool replacing = hasReplacementLayer && CanReplace(targetCell);
-							if (Grid.Objects[targetCell, (int)CurrentDef.ReplacementLayer] == null)
-							{
-								World.Instance.blockTileRenderer.AddBlock(LayerMask.NameToLayer("Overlay"), CurrentDef, replacing, SimHashes.Void, targetCell);
-								if (replacing && !visualizerSeated && Grid.Objects[targetCell, (int)CurrentDef.ReplacementLayer] == null)
-								{
-									Grid.Objects[targetCell, (int)CurrentDef.ReplacementLayer] = visualizer;
-									visualizerSeated = true;
-								}
-							}
-						}
-					}
-				}
-				if (visualizerSeated)
-				{
-					UpdateVisualColor(Cell);
-					ColoredCells[Cell] = currentColor;
-				}
-			}
+			TileSpriteRenderer.DeleteObject();
+			TileSpriteRenderer = null;
 		}
 
-		private void UpdateTileVisual(int cell)
-		{
-			CleanTileVisual();
-			SeatTileVisual(cell);
-		}
+		private void UpdateTileVisual(int cell) => MoveTileRenderer(cell);
 
 		public void UpdatePosition(Vector3 positionTarget, bool force = false)
 		{
@@ -309,7 +280,7 @@ namespace ONI_MP.Networking
 
 		public void UpdateVisualColor(int cell)
 		{
-			if (BuildingUtils.ValidCell(visualizer, CurrentDef, cell, CurrentOrientation))
+			if (BuildingUtils.ValidCell(_visualizer, CurrentDef, cell, CurrentOrientation))
 			{
 				currentColor = visualColor;
 			}

@@ -28,4 +28,19 @@ namespace ONI_MP.Patches.World
             syncer.InitalizeAsStructure(StructureStateSyncer.StructureType.GENERATOR);
         }
     }
+
+    [HarmonyPatch(typeof(Storage), nameof(Storage.OnSpawn))]
+    public static class StorageLocker_OnSpawn_Patch
+    {
+        public static void Postfix(Storage __instance)
+        {
+            using var _ = Profiler.Scope();
+            bool shouldIgnore = __instance.GetComponent<Generator>() || __instance.GetComponent<Battery>();
+            if (shouldIgnore)
+                return; // Already initalized as something else
+
+            StructureStateSyncer syncer = __instance.gameObject.AddOrGet<StructureStateSyncer>();
+            syncer.InitalizeAsStructure(StructureStateSyncer.StructureType.STORAGE_CONTAINER);
+        }
+    }
 }

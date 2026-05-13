@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using KSerialization;
 using ONI_MP.DebugTools;
 using ONI_MP.Networking.Packets.World;
@@ -16,8 +17,9 @@ namespace ONI_MP.Networking.Components
 		public enum StructureType
 		{
 			UNCATEGORIZED,
-			BATTERY,
-			GENERATOR
+			BATTERY,          // Battery
+			GENERATOR,        // ManualGenerator, EnergyGenerator etc
+            STORAGE_CONTAINER // StorageLocker etc
 		}
 
         public enum GeneratorType
@@ -34,6 +36,8 @@ namespace ONI_MP.Networking.Components
 
 		private Battery battery;
 		private Generator generator;
+        private Storage storage;
+
 		private Operational operational;
 		private int cell;
 
@@ -73,6 +77,16 @@ namespace ONI_MP.Networking.Components
 					generator = GetComponent<Generator>();
                     generatorType = DetermineGeneratorType(this.gameObject, out var gen);
                     generatorInstance = gen;
+                    switch(generatorType)
+                    {
+                        case GeneratorType.ENERGY:
+                            EnergyGenerator eg = generatorInstance as EnergyGenerator;
+                            storage = eg.storage;
+                            break;
+                    }
+                    break;
+                case StructureType.STORAGE_CONTAINER:
+                    storage = GetComponent<Storage>();
                     break;
                 case StructureType.UNCATEGORIZED:
                 default:
@@ -146,13 +160,17 @@ namespace ONI_MP.Networking.Components
                                         // Coal generator
                                         if (gen.hasMeter)
                                         {
+                                            //EncodeStorageContents(storage, out var storageContents);
+
                                             InputItem inputItem = gen.formula.inputs[0];
-                                            float mass = gen.storage.GetMassAvailable(inputItem.tag);
+                                            float mass = storage.GetMassAvailable(inputItem.tag);
                                             float storedMass = inputItem.maxStoredMass;
 
-                                            optionalValues = new float[2];
+                                            optionalValues = new float[2/* + storageContents.Length*/];
                                             optionalValues[0] = mass;
                                             optionalValues[1] = storedMass;
+
+                                            //Array.Copy(storageContents, optionalValues, storageContents.Length);
                                         }
                                     }
                                     break;
@@ -160,6 +178,15 @@ namespace ONI_MP.Networking.Components
                                     break;
                             }
                             currentValue = generator.JoulesAvailable;
+                        }
+                        break;
+
+                    case StructureType.STORAGE_CONTAINER:
+                        if (storage != null)
+                        {
+                            currentValue = storage.MassStored();
+                            EncodeStorageContents(storage, out var contents);
+                            optionalValues = contents;
                         }
                         break;
 
@@ -225,6 +252,9 @@ namespace ONI_MP.Networking.Components
                 case StructureType.GENERATOR:
                     ApplyGeneratorState(go, packet);
                     break;
+                case StructureType.STORAGE_CONTAINER:
+                    ApplyStorageState(go, packet);
+                    break;
                 case StructureType.UNCATEGORIZED:
                 default:
                     break;
@@ -286,8 +316,15 @@ namespace ONI_MP.Networking.Components
                         {
                             float mass = packet.OptionalValues[0];
                             float storedMass = packet.OptionalValues[1];
-                            // TODO: update the stored mass later
                             UpdateEnergyGeneratorMeter(gen, mass, storedMass);
+
+                            // Storage data (WIP)
+                            if (packet.OptionalValues.Length > 2)
+                            {
+                                float[] storageData = new float[packet.OptionalValues.Length - 2];
+                                Array.Copy(packet.OptionalValues, 2, storageData, 0, storageData.Length);
+                                RebuildStorageFromData(gen.storage, storageData);
+                            }
                         }
                     }
                     break;
@@ -346,6 +383,63 @@ namespace ONI_MP.Networking.Components
         }
         #endregion
 
+        #region Storage
+        private static void ApplyStorageState(GameObject go, StructureStatePacket packet)
+        {
+            var storage = go.GetComponent<Storage>();
+            if (storage == null || packet.OptionalValues.Length < 2) return;
+
+            RebuildStorageFromData(storage, packet.OptionalValues);
+        }
+
+        private static void EncodeStorageContents(Storage storage, out float[] optionalValues)
+        {
+            var entries = new Dictionary<SimHashes, float>();
+            for (int i = 0; i < storage.items.Count; i++)
+            {
+                if (storage.items[i] == null) continue;
+                var pe = storage.items[i].GetComponent<PrimaryElement>();
+                if (pe == null || pe.Mass <= 0f) continue;
+                entries.TryGetValue(pe.ElementID, out var existing);
+                entries[pe.ElementID] = existing + pe.Mass;
+            }
+
+            optionalValues = new float[2 + entries.Count * 2];
+            optionalValues[0] = storage.capacityKg;
+            optionalValues[1] = entries.Count;
+            int idx = 2;
+            foreach (var kv in entries)
+            {
+                optionalValues[idx++] = BitConverter.ToSingle(BitConverter.GetBytes((int)kv.Key), 0);
+                optionalValues[idx++] = kv.Value;
+            }
+        }
+
+        private static void RebuildStorageFromData(Storage storage, float[] data)
+        {
+            if (storage == null || data.Length < 2) return;
+
+            storage.ConsumeAllIgnoringDisease(); // Empty the storage
+
+            int count = (int)data[1];
+            if (count == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                byte[] hashBytes = BitConverter.GetBytes(data[2 + i * 2]);
+                int hash = BitConverter.ToInt32(hashBytes, 0);
+                var element = (SimHashes)hash;
+                float mass = data[2 + i * 2 + 1];
+
+                if (mass > 0f && ElementLoader.FindElementByHash(element) != null)
+                    storage.AddElement(element, mass, 293f, 0, 0);
+            }
+        }
+
+        #endregion
         private static void ApplyOperationalState(GameObject go, StructureStatePacket packet)
 		{
             var operational = go.GetComponent<Operational>();

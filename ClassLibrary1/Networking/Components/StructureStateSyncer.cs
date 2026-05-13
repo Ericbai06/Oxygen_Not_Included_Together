@@ -6,6 +6,7 @@ using ONI_MP.Misc;
 using ONI_MP.Networking.Packets.World;
 using ONI_MP.Patches.GamePatches;
 using ONI_MP.Patches.World;
+using Rendering;
 using Shared.Profiling;
 using UnityEngine;
 using static EnergyGenerator;

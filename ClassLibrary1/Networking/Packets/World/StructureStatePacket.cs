@@ -5,30 +5,30 @@ using ONI_MP.Networking.Components;
 using static TUNING.NOISE_POLLUTION;
 using ONI_MP.Misc;
 using UnityEngine;
+using ONI_MP.Networking.Components.StructureStateSyncers;
+using static ONI_MP.STRINGS.UI.MP_OVERLAY;
 
 namespace ONI_MP.Networking.Packets.World
 {
 	public class StructureStatePacket : IPacket
 	{
-       
+
+        public int NetId;
         public int Cell;
 		public Variant Value; // Joules for Battery, Progress for others
 
 		public Variant[] OptionalValues = []; // Extra things (such as EnergyGenerator mass, storage amount etc)
 
 		public bool IsActive; // Operational active state
-		public StructureStateSyncer.StructureType StructureType = StructureStateSyncer.StructureType.UNCATEGORIZED;
-		public StructureStateSyncer.GeneratorType GeneratorType = StructureStateSyncer.GeneratorType.UNKNOWN;
 
 		public void Serialize(BinaryWriter writer)
 		{
 			using var _ = Profiler.Scope();
 
+            writer.Write(NetId);
 			writer.Write(Cell);
             Value.Write(writer);
 			writer.Write(IsActive);
-			writer.Write((int)StructureType);
-			writer.Write((int)GeneratorType);
 
             writer.Write(OptionalValues.Length);
             for (int i = 0; i < OptionalValues.Length; i++)
@@ -41,11 +41,10 @@ namespace ONI_MP.Networking.Packets.World
 		{
 			using var _ = Profiler.Scope();
 
+            NetId = reader.ReadInt32();
 			Cell = reader.ReadInt32();
 			Value = Variant.Read(reader);
 			IsActive = reader.ReadBoolean();
-			StructureType = (StructureStateSyncer.StructureType)reader.ReadInt32();
-			GeneratorType = (StructureStateSyncer.GeneratorType)reader.ReadInt32();
 
             int length = reader.ReadInt32();
             OptionalValues = new Variant[length];
@@ -62,7 +61,20 @@ namespace ONI_MP.Networking.Packets.World
 			if (MultiplayerSession.IsHost) return;
 
 			// Handled by StructureStateSyncer on client
-			StructureStateSyncer.HandlePacket(this);
+            if(NetworkIdentityRegistry.TryGet(NetId, out var identity))
+            {
+                var syncers = identity.GetComponents<StructureSyncerBase>();
+                foreach (var syncer in syncers)
+                {
+                    syncer.HandlePacket(this);
+                }
+                /*
+                if(identity.TryGetComponent<StructureSyncerBase>(out var syncer))
+                {
+                    syncer.HandlePacket(this);
+                }
+                */
+            }
 		}
 
         public static bool VariantValueChanged(Variant a, Variant b, float epsilon = 0.01f)

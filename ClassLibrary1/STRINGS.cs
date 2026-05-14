@@ -30,14 +30,14 @@ namespace ONI_MP
 						public class SERVER_SETTINGS
 						{
 							public static LocString HARD_SYNC_AT_CYCLE_START = "Hard Sync On Cycle Start";
-							public static LocString TIMEOUT_SECONDS = "Timeout In Seconds";
+							public static LocString TIMEOUT_SECONDS = "Connection Timeout (seconds)";
 						}
                     }
 
                     public class CLIENT_SETTINGS
                     {
                         public static LocString MAX_MESSAGES_PER_POLL = "Max Messages Per Poll";
-                        public static LocString TIMEOUT_SECONDS = "Timeout In Seconds";
+                        public static LocString TIMEOUT_SECONDS = "Connection Timeout (seconds)";
                     }
 
                     public class CURSOR_SETTINGS

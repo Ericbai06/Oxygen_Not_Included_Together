@@ -17,14 +17,22 @@ namespace ONI_MP.Patches.GamePatches
 		private static float _lastSentTime = 0f;
 		private static int _lastCycle = -1;
 
-		[HarmonyPatch(nameof(GameClock.OnSpawn))]
+		[HarmonyPatch(nameof(GameClock.OnPrefabInit))]
 		[HarmonyPostfix]
-		public static void OnSpawn_Postfix(GameClock __instance)
+		public static void OnPrefabInit_Postfix(GameClock __instance)
 		{
 			// Initialize as what the game starts at.
-			// Stops a hard sync triggering if you keep the game paused before they join
 			_lastSentTime = __instance.GetTime();
 			_lastCycle = __instance.GetCycle();
+        }
+
+		[HarmonyPatch(nameof(GameClock.OnDeserialized))]
+		[HarmonyPostfix]
+		public static void OnDeserialized_Postfix(GameClock __instance)
+		{
+            // Save loaded
+            _lastSentTime = __instance.GetTime();
+            _lastCycle = __instance.GetCycle();
         }
 
 		// Prevent clients from running AddTime

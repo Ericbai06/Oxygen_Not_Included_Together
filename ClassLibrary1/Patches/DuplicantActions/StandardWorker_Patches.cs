@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using Shared.Profiling;
 using static RancherChore;
 using static WorkerBase;
+using static ClusterTelescope;
 
 namespace ONI_MP.Patches.DuplicantActions
 {
@@ -30,7 +31,8 @@ namespace ONI_MP.Patches.DuplicantActions
                 typeof(LiquidPumpingStation),
 				typeof(IceKettleWorkable),
 				typeof(Sleepable),
-				typeof(Bottler)
+				typeof(Bottler),
+				typeof(ClusterTelescopeIdentifyMeteorWorkable)
             };
 
 			public static void Postfix(StandardWorker __instance, StartWorkInfo start_work_info)

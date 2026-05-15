@@ -258,6 +258,7 @@ namespace ONI_MP.UI
 
 			SetJoinVia(JoinMode.Steam);
 			SetHostVia(HostMode.Steam);
+			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS); // default to steam
 
 			init = true;
 		}
@@ -271,20 +272,6 @@ namespace ONI_MP.UI
 
 			HostLanToggle.SetIsSelected(current == HostMode.LAN);
 			HostSteamToggle.SetIsSelected(current == HostMode.Steam);
-
-			// Update transport
-			switch (current)
-			{
-				case HostMode.Steam:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
-					break;
-				case HostMode.LAN:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.RIPTIDE);
-					break;
-				default:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
-					break;
-			}
 		}
 
 		private void SetJoinVia(JoinMode current)
@@ -298,20 +285,6 @@ namespace ONI_MP.UI
 			SteamTabToggle.SetIsSelected(current == JoinMode.Steam);
 			CodeTabToggle.SetIsSelected(current == JoinMode.Code);
 			LanTabToggle.SetIsSelected(current == JoinMode.LAN);
-
-			switch (current)
-			{
-				case JoinMode.Code:
-				case JoinMode.Steam:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
-					break;
-				case JoinMode.LAN:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.RIPTIDE);
-					break;
-				default:
-					NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
-					break;
-			}
 		}
 
 		void IncreaseLobbySize()
@@ -432,6 +405,7 @@ namespace ONI_MP.UI
 		void JoinLanLobby()
 		{
 			using var _ = Profiler.Scope();
+			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.RIPTIDE);
 
 			string ipAdress = JoinIPInput.Text;
 			string portText = JoinPortInput.Text;
@@ -473,6 +447,7 @@ namespace ONI_MP.UI
 				return;
 			}
 
+			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS); // joining via steam code
 			_pendingLobbyId = lobbyId;
 
 			// We need to join the lobby to get its metadata (including password status)
@@ -509,6 +484,7 @@ namespace ONI_MP.UI
 		void JoinSteamLobby(ulong lobbyId)
 		{
 			using var _ = Profiler.Scope();
+			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
 
 			SteamLobby.JoinLobby(lobbyId.AsCSteamID(), (lobbyId) =>
 			{
@@ -752,7 +728,7 @@ namespace ONI_MP.UI
 
 		void StartHostingGame()
 		{
-			switch (CurrentHostMode)
+            switch (CurrentHostMode)
 			{
 				case HostMode.Steam:
 					StartHostingSteamGame();
@@ -765,8 +741,9 @@ namespace ONI_MP.UI
 		private void StartHostingLanGame()
 		{
 			using var _ = Profiler.Scope();
+            NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.RIPTIDE);
 
-			string ipAdress = HostIPInput.Text;
+            string ipAdress = HostIPInput.Text;
 			string portText = HostPortInput.Text;
 
 			if (int.TryParse(portText, out int port))
@@ -819,9 +796,10 @@ namespace ONI_MP.UI
 		private void StartHostingSteamGame()
 		{
 			using var _ = Profiler.Scope();
+            NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
 
-			// Save the host config
-			StoreHostConfigurationSettings();
+            // Save the host config
+            StoreHostConfigurationSettings();
 
 			if (Utils.IsInGame())
 			{

@@ -183,6 +183,7 @@ namespace ONI_MP.Networking.Transport.Steamworks
 
 			DebugConsole.Log($"[SteamLobby] Joining lobby invited by {callback.m_steamIDFriend}");
 			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS); // We're joining through the steam invite system so force steam transport
+
             CSteamID lobbyId = callback.m_steamIDLobby;
 
             SteamMatchmaking.RequestLobbyData(lobbyId);
@@ -288,7 +289,7 @@ namespace ONI_MP.Networking.Transport.Steamworks
 			if (!SteamManager.Initialized)
 				return;
 
-			if (InLobby)
+            if (InLobby)
 			{
 				DebugConsole.LogWarning("[SteamLobby] Already in a lobby, leaving current one first.");
 				LeaveLobby();

@@ -73,4 +73,24 @@ namespace ONI_MP.Patches.World
 
     }
     */
+
+    [HarmonyPatch(typeof(FlushToilet), nameof(FlushToilet.OnSpawn))]
+    public static class FlushToiletSpawnPatch
+    {
+        public static void Postfix(FlushToilet __instance)
+        {
+            using var _ = Shared.Profiling.Profiler.Scope();
+            __instance.gameObject.AddOrGet<ToiletSyncer>();
+        }
+    }
+
+    [HarmonyPatch(typeof(Toilet), nameof(Toilet.OnSpawn))]
+    public static class ToiletSpawnPatch
+    {
+        public static void Postfix(Toilet __instance)
+        {
+            using var _ = Shared.Profiling.Profiler.Scope();
+            __instance.gameObject.AddOrGet<ToiletSyncer>();
+        }
+    }
 }

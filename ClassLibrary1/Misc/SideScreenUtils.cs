@@ -8,9 +8,7 @@ namespace ONI_MP.Misc
     public static class SideScreenUtils
     {
         /// <summary>
-        /// Dispatches 86 concrete SideScreenContent types to their typed TryRefresh helper,
-        /// guarded by component/SMI when-conditions. Matched cases refresh the screen's UI;
-        /// unmatched fall through to DetailsScreen.Instance.RefreshTitle() as a minimal fallback.
+        /// Attempt to refresh the specific SideScreen on the gameobject.
         /// </summary>
         /// <param name="screen"></param>
         /// <param name="go"></param>

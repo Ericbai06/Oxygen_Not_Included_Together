@@ -174,7 +174,7 @@ namespace ONI_Together.Networking
 				kbac.Offset = Vector3.zero;
 				kbac.TintColour = visualColor;
 				kbac.SetLayer(LayerMask.NameToLayer("Place"));
-				if (CurrentDef.BuildingComplete.GetComponent<IHaveUtilityNetworkMgr>() != null)
+				if (CurrentDef.isKAnimTile && CurrentDef.BuildingComplete.GetComponent<IHaveUtilityNetworkMgr>() != null)
 					kbac.Play("None_place"); //default non-connected pipe
 				else
 					kbac.Play("place");

@@ -644,9 +644,14 @@ namespace ONI_MP.Misc
             screen.Filter(screen.acceptedTags);
         }
 
+        // Needs proper testing
         public static void TryRefreshTelepadSideScreen(TelepadSideScreen screen, GameObject go)
         {
-            screen.BuildVictoryConditions();
+            //screen.UpdateVictoryConditions();
+            //screen.UpdateAchievementsUnlocked();
+            //screen.UpdateSkills();
+
+            //screen.BuildVictoryConditions();
         }
 
         public static void TryRefreshTemporalTearSideScreen(TemporalTearSideScreen screen, GameObject go)

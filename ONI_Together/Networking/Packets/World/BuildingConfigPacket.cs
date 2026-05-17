@@ -103,13 +103,6 @@ namespace ONI_Together.Networking.Packets.World
 					IsApplyingPacket = false;
 				}
 
-				// UI auto-refresh disabled - each side screen subscribes to different
-				// component-specific events. No universal refresh event exists.
-				// Users must close/reopen screens to see changes from other players.
-				// The sync still works - only the visual update is not instant.
-				// RefreshSideScreenIfOpen(identity.gameObject);
-				
-
                 // HOST RELAY: If host received this from a client, re-broadcast to all other clients
                 if (MultiplayerSession.IsHost)
 				{
@@ -152,15 +145,10 @@ namespace ONI_Together.Networking.Packets.World
 
             try
             {
-                if (DetailsScreen.Instance == null) return;
-                if (DetailsScreen.Instance.target != go) return;
-
-                // Targeted value-only refresh for each active side screen
-                foreach (var screenRef in DetailsScreen.Instance.sideScreens)
-                {
-                    var instance = screenRef.screenInstance;
-                    if (instance == null || !instance.gameObject.activeInHierarchy) continue;
-                    SideScreenUtils.TryRefreshSideScreen(instance, go);
+				if(go.TryGetComponent<KSelectable>(out var selectable) && SelectTool.Instance.selected == selectable)
+				{
+                    SelectTool.Instance.Select(null);
+                    SelectTool.Instance.Select(selectable);
                 }
             }
             catch (System.Exception e)

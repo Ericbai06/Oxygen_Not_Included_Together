@@ -18,7 +18,6 @@ namespace ONI_Together.Patches.ToolPatches.Deconstruct
 				return;
 
 			int cell = __instance.NaturalBuildingCell();
-			bool isLooseDeconstructable = __instance.looseEntityDeconstructable;
 			int objectLayer = (int) ObjectLayer.Building;
 			if (__instance.TryGetComponent<Building>(out var building))
 			{

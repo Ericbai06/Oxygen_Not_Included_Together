@@ -15,6 +15,7 @@ using ONI_Together.Networking.States;
 using ONI_Together.UI;
 using Steamworks;
 using static ONI_Together.STRINGS.UI.MP_OVERLAY;
+using ONI_Together.Networking.Transfer;
 
 namespace ONI_Together.Networking.Transport.Lan
 {
@@ -122,6 +123,16 @@ namespace ONI_Together.Networking.Transport.Lan
             MultiplayerSession.KnownPlayerNames[CLIENT_ID] = Utils.GetLocalPlayerName();
 
             DebugConsole.Log($"[Riptide] Connected to server with Client ID: {CLIENT_ID}");
+
+            if (CLIENT_ID == 1 && !MultiplayerSession.IsHost) // We're the host but the IsHost flag wasn't set via GameServer so we assume this is a dedi
+            {
+                MultiplayerSession.IsHost = true;
+                MultiplayerSession.IsBehindDedicatedServer = true;
+                MultiplayerSession.SetHost(CLIENT_ID);
+                Game.Instance?.Trigger(MP_HASHES.OnConnected);
+                MasterDownloadSaveFromDedicatedServer();
+                return;
+            }
 
             //CoroutineRunner.RunOne(Handshake());
             NetworkConfig.TransportClient.OnRequestStateOrReturn.Invoke();
@@ -547,6 +558,37 @@ namespace ONI_Together.Networking.Transport.Lan
                 return -1;
 
             return _client.SmoothRTT;
+        }
+
+        private void MasterDownloadSaveFromDedicatedServer()
+        {
+            string ip = MultiplayerSession.ServerIp;
+            int port = MultiplayerSession.ServerPort;
+
+            DebugConsole.Log($"[Riptide] Master downloading save from dedicated server at {ip}:{port + 1}");
+
+            MultiplayerOverlay.Show("Downloading save from dedicated server...");
+
+            TcpFileTransferClient.Download(ip, port + 1, CLIENT_ID,
+                onComplete: (fileName, data) =>
+                {
+                    DebugConsole.Log($"[Riptide] Master save download complete: '{fileName}' ({data.Length} bytes)");
+
+                    var worldSave = new Misc.World.WorldSave(fileName, data);
+
+                    // Cache connection for reconnect after world loads
+                    GameClient.CacheCurrentServer();
+
+                    // Load world — this triggers disconnect → reconnection on completion
+                    SaveHelper.RequestWorldLoad(worldSave);
+                },
+                onError: (error) =>
+                {
+                    DebugConsole.LogError($"[Riptide] Master save download failed: {error}");
+
+                    NetworkConfig.TransportClient.OnReturnToMenu.Invoke(
+                        "Save download failed", error);
+                });
         }
     }
 }

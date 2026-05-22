@@ -21,7 +21,10 @@ namespace ONI_Together.Patches.World
                 if (!MultiplayerSession.InSession) return;
 
                 bool state = ClusterManager.Instance.activeWorld.AlertManager.IsRedAlertToggledOn();
-                var packet = new RedAlertStatePacket { IsRedAlert = state };
+                var packet = new RedAlertStatePacket { 
+                    ActiveWorldID = ClusterManager.Instance.activeWorldId,
+                    IsRedAlert = state
+                };
                 PacketSender.SendToAllOtherPeers(packet);
             }
         }

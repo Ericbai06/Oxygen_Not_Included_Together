@@ -128,7 +128,7 @@ namespace ONI_Together.Networking.Packets.Tools
 				cachedFilters = cachedFilters = filteredToolInstance.currentFilters
 					.Where(t => t.state == ToolParameterMenu.ToggleState.On)
 					.Select(t => t.name)
-					.ToHashSet(); ;
+					.ToHashSet();
 				ApplyFilterData(filteredToolInstance, currentFilterTargets);
 			}
 

@@ -69,8 +69,10 @@ namespace ONI_Together.Networking.Components
 			        return;
 
 				// Disable so stationary dupes get their position synced
+		        /*
 		        if (Vector3.Distance(currentPosition, lastSentPosition) < PositionThreshold)
 			        return;
+				*/
 
 		        NavType navType = NavType.Floor;
 		        if (navigator != null && navigator.CurrentNavType != NavType.NumNavTypes)

@@ -7,7 +7,7 @@ using Shared.Profiling;
 using UnityEngine;
 using Shared.Interfaces.Networking;
 
-public class EntityPositionPacket : IPacket//, IViewportCullable
+public class EntityPositionPacket : IPacket, IViewportCullable
 {
 	public int NetId;
 	public Vector3 Position;
@@ -16,14 +16,12 @@ public class EntityPositionPacket : IPacket//, IViewportCullable
 	public NavType NavType;
 	public long Timestamp;
 
-	/*
     public int GetViewportCell()
     {
 		var cell = Grid.PosToCell(Position);
 		return cell;
     }
-	*/
-
+	
     public void Serialize(BinaryWriter writer)
 	{
 		using var _ = Profiler.Scope();

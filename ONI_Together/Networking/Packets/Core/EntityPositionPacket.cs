@@ -5,6 +5,7 @@ using ONI_Together.Networking.Packets.Architecture;
 using System.IO;
 using Shared.Profiling;
 using UnityEngine;
+using Shared.Interfaces.Networking;
 
 public class EntityPositionPacket : IPacket, IViewportCullable
 {

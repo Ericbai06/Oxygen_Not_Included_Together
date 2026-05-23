@@ -7,6 +7,7 @@ using UnityEngine;
 using HarmonyLib;
 using Shared.Profiling;
 using System.Security.Principal;
+using System.Threading.Tasks;
 using ONI_Together.Misc;
 
 namespace ONI_Together.Networking.Packets.World
@@ -113,8 +114,12 @@ namespace ONI_Together.Networking.Packets.World
 				finally
 				{
                     RefreshSideScreenIfOpen(identity.gameObject);
-                    IsApplyingPacket = false;
-                }
+                    Task.Run( async () =>
+                    {
+	                    await Task.Delay( 15 );
+	                    IsApplyingPacket = false;
+                    } );
+				}
 
                 // HOST RELAY: If host received this from a client, re-broadcast to all other clients
                 if (MultiplayerSession.IsHost)

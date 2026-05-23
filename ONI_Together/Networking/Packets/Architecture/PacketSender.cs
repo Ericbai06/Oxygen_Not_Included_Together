@@ -14,6 +14,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Shared.Profiling;
 using UnityEngine;
+using ONI_Together.Networking.Components;
 
 namespace ONI_Together.Networking
 {
@@ -52,7 +53,9 @@ namespace ONI_Together.Networking
         public static int MAX_PACKET_SIZE_RELIABLE = 512;
 		public static int MAX_PACKET_SIZE_UNRELIABLE = 1024;
 
-		public static byte[] SerializePacketForSending(IPacket packet)
+        private static readonly HashSet<ulong> _viewportRecipients = new HashSet<ulong>();
+
+        public static byte[] SerializePacketForSending(IPacket packet)
 		{
 			using var _ = Profiler.Scope();
 
@@ -290,6 +293,24 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
+			// Only send this packet if its being observed by a someone
+			if(packet is IViewportCullable viewportCullable && WorldStateSyncer.Instance != null)
+			{
+				WorldStateSyncer.Instance.GetClientsViewingCell(viewportCullable.GetViewportCell(), _viewportRecipients);
+				foreach(var player in MultiplayerSession.ConnectedPlayers.Values)
+				{
+                    if (exclude.HasValue && player.PlayerId == exclude.Value)
+                        continue;
+
+                    if (!_viewportRecipients.Contains(player.PlayerId))
+                        continue;
+
+                    if (CanBroadcastTo(player))
+                        TrySendToConnection(player, packet, sendType);
+                }
+				return;
+			}
+
 			foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
 			{
 				if (exclude.HasValue && player.PlayerId == exclude.Value)
@@ -316,7 +337,25 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+            if (packet is IViewportCullable viewportCullable && WorldStateSyncer.Instance != null)
+            {
+                WorldStateSyncer.Instance.GetClientsViewingCell(viewportCullable.GetViewportCell(), _viewportRecipients);
+
+                foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+                {
+                    if (excludedIds != null && excludedIds.Contains(player.PlayerId))
+                        continue;
+
+                    if (!_viewportRecipients.Contains(player.PlayerId))
+                        continue;
+
+                    if (CanBroadcastTo(player))
+                        TrySendToConnection(player, packet, sendType);
+                }
+                return;
+            }
+
+            foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
 			{
 				if (excludedIds != null && excludedIds.Contains(player.PlayerId))
 					continue;

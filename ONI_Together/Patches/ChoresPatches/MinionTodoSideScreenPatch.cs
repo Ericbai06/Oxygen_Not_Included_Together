@@ -72,6 +72,7 @@ namespace ONI_Together.Patches.Chores
 				{
 					RenderCurrent(__instance, receiver.Current, target);
 					RenderUpcoming(__instance, receiver.Upcoming, target);
+					//UpdateRefreshLabel(__instance, receiver, target);
 				}
 				return false;
 			}
@@ -232,6 +233,26 @@ namespace ONI_Together.Patches.Chores
 				var pos = Grid.CellToPosCCC(cell, Grid.SceneLayer.Move);
 				GameUtil.FocusCamera(new Vector3(pos.x, pos.y + 1f, CameraController.Instance.transform.position.z));
 			};
+		}
+
+		private static void UpdateRefreshLabel(MinionTodoSideScreen screen, ClientReceiver_ChoreErrands receiver, GameObject target)
+		{
+			if (screen.currentShiftLabel == null) return;
+
+			float secs = receiver.SecondsUntilRefresh;
+			string prefix = $"REFRESHING IN: {secs:F1}s";
+
+			string shift = "";
+			if (target.TryGetComponent<Schedulable>(out var sched))
+			{
+				var schedule = sched.GetSchedule();
+				var block = schedule?.GetCurrentScheduleBlock();
+				if (block != null)
+					shift = string.Format(global::STRINGS.UI.UISIDESCREENS.MINIONTODOSIDESCREEN.CURRENT_SCHEDULE_BLOCK, block.name).ToUpper();
+			}
+
+			screen.currentShiftLabel.text = string.IsNullOrEmpty(shift) ? prefix : $"{prefix}  {shift}";
+			screen.currentShiftLabel.gameObject.SetActive(true);
 		}
 	}
 }

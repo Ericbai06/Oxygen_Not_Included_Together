@@ -3,6 +3,7 @@ using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using System.Collections;
 using Shared.Profiling;
+using UnityEngine;
 
 namespace ONI_Together.Scripts.Duplicants
 {
@@ -11,17 +12,19 @@ namespace ONI_Together.Scripts.Duplicants
 		[MyCmpGet] NetworkIdentity identity;
 		[MyCmpGet] KPrefabID kpref;
 
+		private bool HasInit = false;
+
 		public override void OnSpawn()
 		{
 			using var _ = Profiler.Scope();
-
 			base.OnSpawn();
+			StartCoroutine(WaitForSessionAndInit());
+		}
 
-			if (MultiplayerSession.InSession)
-				InitializeMP(null);
-
-			Game.Instance?.Subscribe(MP_HASHES.OnMultiplayerGameSessionInitialized, InitializeMP);
-			Game.Instance?.Subscribe(MP_HASHES.GameClient_OnConnectedInGame, InitializeMP);
+		IEnumerator WaitForSessionAndInit()
+		{
+			yield return new WaitUntil((() => MultiplayerSession.InSession));
+				InitializeMP();
 		}
 
 		void InitializeMP(object _ = null)
@@ -30,52 +33,48 @@ namespace ONI_Together.Scripts.Duplicants
 
 			StartCoroutine(DelayedInit());
 		}
-
+		
 		IEnumerator DelayedInit()
 		{
 			using var _ = Profiler.Scope();
-
-			yield return null;
+			yield return new WaitForSecondsRealtime(0.5f);
 			FinalizeInit();
 		}
 
 		void FinalizeInit()
 		{
 			using var _ = Profiler.Scope();
+			if (HasInit) return;
 
 			var go = gameObject;
-			if (MultiplayerSession.NotInSession) return;
 			if (!kpref?.HasTag(GameTags.BaseMinion) ?? false) return;
 
-			DebugConsole.Log("OnMultiplayerGameSessionInitialized");
-			// If we are a client, disable the brain/chores so the dupe is just a puppet
 			if (MultiplayerSession.IsClient)
-			{
-				// Disable AI/decision making components
-				if (go.TryGetComponent<ChoreDriver>(out var driver)) driver.enabled = false;
-				if (go.TryGetComponent<ChoreConsumer>(out var consumer)) consumer.enabled = false;
-				if (go.TryGetComponent<MinionBrain>(out var brain)) brain.enabled = false;
-
-				// Disable sensors that might trigger behaviors
-				if (go.TryGetComponent<Sensors>(out var sensors)) sensors.enabled = false;
-
-                // Disable state machine controllers that could override animations
-                var stateMachineControllers = go.GetComponents<StateMachineController>();
-				foreach (var smc in stateMachineControllers)
-				{
-					if (smc != null) smc.enabled = false;
-				}
-
-				go.AddOrGet<ClientReceiver_ChoreErrands>();
-				DebugConsole.Log($"[DuplicantSpawn] Client setup complete for {go.name} (NetId: {identity.NetId})");
-			}
+				InitializeClient(go);
 			else if (MultiplayerSession.IsHost)
-			{
-				// Add state sender for host to broadcast duplicant state to clients
-				go.AddOrGet<DuplicantStateSender>();
-				go.AddOrGet<DuplicantChoreBroadcaster>();
-				DebugConsole.Log($"[DuplicantSpawn] Host setup complete for {go.name} (NetId: {identity.NetId})");
-			}
+				InitializeHost(go);
+
+			HasInit = true;
+		}
+		
+		void InitializeClient(GameObject go)
+		{
+			if (go.TryGetComponent<ChoreDriver>(out var driver)) driver.enabled = false;
+			if (go.TryGetComponent<ChoreConsumer>(out var consumer)) consumer.enabled = false;
+			if (go.TryGetComponent<MinionBrain>(out var brain)) brain.enabled = false;
+			if (go.TryGetComponent<Sensors>(out var sensors)) sensors.enabled = false;
+
+			var stateMachineControllers = go.GetComponents<StateMachineController>();
+			foreach (var smc in stateMachineControllers)
+				if (smc != null) smc.enabled = false;
+
+			go.AddOrGet<ClientReceiver_ChoreErrands>();
+		}
+
+		void InitializeHost(GameObject go)
+		{
+			go.AddOrGet<DuplicantStateSender>();
+			go.AddOrGet<DuplicantChoreBroadcaster>();
 		}
 	}
 }

@@ -63,7 +63,7 @@ namespace ONI_Together.Networking
 			MultiplayerSession.IsHost = false;
 
 			//MultiplayerSession.InSession = false;
-
+			
 			DebugConsole.Log("[GameServer] Shutdown complete.");
 		}
 

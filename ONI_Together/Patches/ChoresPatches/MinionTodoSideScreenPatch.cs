@@ -5,6 +5,7 @@ using ONI_Together.Networking.Packets.Chores;
 using Shared.Profiling;
 using System.Collections.Generic;
 using System.Reflection;
+using ONI_Together.DebugTools;
 using UnityEngine;
 
 namespace ONI_Together.Patches.Chores
@@ -62,17 +63,16 @@ namespace ONI_Together.Patches.Chores
 				using var _ = Profiler.Scope();
 				if (!MultiplayerSession.InSession) return true;
 				if (MultiplayerSession.IsHost) return true;
-
 				RescheduleRefresh(__instance);
 
 				var target = DetailsScreen.Instance.target;
 				if (target == null) return false;
 
-				var receiver = target.GetComponent<ClientReceiver_ChoreErrands>();
-				if (receiver == null) return false;
-
-				RenderCurrent(__instance, receiver.Current, target);
-				RenderUpcoming(__instance, receiver.Upcoming, target);
+				if(target.TryGetComponent<ClientReceiver_ChoreErrands>(out var receiver))
+				{
+					RenderCurrent(__instance, receiver.Current, target);
+					RenderUpcoming(__instance, receiver.Upcoming, target);
+				}
 				return false;
 			}
 		}

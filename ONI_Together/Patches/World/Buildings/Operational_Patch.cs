@@ -110,7 +110,7 @@ namespace ONI_Together.Patches.World.Buildings
 
 				if (__instance.TryGetComponent<ClientReceiver_Operational>(out var wrap))
 				{
-					__result = wrap.IsActive;
+					__result = wrap.IsFunctional;
 					return false;
 				}
 				return true;

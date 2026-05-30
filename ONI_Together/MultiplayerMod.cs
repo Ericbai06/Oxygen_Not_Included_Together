@@ -169,8 +169,6 @@ namespace ONI_Together
 			};
 
 			ReadyManager.SetupListeners();
-
-			Game.Instance?.Subscribe(MP_HASHES.OnPlayerLeft, (data) => Utils.PauseSimOnPlayerLeft());
 		}
 		
 		public static AssetBundle LoadAssetBundle(string bundleKey, string resourceName)

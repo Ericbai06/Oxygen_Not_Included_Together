@@ -326,6 +326,7 @@ namespace ONI_Together.Networking.Transport.Lan
                 string name = MultiplayerSession.GetPlayer(id)?.PlayerName ?? $"Player {id}";
                 ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
                 ChatScreen.QueueMessage(pending);
+                Utils.PauseSimOnPlayerLeft();
             }
             Game.Instance?.Trigger(MP_HASHES.OnPlayerLeft);
         }

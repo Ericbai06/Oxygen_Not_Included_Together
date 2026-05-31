@@ -49,13 +49,13 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			if (behaviour.gameObject.TryGetNetIdentity(out var identity))
+			if (!behaviour.IsNullOrDestroyed() && behaviour.gameObject.TryGetNetIdentity(out var identity))
 			{
 				return identity.NetId;
 			}
 
-		return 0;
-	}
+			return 0;
+		}
 
 		// Used to replace CSteamID
         public static bool IsValid(this ulong value)

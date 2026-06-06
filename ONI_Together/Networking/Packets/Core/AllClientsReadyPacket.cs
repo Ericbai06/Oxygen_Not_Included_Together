@@ -36,7 +36,7 @@ namespace ONI_Together.Networking.Packets.Core
 			//CoroutineRunner.RunOne(CloseOverlayAfterDelay());
 			MultiplayerOverlay.Show(STRINGS.UI.MP_OVERLAY.SYNC.FINALIZING_SYNC);
             MultiplayerOverlay.Close();
-            SpeedControlScreen.Instance?.Unpause(false);
+            //SpeedControlScreen.Instance?.Unpause(false);
 		}
 
 		private static IEnumerator CloseOverlayAfterDelay()
@@ -46,7 +46,7 @@ namespace ONI_Together.Networking.Packets.Core
 			MultiplayerOverlay.Show(STRINGS.UI.MP_OVERLAY.SYNC.FINALIZING_SYNC);
 			yield return new WaitForSecondsRealtime(1f);
             MultiplayerOverlay.Close();
-            SpeedControlScreen.Instance?.Unpause(false);
+            //SpeedControlScreen.Instance?.Unpause(false);
 		}
 	}
 }

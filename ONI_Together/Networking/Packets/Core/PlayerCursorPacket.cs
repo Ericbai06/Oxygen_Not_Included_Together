@@ -18,48 +18,91 @@ namespace ONI_Together.Networking.Packets.Core
 		public Vector3 Position;
 		public Color Color;
 		public CursorState CursorState;
+
+		// Building visualizer
 		public string BuildingPrefabId;
 		public Orientation BuildingOrientation = Orientation.Neutral;
 		public bool BuildingAllowed;
 
-		// Viewport for targeted sync
-		public int ViewMinX, ViewMinY, ViewMaxX, ViewMaxY;
+		// Build area display (The <number> x <numer> display area)
+		public bool Dragging = false;
+		public Vector3 AreaDownPos;
+		public DragTool.Mode DragMode = DragTool.Mode.Box;
+		public Vector2 LengthLimit = Vector2.zero;
 
-		public void Serialize(BinaryWriter writer)
-		{
-			using var _ = Profiler.Scope();
+        // Viewport for targeted sync
+        public int ViewMinX, ViewMinY, ViewMaxX, ViewMaxY;
 
-			writer.Write(PlayerID);
-			writer.Write(Position);
-			writer.Write(Color);
-			writer.Write((int)CursorState);
-			writer.Write(ViewMinX);
-			writer.Write(ViewMinY);
-			writer.Write(ViewMaxX);
-			writer.Write(ViewMaxY);
-			writer.Write(BuildingPrefabId);
-			writer.Write((int)BuildingOrientation);
-			writer.Write(BuildingAllowed);
-		}
+        public void Serialize(BinaryWriter writer)
+        {
+            using var _ = Profiler.Scope();
 
-		public void Deserialize(BinaryReader reader)
-		{
-			using var _ = Profiler.Scope();
+            writer.Write(PlayerID);
+            writer.Write(Position);
+            writer.Write(Color);
 
-			PlayerID = reader.ReadUInt64();
-			Position = reader.ReadVector3();
-			Color = reader.ReadColor();
-			CursorState = (CursorState)reader.ReadInt32();
-			ViewMinX = reader.ReadInt32();
-			ViewMinY = reader.ReadInt32();
-			ViewMaxX = reader.ReadInt32();
-			ViewMaxY = reader.ReadInt32();
-			BuildingPrefabId = reader.ReadString();
-			BuildingOrientation = (Orientation)reader.ReadInt32();
-			BuildingAllowed = reader.ReadBoolean();
-		}
+            ushort flags = 0;
+            flags |= (ushort)((int)CursorState & 0xF);
+            flags |= (ushort)(((int)BuildingOrientation & 0x7) << 4);
+            flags |= (ushort)(((int)DragMode & 0x7) << 7);
 
-		public void OnDispatched()
+            if (BuildingAllowed)
+                flags |= 1 << 10;
+
+            if (Dragging)
+                flags |= 1 << 11;
+
+            writer.Write(flags);
+
+            uint viewMin = ((uint)(ushort)ViewMinX << 16) | (ushort)ViewMinY;
+            uint viewMax = ((uint)(ushort)ViewMaxX << 16) | (ushort)ViewMaxY;
+
+            writer.Write(viewMin);
+            writer.Write(viewMax);
+
+            writer.Write(BuildingPrefabId);
+
+            if (Dragging)
+            {
+                writer.Write(AreaDownPos);
+                writer.Write(LengthLimit);
+            }
+        }
+
+        public void Deserialize(BinaryReader reader)
+        {
+            using var _ = Profiler.Scope();
+
+            PlayerID = reader.ReadUInt64();
+            Position = reader.ReadVector3();
+            Color = reader.ReadColor();
+
+            ushort flags = reader.ReadUInt16();
+            CursorState = (CursorState)(flags & 0xF);
+            BuildingOrientation = (Orientation)((flags >> 4) & 0x7);
+            DragMode = (DragTool.Mode)((flags >> 7) & 0x7);
+            BuildingAllowed = (flags & (1 << 10)) != 0;
+            Dragging = (flags & (1 << 11)) != 0;
+
+            uint viewMin = reader.ReadUInt32();
+            uint viewMax = reader.ReadUInt32();
+
+            ViewMinX = (short)(viewMin >> 16);
+            ViewMinY = (short)(viewMin & 0xFFFF);
+
+            ViewMaxX = (short)(viewMax >> 16);
+            ViewMaxY = (short)(viewMax & 0xFFFF);
+
+            BuildingPrefabId = reader.ReadString();
+
+            if (Dragging)
+            {
+                AreaDownPos = reader.ReadVector3();
+                LengthLimit = reader.ReadVector2();
+            }
+        }
+
+        public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
 
@@ -109,17 +152,18 @@ namespace ONI_Together.Networking.Packets.Core
 				elapsed += Time.unscaledDeltaTime;
 				float t = elapsed / duration;
 				target.position = Vector3.Lerp(start, targetPos, t);
-				UpdateVisualizer(cursor, target.position);
+				UpdateVisualizers(cursor, target.position);
 				yield return null;
 			}
 
 			target.position = targetPos;
-			UpdateVisualizer(cursor, target.position);
+			UpdateVisualizers(cursor, target.position);
 		}
 
-		private void UpdateVisualizer(PlayerCursor cursor, Vector3 position)
+		private void UpdateVisualizers(PlayerCursor cursor, Vector3 position)
 		{
 			cursor.buildingVisualiser.UpdateVisualizer(BuildingPrefabId, position, BuildingOrientation, Color, BuildingAllowed);
+			cursor.areaVisualizer.UpdateArea(Color, AreaDownPos, Position, Dragging, DragMode, LengthLimit);
 		}
 
 	}

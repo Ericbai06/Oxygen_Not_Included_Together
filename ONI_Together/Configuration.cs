@@ -19,6 +19,9 @@ namespace ONI_Together
         [JsonProperty]
         public ClientSettings Client { get; set; } = new ClientSettings();
 
+        [JsonProperty]
+        public NetworkSettings Network { get; set; } = new NetworkSettings();
+
         [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.A_HOST_SETTINGS")]
         [JsonIgnore]
         public int HostMaxMessagesPerPoll
@@ -51,6 +54,14 @@ namespace ONI_Together
             set => Host.Server.HardSyncAtCycleStart = value;
         }
 
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.SERVER_SETTINGS.PAUSE_SIM_ON_PLAYER_DISCONNECT", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.SERVER_SETTINGS.PAUSE_SIM_ON_PLAYER_DISCONNECT", "STRINGS.UI.CONFIGURATION.HEADERS.A_HOST_SETTINGS")]
+        [JsonIgnore]
+        public bool PauseSimOnPlayerDisconnect
+        {
+            get => Host.Server.PauseSimOnPlayerDisconnect;
+            set => Host.Server.PauseSimOnPlayerDisconnect = value;
+        }
+
         [Option("STRINGS.UI.CONFIGURATION.TITLES.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CLIENT_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.B_CLIENT_SETTINGS")]
         [JsonIgnore]
         public int ClientMaxMessagesPerPoll
@@ -67,7 +78,31 @@ namespace ONI_Together
             set => Client.TimeoutSeconds = Mathf.Max(value, 30);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.C_CURSOR_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.NETWORK_SETTINGS.ENABLE_PACKET_QUEUE", "STRINGS.UI.CONFIGURATION.TOOLTIPS.NETWORK_SETTINGS.ENABLE_PACKET_QUEUE", "STRINGS.UI.CONFIGURATION.HEADERS.C_NETWORK_SETTINGS")]
+        [JsonIgnore]
+        public bool EnablePacketQueue
+        {
+            get => Network.EnablePacketQueue;
+            set => Network.EnablePacketQueue = value;
+        }
+
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.NETWORK_SETTINGS.MAX_PACKETS_PER_SECOND", "STRINGS.UI.CONFIGURATION.TOOLTIPS.NETWORK_SETTINGS.MAX_PACKETS_PER_SECOND", "STRINGS.UI.CONFIGURATION.HEADERS.C_NETWORK_SETTINGS")]
+        [JsonIgnore]
+        public int MaxPacketsPerSecond
+        {
+            get => Network.MaxPacketsPerSecond;
+            set => Network.MaxPacketsPerSecond = Mathf.Clamp(value, 500, 1000);
+        }
+
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.NETWORK_SETTINGS.BYPASS_PROTOCOL_CHECKS", "STRINGS.UI.CONFIGURATION.TOOLTIPS.NETWORK_SETTINGS.BYPASS_PROTOCOL_CHECKS", "STRINGS.UI.CONFIGURATION.HEADERS.C_NETWORK_SETTINGS")]
+        [JsonIgnore]
+        public bool BypassProtocolCompatibilityChecks
+        {
+            get => Network.BypassProtocolCompatibilityChecks;
+            set => Network.BypassProtocolCompatibilityChecks = value;
+        }
+
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.D_CURSOR_SETTINGS")]
         [JsonIgnore]
         public bool UseRandomPlayerColor
         {
@@ -75,7 +110,7 @@ namespace ONI_Together
             set => Client.UseRandomPlayerColor = value;
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.C_CURSOR_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.CURSOR_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.D_CURSOR_SETTINGS")]
         [JsonIgnore]
         public Color32 CursorColor
         {
@@ -83,7 +118,7 @@ namespace ONI_Together
             set => Client.PlayerColor.SetFromColor32(value);
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.HEADERS.D_MISC_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.PUFT_LOADINGSCREEN", "STRINGS.UI.CONFIGURATION.HEADERS.E_MISC_SETTINGS")]
         [JsonIgnore]
         public bool PuftAsLoadingIcon
         {
@@ -91,7 +126,7 @@ namespace ONI_Together
             set => Client.PuftAsLoadingIcon = value;
         }
 
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.D_MISC_SETTINGS")]
+        [Option("STRINGS.UI.CONFIGURATION.TITLES.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.MISC_SETTINGS.LOADINGSCREEN_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.E_MISC_SETTINGS")]
         [JsonIgnore]
         public bool UseCustomLoadingScreenColor
         {
@@ -194,6 +229,15 @@ namespace ONI_Together
     public class ServerSettings
     {
         [JsonProperty] public bool HardSyncAtCycleStart { get; set; } = false;
+        [JsonProperty] public bool PauseSimOnPlayerDisconnect { get; set; } = false;
+    }
+
+    [Serializable]
+    public class NetworkSettings
+    {
+        [JsonProperty] public bool EnablePacketQueue { get; set; } = false;
+        [JsonProperty] public int MaxPacketsPerSecond { get; set; } = 500;
+        [JsonProperty] public bool BypassProtocolCompatibilityChecks { get; set; } = false;
     }
 
     [Serializable]

@@ -107,6 +107,7 @@ namespace ONI_Together.Networking
                     StopRaw();
                     break;
             }
+            Game.Instance?.Trigger(MP_HASHES.OnDisconnected);
         }
 
         private static void StopSteamworks()

@@ -13,7 +13,8 @@ namespace ONI_Together
         public static readonly ModHashes GameServer_OnServerStarted = new("Server_OnStarted");
 
         public static readonly ModHashes OnConnected = new("MP_OnConnected");
-
+        public static readonly ModHashes OnDisconnected = new("MP_OnDisconnected");
+        
         public static readonly ModHashes GameClient_OnConnectedInGame = new("MP_OnConnectedInGame");
 
 		public static readonly ModHashes OnMultiplayerGameSessionInitialized = new("MP_OnMultiplayerSessionStarted");

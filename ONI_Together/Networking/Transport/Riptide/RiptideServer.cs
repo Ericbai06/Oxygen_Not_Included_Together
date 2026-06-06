@@ -82,6 +82,7 @@ namespace ONI_Together.Networking.Transport.Lan
             _client = new Client("Lan/Riptide/HostClient");
             _client.Connected += OnLocalClientConnected;
             _client.Disconnected += OnLocalClientDisconnected;
+            _client.TimeoutTime = Configuration.Instance.HostTimeoutSeconds * 1000;
             DebugConsole.Log("[RiptideServer] Connecting host client!");
             _client.Connect($"{ip}:{port}", useMessageHandlers: false);
         }
@@ -325,6 +326,7 @@ namespace ONI_Together.Networking.Transport.Lan
                 string name = MultiplayerSession.GetPlayer(id)?.PlayerName ?? $"Player {id}";
                 ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
                 ChatScreen.QueueMessage(pending);
+                Utils.PauseSimOnPlayerLeft();
             }
             Game.Instance?.Trigger(MP_HASHES.OnPlayerLeft);
         }

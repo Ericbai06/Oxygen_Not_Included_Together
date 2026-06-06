@@ -18,6 +18,9 @@ using static DistributionPlatform;
 using Epic.OnlineServices;
 using PeterHan.PLib.Core;
 using PeterHan.PLib.Options;
+using ONI_Together.Integrations;
+using System.Linq;
+using System.Threading;
 
 namespace ONI_Together
 {
@@ -33,6 +36,9 @@ namespace ONI_Together
 
 		public static bool UseSteamOverlay = true; // Will be false for non steam instances
 		private static bool _inLogHandler = false;
+
+        public static int MainThreadId { get; private set; }
+        public static SynchronizationContext MainThread { get; private set; }
 
         public override void OnLoad(Harmony harmony)
 		{
@@ -164,6 +170,7 @@ namespace ONI_Together
 
 			ReadyManager.SetupListeners();
 		}
+		
 		public static AssetBundle LoadAssetBundle(string bundleKey, string resourceName)
 		{
 			using var _ = Profiler.Scope();
@@ -239,13 +246,53 @@ namespace ONI_Together
             base.OnAllModsLoaded(harmony, mods);
 			///does weird force restarts; replaced with plib version checker that doesnt restart the game
 			//ModUpdater.Updater.CheckForUpdate();
-
+			InitializeAllIntegrations(); // All mods should be loaded, now find and initialize any integrations
 #if DEBUG
-			UnitTestRegistry.DiscoverTests();
-			ProtocolCompatibility.BypassChecks = true; // If DEBUG bypass by default
+            UnitTestRegistry.DiscoverTests();
 #endif
 			// For now default to the steam transport
 			NetworkConfig.UpdateTransport(NetworkConfig.NetworkTransport.STEAMWORKS);
-		}
-	}
+
+            MainThreadId = Thread.CurrentThread.ManagedThreadId;
+            MainThread = SynchronizationContext.Current;
+            
+            //Game.Instance.OnSpawnComplete += OnGameSpawnComplete;
+        }
+        
+        private static void OnGameSpawnComplete()
+        {
+	        if (MultiplayerSession.IsHostInSession && MultiplayerSession.SessionHasPlayers)
+	        {
+		        GameServerHardSync.PerformHardSync(false);
+	        }
+        }
+
+        public static void InitializeAllIntegrations()
+        {
+            var integrationType = typeof(Integration);
+
+            var assembly = integrationType.Assembly;
+
+            var integrations = assembly
+                .GetTypes()
+                .Where(t =>
+                    t != null &&
+                    !t.IsAbstract &&
+                    integrationType.IsAssignableFrom(t))
+                .ToList();
+
+            foreach (var type in integrations)
+            {
+                try
+                {
+                    var instance = (Integration)Activator.CreateInstance(type);
+                    instance.Initialize();
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"[IntegrationLoader] Failed to init {type.Name}: {e}");
+                }
+            }
+        }
+    }
 }

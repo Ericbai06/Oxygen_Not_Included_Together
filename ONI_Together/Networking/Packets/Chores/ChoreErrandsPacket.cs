@@ -42,11 +42,13 @@ namespace ONI_Together.Networking.Packets.Chores
 		public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
-			if (!MultiplayerSession.IsClient) return;
-			if (!NetworkIdentityRegistry.TryGet(DupeNetId, out var entity)) return;
-
-			var receiver = entity.gameObject.GetComponent<ClientReceiver_ChoreErrands>();
-			if (receiver == null) return;
+			if (!MultiplayerSession.IsClient) 
+				return;
+			if (!NetworkIdentityRegistry.TryGet(DupeNetId, out var entity)) 
+				return;
+			if (!entity.TryGetComponent<ClientReceiver_ChoreErrands>(out var receiver))
+				return;
+			
 			receiver.Apply(Entries);
 		}
 	}

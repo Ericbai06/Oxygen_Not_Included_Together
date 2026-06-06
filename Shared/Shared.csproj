@@ -5,8 +5,5 @@
 	  <DoNotBuildAsMod>true</DoNotBuildAsMod>	  
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="PLib" Version="4.22.0" />
-  </ItemGroup>
 
 </Project>

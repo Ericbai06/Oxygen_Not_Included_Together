@@ -5,6 +5,7 @@ using ONI_Together.Networking.Packets.Chores;
 using Shared.Profiling;
 using System.Collections.Generic;
 using System.Reflection;
+using ONI_Together.DebugTools;
 using UnityEngine;
 
 namespace ONI_Together.Patches.Chores
@@ -20,9 +21,10 @@ namespace ONI_Together.Patches.Chores
 			{
 				using var _ = Profiler.Scope();
 				if (!MultiplayerSession.IsClient || target == null) return;
-				var identity = target.GetComponent<NetworkIdentity>();
-				if (identity == null) return;
-				SubscribeTo(identity.NetId);
+				if (target.TryGetNetIdentity(out var identity))
+				{
+					SubscribeTo(identity.NetId);
+				}
 			}
 		}
 
@@ -59,18 +61,19 @@ namespace ONI_Together.Patches.Chores
 			public static bool Prefix(MinionTodoSideScreen __instance)
 			{
 				using var _ = Profiler.Scope();
+				if (!MultiplayerSession.InSession) return true;
 				if (MultiplayerSession.IsHost) return true;
-
 				RescheduleRefresh(__instance);
 
 				var target = DetailsScreen.Instance.target;
 				if (target == null) return false;
 
-				var receiver = target.GetComponent<ClientReceiver_ChoreErrands>();
-				if (receiver == null) return false;
-
-				RenderCurrent(__instance, receiver.Current, target);
-				RenderUpcoming(__instance, receiver.Upcoming, target);
+				if(target.TryGetComponent<ClientReceiver_ChoreErrands>(out var receiver))
+				{
+					RenderCurrent(__instance, receiver.Current, target);
+					RenderUpcoming(__instance, receiver.Upcoming, target);
+					//UpdateRefreshLabel(__instance, receiver, target);
+				}
 				return false;
 			}
 		}
@@ -230,6 +233,26 @@ namespace ONI_Together.Patches.Chores
 				var pos = Grid.CellToPosCCC(cell, Grid.SceneLayer.Move);
 				GameUtil.FocusCamera(new Vector3(pos.x, pos.y + 1f, CameraController.Instance.transform.position.z));
 			};
+		}
+
+		private static void UpdateRefreshLabel(MinionTodoSideScreen screen, ClientReceiver_ChoreErrands receiver, GameObject target)
+		{
+			if (screen.currentShiftLabel == null) return;
+
+			float secs = receiver.SecondsUntilRefresh;
+			string prefix = $"REFRESHING IN: {secs:F1}s";
+
+			string shift = "";
+			if (target.TryGetComponent<Schedulable>(out var sched))
+			{
+				var schedule = sched.GetSchedule();
+				var block = schedule?.GetCurrentScheduleBlock();
+				if (block != null)
+					shift = string.Format(global::STRINGS.UI.UISIDESCREENS.MINIONTODOSIDESCREEN.CURRENT_SCHEDULE_BLOCK, block.name).ToUpper();
+			}
+
+			screen.currentShiftLabel.text = string.IsNullOrEmpty(shift) ? prefix : $"{prefix}  {shift}";
+			screen.currentShiftLabel.gameObject.SetActive(true);
 		}
 	}
 }

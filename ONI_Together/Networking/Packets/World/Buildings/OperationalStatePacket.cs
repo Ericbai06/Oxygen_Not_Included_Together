@@ -19,6 +19,8 @@ namespace ONI_Together.Networking.Packets.World.Buildings
 			using var _ = Profiler.Scope();
 
 			NetId = o.GetNetId();
+			if (NetId == 0)
+				return;
 			IsOperational = o.IsOperational;
 			IsFunctional = o.IsFunctional;
 			IsActive = o.IsActive;

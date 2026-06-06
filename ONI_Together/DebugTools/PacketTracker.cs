@@ -31,6 +31,12 @@ namespace ONI_Together.DebugTools
         private List<PacketTrackData> outgoing_tracked = new List<PacketTrackData>();
         private const int MAX_TRACKED_LIMIT = 100;
 
+        private int incoming_count;
+        private int outgoing_count;
+        private float incoming_pps;
+        private float outgoing_pps;
+        private float last_pps_time;
+
         public static PacketTracker Init()
         {
             using var _ = Profiler.Scope();
@@ -47,12 +53,14 @@ namespace ONI_Together.DebugTools
             using var _ = Profiler.Scope();
 
             _instance.outgoing_tracked.Add(data);
+            _instance.outgoing_count++;
 
             if (_instance.outgoing_tracked.Count > MAX_TRACKED_LIMIT)
             {
                 int overflow = _instance.outgoing_tracked.Count - MAX_TRACKED_LIMIT;
                 _instance.outgoing_tracked.RemoveRange(0, overflow);
             }
+
         }
 
         public static void TrackIncoming(PacketTrackData data)
@@ -60,6 +68,7 @@ namespace ONI_Together.DebugTools
             using var _ = Profiler.Scope();
 
             _instance.incoming_tracked.Add(data);
+            _instance.incoming_count++;
 
             if (_instance.incoming_tracked.Count > MAX_TRACKED_LIMIT)
             {
@@ -74,6 +83,25 @@ namespace ONI_Together.DebugTools
 
             _instance.outgoing_tracked.Clear();
             _instance.incoming_tracked.Clear();
+            _instance.outgoing_count = 0;
+            _instance.incoming_count = 0;
+            _instance.incoming_pps = 0;
+            _instance.outgoing_pps = 0;
+        }
+
+        private void CalculatePPS()
+        {
+            float now = UnityEngine.Time.realtimeSinceStartup;
+            float elapsed = now - last_pps_time;
+
+            if (elapsed >= 1f)
+            {
+                incoming_pps = incoming_count / elapsed;
+                outgoing_pps = outgoing_count / elapsed;
+                incoming_count = 0;
+                outgoing_count = 0;
+                last_pps_time = now;
+            }
         }
 
         public void Toggle()
@@ -101,6 +129,8 @@ namespace ONI_Together.DebugTools
                 }
                 else
                 {
+                    CalculatePPS();
+                    ImGui.Text($"In: {incoming_pps:F1} pps   Out: {outgoing_pps:F1} pps");
                     if (ImGui.CollapsingHeader("Incoming Packets"))
                     {
                         ImGui.InputText("Filter", ref incoming_filter, 64);
@@ -134,6 +164,10 @@ namespace ONI_Together.DebugTools
                 ImGui.TextDisabled("Not in a session!");
                 return;
             }
+
+            CalculatePPS();
+            ImGui.Text($"In: {incoming_pps:F1} pps   Out: {outgoing_pps:F1} pps");
+            ImGui.Separator();
 
             if (ImGui.CollapsingHeader("Incoming Packets", ImGuiTreeNodeFlags.DefaultOpen))
             {

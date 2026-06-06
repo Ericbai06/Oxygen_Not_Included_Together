@@ -34,8 +34,8 @@ namespace ONI_Together.Networking
 
 			SetState(ServerState.Preparing);
 
-            NetworkConfig.TransportServer.OnError = () => SetState(ServerState.Error);
-            NetworkConfig.TransportServer.Prepare();
+			NetworkConfig.TransportServer.OnError = () => SetState(ServerState.Error);
+			NetworkConfig.TransportServer.Prepare();
 			CursorManager.Instance.AssignColor();
 
 			SetState(ServerState.Starting);
@@ -58,13 +58,13 @@ namespace ONI_Together.Networking
 
 			SetState(ServerState.Stopped);
 
-            NetworkConfig.TransportServer.CloseConnections();
+			NetworkConfig.TransportServer.CloseConnections();
 			NetworkConfig.TransportServer.Stop();
-            MultiplayerSession.IsHost = false;
+			MultiplayerSession.IsHost = false;
 
-            //MultiplayerSession.InSession = false;
-
-            DebugConsole.Log("[GameServer] Shutdown complete.");
+			//MultiplayerSession.InSession = false;
+			
+			DebugConsole.Log("[GameServer] Shutdown complete.");
 		}
 
 		public static void Update()

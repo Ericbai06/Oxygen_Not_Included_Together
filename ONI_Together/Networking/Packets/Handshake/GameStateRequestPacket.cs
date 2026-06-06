@@ -116,14 +116,12 @@ namespace ONI_Together.Networking.Packets.Handshake
 		{
 			using var _ = Profiler.Scope();
 
-#if RELEASE
 			if (!IsProtocolCompatible(out string reason))
 			{
 				DebugConsole.LogWarning($"[GameStateRequestPacket] Rejecting client {ClientId}: {reason}");
 				RejectClient(reason);
 				return;
 			}
-#endif
 
 			MarkClientAsProtocolVerified();
 			CreateStateResponse();
@@ -185,8 +183,8 @@ namespace ONI_Together.Networking.Packets.Handshake
 		{
 			using var _ = Profiler.Scope();
 
-			if (ProtocolCompatibility.BypassChecks)
-			{
+            if (Configuration.Instance.Network.BypassProtocolCompatibilityChecks)
+            {
 				reason = string.Empty;
                 return true;
 			}

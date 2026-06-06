@@ -3,7 +3,7 @@
 	<!-- General Package Properties -->
 	<PropertyGroup>
 		<PackageId>ItsLukesMultiplayerMod</PackageId>
-		<Version>0.6.2-alpha</Version>
+		<Version>0.6.3-alpha</Version>
 		<Authors>ItsLuke,Sgt_Lmalas</Authors>
 		<Copyright>$(AssemblyCopyright)</Copyright>
 	</PropertyGroup>
@@ -65,4 +65,9 @@
 	<ItemGroup>
 	  <PackageReference Include="RiptideNetworking.Riptide" Version="2.2.1" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="PLib" Version="4.22.0" />
+	</ItemGroup>
+
 </Project>

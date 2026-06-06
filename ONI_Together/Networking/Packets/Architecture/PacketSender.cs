@@ -14,6 +14,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Shared.Profiling;
 using UnityEngine;
+using ONI_Together.Networking.Components;
 
 namespace ONI_Together.Networking
 {
@@ -52,7 +53,7 @@ namespace ONI_Together.Networking
         public static int MAX_PACKET_SIZE_RELIABLE = 512;
 		public static int MAX_PACKET_SIZE_UNRELIABLE = 1024;
 
-		public static byte[] SerializePacketForSending(IPacket packet)
+        public static byte[] SerializePacketForSending(IPacket packet)
 		{
 			using var _ = Profiler.Scope();
 
@@ -290,7 +291,21 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+            // Only send this packet if its being observed by a someone
+            if (packet is IViewportCullable vp && WorldStateSyncer.Instance != null)
+            {
+                int cell = vp.GetViewportCell();
+                foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+                {
+                    if (exclude.HasValue && player.PlayerId == exclude.Value) continue;
+                    if (!CanBroadcastTo(player)) continue;
+                    if (WorldStateSyncer.Instance.IsCellInPlayerViewport(player.PlayerId, cell))
+                        TrySendToConnection(player, packet, sendType);
+                }
+                return;
+            }
+
+            foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
 			{
 				if (exclude.HasValue && player.PlayerId == exclude.Value)
 					continue;
@@ -316,7 +331,20 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+            if (packet is IViewportCullable vp && WorldStateSyncer.Instance != null)
+            {
+                int cell = vp.GetViewportCell();
+                foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
+                {
+                    if (excludedIds != null && excludedIds.Contains(player.PlayerId)) continue;
+                    if (!CanBroadcastTo(player)) continue;
+                    if (WorldStateSyncer.Instance.IsCellInPlayerViewport(player.PlayerId, cell))
+                        TrySendToConnection(player, packet, sendType);
+                }
+                return;
+            }
+
+            foreach (var player in MultiplayerSession.ConnectedPlayers.Values)
 			{
 				if (excludedIds != null && excludedIds.Contains(player.PlayerId))
 					continue;

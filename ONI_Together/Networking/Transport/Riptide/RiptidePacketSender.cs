@@ -11,7 +11,7 @@ namespace ONI_Together.Networking.Transport.Lan
     {
         private const int MAX_PAYLOAD_BYTES = 1000;
 
-        public override bool SendToConnection(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
+        public override bool SendPacket(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
         {
             using var _ = Profiler.Scope();
 

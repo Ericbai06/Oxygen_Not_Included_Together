@@ -215,7 +215,7 @@ namespace ONI_Together.DebugTools
                     {
                         SteamLobby.CreateLobby(onSuccess: () =>
                         {
-                            SpeedControlScreen.Instance?.Unpause(false);
+                            //SpeedControlScreen.Instance?.Unpause(false);
                             Game.Instance.Trigger(MP_HASHES.OnMultiplayerGameSessionInitialized);
                         });
                     }

@@ -24,7 +24,7 @@ namespace ONI_Together.Networking.Packets.Core
 			if (MultiplayerSession.IsHost)
 				return;
 
-			SpeedControlScreen.Instance?.Unpause(false);
+			//SpeedControlScreen.Instance?.Unpause(false);
 			MultiplayerOverlay.Close();
 		}
 

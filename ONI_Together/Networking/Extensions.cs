@@ -37,14 +37,24 @@ namespace ONI_Together.Networking
 
 			return go.AddComponent<NetworkIdentity>();
 		}
+
+		public static bool TryGetNetIdentity(this GameObject go, out NetworkIdentity identity)
+		{
+			using var _ = Profiler.Scope();
+			identity = GetNetIdentity(go);
+			return identity != null;
+		}
+
 		public static int GetNetId(this MonoBehaviour behaviour)
 		{
 			using var _ = Profiler.Scope();
 
-			var identity = GetNetIdentity(behaviour);
-			if (identity == null)
-				return 0;
-			return identity.NetId;
+			if (!behaviour.IsNullOrDestroyed() && behaviour.gameObject.TryGetNetIdentity(out var identity))
+			{
+				return identity.NetId;
+			}
+
+			return 0;
 		}
 
 		// Used to replace CSteamID

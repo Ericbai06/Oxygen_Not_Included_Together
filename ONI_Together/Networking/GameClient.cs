@@ -231,7 +231,7 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			if(ProtocolCompatibility.BypassChecks)
+			if(Configuration.Instance.BypassProtocolCompatibilityChecks)
 			{
 				reason = string.Empty;
 				message = string.Empty;

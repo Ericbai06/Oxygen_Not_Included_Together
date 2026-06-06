@@ -25,6 +25,8 @@ namespace ONI_Together.Patches.World.Buildings
 
 				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
 					return;
+				if (__instance.IsNullOrDestroyed())
+					return;
 				PacketSender.SendToAllClients(new OperationalStatePacket(__instance));
 			}
 		}
@@ -37,6 +39,8 @@ namespace ONI_Together.Patches.World.Buildings
 
 				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
 					return;
+				if (__instance.IsNullOrDestroyed())
+					return;
 				PacketSender.SendToAllClients(new OperationalStatePacket(__instance));
 			}
 		}
@@ -48,6 +52,8 @@ namespace ONI_Together.Patches.World.Buildings
 				using var _ = Profiler.Scope();
 
 				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
+					return;
+				if (__instance.IsNullOrDestroyed())
 					return;
 				PacketSender.SendToAllClients(new OperationalStatePacket(__instance));
 			}
@@ -110,7 +116,7 @@ namespace ONI_Together.Patches.World.Buildings
 
 				if (__instance.TryGetComponent<ClientReceiver_Operational>(out var wrap))
 				{
-					__result = wrap.IsActive;
+					__result = wrap.IsFunctional;
 					return false;
 				}
 				return true;

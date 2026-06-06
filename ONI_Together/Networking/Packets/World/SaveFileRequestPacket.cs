@@ -8,6 +8,7 @@ using System;
 using System.Collections;
 using System.IO;
 using Shared.Profiling;
+using ONI_Together.Menus;
 
 namespace ONI_Together.Networking.Packets.World
 {
@@ -39,7 +40,7 @@ namespace ONI_Together.Networking.Packets.World
 				return;
 
 			DebugConsole.Log($"[Packets/SaveFileRequest] Received request from {Requester}");
-			//GoogleDriveUtils.UploadAndSendToClient(Requester);
+			MultiplayerOverlay.Show(STRINGS.UI.MP_OVERLAY.HOST.SEND_SAVE_FILE);
 			SendSaveFile(Requester);
 		}
 

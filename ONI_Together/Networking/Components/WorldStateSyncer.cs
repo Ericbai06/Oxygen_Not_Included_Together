@@ -56,6 +56,9 @@ namespace ONI_Together.Networking.Components
 			_pinnedAreas.Clear();
 		}
 
+		/// <summary>
+		/// All the connected players viewports as updated by their Player Cursor Packet
+		/// </summary>
 		private readonly Dictionary<ulong, RectInt> _clientViewports = new Dictionary<ulong, RectInt>();
 
 		private void Awake()
@@ -65,12 +68,12 @@ namespace ONI_Together.Networking.Components
 			Instance = this;
 		}
 
-		public void UpdateClientView(ulong steamId, int minX, int minY, int maxX, int maxY)
+		public void UpdateClientView(ulong userId, int minX, int minY, int maxX, int maxY)
 		{
 			using var _ = Profiler.Scope();
 
 			// Update or add
-			_clientViewports[steamId] = new RectInt(minX, minY, maxX - minX, maxY - minY);
+			_clientViewports[userId] = new RectInt(minX, minY, maxX - minX, maxY - minY);
 		}
 
 		public void GetClientsViewingCell(int cell, HashSet<ulong> recipients, int margin = 2)
@@ -107,7 +110,45 @@ namespace ONI_Together.Networking.Components
 			return recipients.Count > 0;
 		}
 
-		public static bool TryGetLocalViewport(out RectInt viewport, int margin = 2)
+		/// <summary>
+		/// Uses the existing _clientViewports list to check if it is visible
+		/// </summary>
+        public bool IsCellInPlayerViewport(ulong userId, int cell, int margin = 2)
+        {
+            if (!_clientViewports.TryGetValue(userId, out var rect))
+                return false;
+            Grid.CellToXY(cell, out int x, out int y);
+            return x >= rect.xMin - margin && x < rect.xMax + margin &&
+                   y >= rect.yMin - margin && y < rect.yMax + margin;
+        }
+
+		/// <summary>
+		/// Uses the existing _clientViewports list to check if it is visible
+		/// </summary>
+        public bool IsCellVisibleToAnyClientViewport(int cell, int margin = 2)
+        {
+            if (!Grid.IsValidCell(cell)) return false;
+            Grid.CellToXY(cell, out int x, out int y);
+            foreach (var kvp in _clientViewports)
+            {
+                if (!MultiplayerSession.ConnectedPlayers.TryGetValue(kvp.Key, out var player) || player.Connection == null)
+                    continue;
+                var rect = kvp.Value;
+                if (x >= rect.xMin - margin && x < rect.xMax + margin &&
+                    y >= rect.yMin - margin && y < rect.yMax + margin)
+                    return true;
+            }
+            return false;
+        }
+
+        public static bool IsCellInRect(int cell, RectInt rect, int margin = 2)
+        {
+            Grid.CellToXY(cell, out int x, out int y);
+            return x >= rect.xMin - margin && x < rect.xMax + margin &&
+                   y >= rect.yMin - margin && y < rect.yMax + margin;
+        }
+
+        public static bool TryGetLocalViewport(out RectInt viewport, int margin = 2)
 		{
 			using var _ = Profiler.Scope();
 

@@ -19,6 +19,11 @@ namespace ONI_Together.Networking
 
 		public static ulong LocalUserID => NetworkConfig.GetLocalID();
 
+		[System.Obsolete] //Keep for api compatibility
+		public static ulong LocalSteamID => LocalUserID;
+		[System.Obsolete] //Keep for api compatibility
+		public static ulong HostSteamID => HostUserID;
+
 		public static ulong HostUserID { get; set; } = Utils.NilUlong();
 
 		public static string ServerIp { get; set; } = "127.0.0.1";
@@ -28,7 +33,7 @@ namespace ONI_Together.Networking
 		public static bool SessionHasPlayers => InSession && ConnectedPlayers.Count > 1;
 		public static bool NotInSession => !InSession;
 
-		public static bool IsHost = false; //HostUserID == LocalUserID;
+		public static bool IsHost { get; set; } //HostUserID == LocalUserID;
 
 		public static bool IsClient => InSession && !IsHost;
 

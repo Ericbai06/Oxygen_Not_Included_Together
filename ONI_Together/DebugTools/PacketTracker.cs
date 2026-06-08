@@ -23,23 +23,29 @@ namespace ONI_Together.DebugTools
         private string outgoing_filter = string.Empty;
         private string incoming_filter = string.Empty;
 
-        // Used for imgui packet tracking
         public struct PacketTrackData
         {
             public IPacket packet;
             public int size;
             public int TrackId;
+            public float Timestamp;
         }
 
-        private List<PacketTrackData> incoming_tracked = new List<PacketTrackData>();
-        private List<PacketTrackData> outgoing_tracked = new List<PacketTrackData>();
-        private const int MAX_TRACKED_LIMIT = 100;
+        private const int BUFFER_CAPACITY = 50000;
+        private PacketTrackData[] _incomingBuf = new PacketTrackData[BUFFER_CAPACITY];
+        private PacketTrackData[] _outgoingBuf = new PacketTrackData[BUFFER_CAPACITY];
+        private int _incomingHead;
+        private int _outgoingHead;
+        private int _incomingCount;
+        private int _outgoingCount;
 
-        private int incoming_count;
-        private int outgoing_count;
-        private float incoming_pps;
-        private float outgoing_pps;
-        private float last_pps_time;
+        private int _ppsInCount;
+        private int _ppsOutCount;
+        private float _incomingPps;
+        private float _outgoingPps;
+        private float _lastPpsTime;
+
+        private bool _paused;
 
         private class InspectWindowState
         {
@@ -53,164 +59,135 @@ namespace ONI_Together.DebugTools
         public static PacketTracker Init()
         {
             using var _ = Profiler.Scope();
-
-            if (_instance != null)
-                return _instance;
-
+            if (_instance != null) return _instance;
             _instance = new PacketTracker();
             return _instance;
         }
 
+        private static void BufferAdd(PacketTrackData[] buf, ref int head, ref int count, PacketTrackData data)
+        {
+            buf[head] = data;
+            head = (head + 1) % BUFFER_CAPACITY;
+            if (count < BUFFER_CAPACITY) count++;
+        }
+
+        private static PacketTrackData BufferGet(PacketTrackData[] buf, int head, int count, int index)
+        {
+            int idx = (head - 1 - index + BUFFER_CAPACITY) % BUFFER_CAPACITY;
+            return buf[idx];
+        }
+
         public static void TrackSent(PacketTrackData data)
         {
-            using var _ = Profiler.Scope();
-
+            if (_instance._paused) return;
             data.TrackId = _instance._nextTrackId++;
-            _instance.outgoing_tracked.Add(data);
-            _instance.outgoing_count++;
-
-            if (_instance.outgoing_tracked.Count > MAX_TRACKED_LIMIT)
-            {
-                int overflow = _instance.outgoing_tracked.Count - MAX_TRACKED_LIMIT;
-                _instance.outgoing_tracked.RemoveRange(0, overflow);
-            }
-
+            data.Timestamp = Time.realtimeSinceStartup;
+            BufferAdd(_instance._outgoingBuf, ref _instance._outgoingHead, ref _instance._outgoingCount, data);
+            _instance._ppsOutCount++;
         }
 
         public static void TrackIncoming(PacketTrackData data)
         {
-            using var _ = Profiler.Scope();
-
+            if (_instance._paused) return;
             data.TrackId = _instance._nextTrackId++;
-            _instance.incoming_tracked.Add(data);
-            _instance.incoming_count++;
-
-            if (_instance.incoming_tracked.Count > MAX_TRACKED_LIMIT)
-            {
-                int overflow = _instance.incoming_tracked.Count - MAX_TRACKED_LIMIT;
-                _instance.incoming_tracked.RemoveRange(0, overflow);
-            }
+            data.Timestamp = Time.realtimeSinceStartup;
+            BufferAdd(_instance._incomingBuf, ref _instance._incomingHead, ref _instance._incomingCount, data);
+            _instance._ppsInCount++;
         }
 
         public void Clear()
         {
             using var _ = Profiler.Scope();
-
-            _instance.outgoing_tracked.Clear();
-            _instance.incoming_tracked.Clear();
-            _instance.outgoing_count = 0;
-            _instance.incoming_count = 0;
-            _instance.incoming_pps = 0;
-            _instance.outgoing_pps = 0;
+            _instance._incomingHead = 0;
+            _instance._outgoingHead = 0;
+            _instance._incomingCount = 0;
+            _instance._outgoingCount = 0;
+            _instance._ppsInCount = 0;
+            _instance._ppsOutCount = 0;
+            _instance._incomingPps = 0;
+            _instance._outgoingPps = 0;
             _instance._inspectWindows.Clear();
+            _paused = false;
         }
 
-        private void CalculatePPS()
+        private void CalculatePps()
         {
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            float elapsed = now - last_pps_time;
-
+            float now = Time.realtimeSinceStartup;
+            float elapsed = now - _lastPpsTime;
             if (elapsed >= 1f)
             {
-                incoming_pps = incoming_count / elapsed;
-                outgoing_pps = outgoing_count / elapsed;
-                incoming_count = 0;
-                outgoing_count = 0;
-                last_pps_time = now;
+                _incomingPps = _ppsInCount / elapsed;
+                _outgoingPps = _ppsOutCount / elapsed;
+                _ppsInCount = 0;
+                _ppsOutCount = 0;
+                _lastPpsTime = now;
             }
         }
 
         public void Toggle()
         {
-            using var _ = Profiler.Scope();
-
             showWindow = !showWindow;
         }
 
         public void ShowWindow()
         {
-            using var _ = Profiler.Scope();
-
-            if (!showWindow)
-                return;
-
+            if (!showWindow) return;
             if (ImGui.Begin("Packet Tracker", ref showWindow))
             {
-                if (!MultiplayerSession.InSession)
-                {
-                    if (outgoing_tracked.Count > 0)
-                        Clear();
-
-                    ImGui.TextDisabled("Not in a session!");
-                }
-                else
-                {
-                    CalculatePPS();
-                    ImGui.Text($"In: {incoming_pps:F1} pps   Out: {outgoing_pps:F1} pps");
-                    if (ImGui.CollapsingHeader("Incoming Packets"))
-                    {
-                        ImGui.InputText("Filter", ref incoming_filter, 64);
-                        ImGui.Separator();
-
-                        AddTable("incoming_packets_table", incoming_tracked, incoming_filter);
-                    }
-
-                    if (ImGui.CollapsingHeader("Outgoing Packets"))
-                    {
-                        ImGui.InputText("Filter", ref outgoing_filter, 64);
-                        ImGui.Separator();
-
-                        AddTable("outgoing_packets_table", outgoing_tracked, outgoing_filter);
-                    }
-
-                    DrawInspectWindows();
-                }
+                DrawContent();
             }
-
             ImGui.End();
         }
 
         public void ShowInTab()
         {
-            using var _ = Profiler.Scope();
+            DrawContent();
+        }
 
+        private void DrawContent()
+        {
             if (!MultiplayerSession.InSession)
             {
-                if (outgoing_tracked.Count > 0)
+                if (_incomingCount > 0 || _outgoingCount > 0)
                     Clear();
-
                 ImGui.TextDisabled("Not in a session!");
                 return;
             }
 
-            CalculatePPS();
-            ImGui.Text($"In: {incoming_pps:F1} pps   Out: {outgoing_pps:F1} pps");
+            CalculatePps();
+
+            // Top bar
+            float lw = ImGui.GetContentRegionAvail().x;
+            ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f),
+                $"{_incomingPps:F1}/s");
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f),
+                $"{_outgoingPps:F1}/s");
+            ImGui.SameLine();
+            float textW = ImGui.CalcTextSize("Tracked: 50000/50000").x + 30;
+            ImGui.Text($"  Tracked: {_incomingCount + _outgoingCount}");
+            ImGui.SameLine(lw - textW);
+            if (ImGui.Button(_paused ? "Resume" : "Pause"))
+                _paused = !_paused;
+            ImGui.SameLine();
+            if (ImGui.Button("Clear"))
+                Clear();
             ImGui.Separator();
 
-            if (ImGui.CollapsingHeader("Incoming Packets", ImGuiTreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Incoming Packets##in_hdr", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                ImGui.InputText("Filter##Incoming", ref incoming_filter, 64);
+                ImGui.InputText("Filter##InFilter", ref incoming_filter, 64);
                 ImGui.Separator();
-
-                AddTable(
-                    "incoming_packets_table_tab",
-                    incoming_tracked,
-                    incoming_filter
-                );
+                DrawTable("in_table", _incomingBuf, _incomingHead, _incomingCount, incoming_filter);
             }
 
             ImGui.Separator();
 
-            if (ImGui.CollapsingHeader("Outgoing Packets", ImGuiTreeNodeFlags.DefaultOpen))
+            if (ImGui.CollapsingHeader($"Outgoing Packets##out_hdr", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                ImGui.InputText("Filter##Outgoing", ref outgoing_filter, 64);
+                ImGui.InputText("Filter##OutFilter", ref outgoing_filter, 64);
                 ImGui.Separator();
-
-                AddTable(
-                    "outgoing_packets_table_tab",
-                    outgoing_tracked,
-                    outgoing_filter
-                );
+                DrawTable("out_table", _outgoingBuf, _outgoingHead, _outgoingCount, outgoing_filter);
             }
 
             DrawInspectWindows();
@@ -233,7 +210,6 @@ namespace ONI_Together.DebugTools
             foreach (var win in _inspectWindows)
             {
                 if (!win.Open) continue;
-
                 var data = win.Data;
                 if (data.packet == null) { win.Open = false; continue; }
 
@@ -293,7 +269,6 @@ namespace ONI_Together.DebugTools
                                 ImGui.TextDisabled("?");
                             }
                         }
-
                         ImGui.EndTable();
                     }
                 }
@@ -301,57 +276,64 @@ namespace ONI_Together.DebugTools
             }
         }
 
-        private void AddTable(string str_id, List<PacketTrackData> dataset, string filter)
+        private void DrawTable(string id, PacketTrackData[] buf, int head, int count, string filter)
         {
-            using var _ = Profiler.Scope();
+            bool hasFilter = !string.IsNullOrEmpty(filter);
 
-            if (ImGui.BeginTable(str_id, 3,
-                    ImGuiTableFlags.Borders |
-                    ImGuiTableFlags.RowBg |
-                    ImGuiTableFlags.ScrollY, new Vector2(0, 400)))
+            if (ImGui.BeginTable(id, 4,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
+                new Vector2(0, 350)))
             {
-                ImGui.TableSetupColumn("Packet Type");
-                ImGui.TableSetupColumn("Packet ID");
-                ImGui.TableSetupColumn("Size (bytes)");
-
+                ImGui.TableSetupColumn("#", ImGuiTableColumnFlags.WidthFixed, 32);
+                ImGui.TableSetupColumn("Packet Type", ImGuiTableColumnFlags.WidthStretch);
+                ImGui.TableSetupColumn("Size", ImGuiTableColumnFlags.WidthFixed, 60);
+                ImGui.TableSetupColumn("Age", ImGuiTableColumnFlags.WidthFixed, 50);
                 ImGui.TableHeadersRow();
 
-                for (int i = dataset.Count - 1; i >= 0; i--)
+                for (int i = 0; i < count; i++)
                 {
-                    var entry = dataset[i];
+                    var entry = BufferGet(buf, head, count, i);
 
-                    string typeName = entry.packet.GetType().Name;
-                    string idString = entry.packet.GetType().GetHashCode().ToString();
-
-                    if (!string.IsNullOrEmpty(filter))
+                    if (hasFilter)
                     {
-                        bool matchesType =
-                            typeName.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        bool matchesId =
-                            idString.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        if (!matchesType && !matchesId)
-                            continue;
+                        string typeName = entry.packet.GetType().Name;
+                        string idStr = entry.packet.GetType().GetHashCode().ToString();
+                        bool match = typeName.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0
+                                  || idStr.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0;
+                        if (!match) continue;
                     }
 
-                    ImGui.TableNextRow();
-
-                    ImGui.TableNextColumn();
-                    ImGui.PushID(entry.TrackId);
-                    if (ImGui.Selectable(typeName, false, ImGuiSelectableFlags.SpanAllColumns))
-                    {
-                        OpenInspectWindow(entry);
-                    }
-                    ImGui.PopID();
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(idString);
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(Utils.FormatBytes(entry.size));
+                    DrawRow(entry, i);
                 }
 
                 ImGui.EndTable();
             }
+        }
+
+        private void DrawRow(PacketTrackData entry, int index)
+        {
+            ImGui.TableNextRow();
+
+            ImGui.TableNextColumn();
+            ImGui.TextDisabled($"{index + 1}");
+
+            ImGui.TableNextColumn();
+            ImGui.PushID(entry.TrackId);
+            if (ImGui.Selectable(entry.packet.GetType().Name, false, ImGuiSelectableFlags.SpanAllColumns))
+                OpenInspectWindow(entry);
+            ImGui.PopID();
+
+            ImGui.TableNextColumn();
+            ImGui.Text(Utils.FormatBytes(entry.size));
+
+            ImGui.TableNextColumn();
+            float age = Time.realtimeSinceStartup - entry.Timestamp;
+            if (age < 1f)
+                ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), $"{age * 1000:F0}ms");
+            else if (age < 60f)
+                ImGui.Text($"{age:F1}s");
+            else
+                ImGui.Text($"{age / 60:F1}m");
         }
 
         private static string GetFriendlyTypeName(Type type)

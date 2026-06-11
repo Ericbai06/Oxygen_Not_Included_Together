@@ -9,6 +9,9 @@ namespace ONI_Together.Networking.Components
 {
     public class EntityStatusBroadcaster : KMonoBehaviour, IRender200ms
     {
+        public static readonly HashSet<int> SubscribedNetIds = new();
+        public static readonly HashSet<int> PendingImmediate = new();
+
         private const float SoftSyncInterval = 0.5f;
         private const float HardSyncInterval = 10f;
 
@@ -35,14 +38,14 @@ namespace ONI_Together.Networking.Components
             timeSinceLastSoftSync += dt;
             timeSinceHardSync += dt;
 
-            int cell = Grid.PosToCell(transform.position);
-            bool isVisible = WorldStateSyncer.Instance.IsCellVisibleToAnyClientViewport(cell, margin: 4);
-            bool doSoftSync = isVisible && timeSinceLastSoftSync >= SoftSyncInterval;
+            bool isSubscribed = SubscribedNetIds.Contains(identity.NetId);
+            bool doSoftSync = isSubscribed && timeSinceLastSoftSync >= SoftSyncInterval;
             bool doHardSync = timeSinceHardSync >= HardSyncInterval;
+            bool immediate = PendingImmediate.Remove(identity.NetId);
 
-            if (doSoftSync || doHardSync)
+            if (immediate || doSoftSync || doHardSync)
             {
-                if (doSoftSync) timeSinceLastSoftSync = 0f;
+                if (doSoftSync || immediate) timeSinceLastSoftSync = 0f;
                 if (doHardSync) timeSinceHardSync = 0f;
 
                 try
@@ -59,6 +62,10 @@ namespace ONI_Together.Networking.Components
         private void BroadcastSnapshot()
         {
             using var _ = Profiler.Scope();
+
+            int cell = Grid.PosToCell(transform.position);
+            if (!WorldStateSyncer.Instance.IsCellVisibleToAnyClientViewport(cell, margin: 4))
+                return;
 
             var group = selectable.GetStatusItemGroup();
             if (group == null) return;

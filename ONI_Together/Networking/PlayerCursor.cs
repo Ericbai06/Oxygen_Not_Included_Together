@@ -35,6 +35,7 @@ namespace ONI_Together.Networking
 
 		public PlayerBuildingVisualizer buildingVisualiser = new PlayerBuildingVisualizer();
 		public PlayerAreaVisualizer areaVisualizer = new PlayerAreaVisualizer();
+		public PlayerUtilityVisualizer utilityVisualizer = new PlayerUtilityVisualizer();
 
         private readonly Dictionary<CursorState, float> cursorActionThresholds = new Dictionary<CursorState, float>()
 				{
@@ -143,6 +144,7 @@ namespace ONI_Together.Networking
 		public void RemoveBuildingVisualizer()
 		{
             buildingVisualiser.UpdateVisualizer(string.Empty, Vector3.zero, Orientation.Neutral, Color.white, false); // Flag visualizer for removal
+			utilityVisualizer.ClearPath(); // Also clear utility path preview
         }
 
 		public void RemoveAreaVisualizer()

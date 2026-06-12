@@ -117,6 +117,11 @@ namespace ONI_Together.Networking.Components
             string buildToolPrefabId = string.Empty;
             Orientation buildingOrientation = Orientation.Neutral;
             bool allowedToPlaceBuilding = true;
+
+            // Utility path visualizer
+            bool hasUtilityPath = false;
+            int[] utilityPathCells = null;
+            bool[] utilityPathValidity = null;
             
 			if (interfaceTool is BuildTool buildTool)
 			{
@@ -133,6 +138,19 @@ namespace ONI_Together.Networking.Components
 				{
 					buildToolPrefabId = utilityBuildTool.def.PrefabID;
 					allowedToPlaceBuilding = utilityBuildTool.CheckValidPathPiece(Grid.PosToCell(cursorWorldPos));
+
+					var path = utilityBuildTool.path;
+					if (path != null && path.Count > 0)
+					{
+						hasUtilityPath = true;
+						utilityPathCells = new int[path.Count];
+						utilityPathValidity = new bool[path.Count];
+						for (int i = 0; i < path.Count; i++)
+						{
+							utilityPathCells[i] = path[i].cell;
+							utilityPathValidity[i] = path[i].valid;
+						}
+					}
 				}
 			}
 
@@ -182,7 +200,11 @@ namespace ONI_Together.Networking.Components
 				Dragging = dragging,
                 AreaDownPos = areaDownPos,
 				DragMode = dragMode,
-				LengthLimit = lengthLimit
+				LengthLimit = lengthLimit,
+
+				HasUtilityPath = hasUtilityPath,
+				UtilityPathCells = utilityPathCells,
+				UtilityPathValidity = utilityPathValidity
             };
 
 			if (MultiplayerSession.IsHost)

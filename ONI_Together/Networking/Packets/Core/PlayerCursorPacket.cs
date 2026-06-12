@@ -30,6 +30,11 @@ namespace ONI_Together.Networking.Packets.Core
 		public DragTool.Mode DragMode = DragTool.Mode.Box;
 		public Vector2 LengthLimit = Vector2.zero;
 
+        // Utility path visualizer
+        public bool HasUtilityPath = false;
+        public int[] UtilityPathCells;
+        public bool[] UtilityPathValidity;
+
         // Viewport for targeted sync
         public int ViewMinX, ViewMinY, ViewMaxX, ViewMaxY;
 
@@ -52,6 +57,9 @@ namespace ONI_Together.Networking.Packets.Core
             if (Dragging)
                 flags |= 1 << 11;
 
+            if (HasUtilityPath)
+                flags |= 1 << 12;
+
             writer.Write(flags);
 
             uint viewMin = ((uint)(ushort)ViewMinX << 16) | (ushort)ViewMinY;
@@ -66,6 +74,17 @@ namespace ONI_Together.Networking.Packets.Core
             {
                 writer.Write(AreaDownPos);
                 writer.Write(LengthLimit);
+            }
+
+            if (HasUtilityPath)
+            {
+                ushort pathCount = (ushort)Mathf.Min(UtilityPathCells.Length, ushort.MaxValue);
+                writer.Write(pathCount);
+                for (int i = 0; i < pathCount; i++)
+                {
+                    writer.Write(UtilityPathCells[i]);
+                    writer.Write(UtilityPathValidity != null && i < UtilityPathValidity.Length && UtilityPathValidity[i]);
+                }
             }
         }
 
@@ -83,6 +102,7 @@ namespace ONI_Together.Networking.Packets.Core
             DragMode = (DragTool.Mode)((flags >> 7) & 0x7);
             BuildingAllowed = (flags & (1 << 10)) != 0;
             Dragging = (flags & (1 << 11)) != 0;
+            HasUtilityPath = (flags & (1 << 12)) != 0;
 
             uint viewMin = reader.ReadUInt32();
             uint viewMax = reader.ReadUInt32();
@@ -99,6 +119,23 @@ namespace ONI_Together.Networking.Packets.Core
             {
                 AreaDownPos = reader.ReadVector3();
                 LengthLimit = reader.ReadVector2();
+            }
+
+            if (HasUtilityPath)
+            {
+                ushort pathCount = reader.ReadUInt16();
+                UtilityPathCells = new int[pathCount];
+                UtilityPathValidity = new bool[pathCount];
+                for (int i = 0; i < pathCount; i++)
+                {
+                    UtilityPathCells[i] = reader.ReadInt32();
+                    UtilityPathValidity[i] = reader.ReadBoolean();
+                }
+            }
+            else
+            {
+                UtilityPathCells = null;
+                UtilityPathValidity = null;
             }
         }
 
@@ -164,6 +201,7 @@ namespace ONI_Together.Networking.Packets.Core
 		{
 			cursor.buildingVisualiser.UpdateVisualizer(BuildingPrefabId, position, BuildingOrientation, Color, BuildingAllowed);
 			cursor.areaVisualizer.UpdateArea(Color, AreaDownPos, Position, Dragging, DragMode, LengthLimit);
+			cursor.utilityVisualizer.UpdatePath(BuildingPrefabId, UtilityPathCells, UtilityPathValidity, Color);
 		}
 
 	}

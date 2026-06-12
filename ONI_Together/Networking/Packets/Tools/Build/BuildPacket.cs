@@ -21,19 +21,21 @@ namespace ONI_Together.Networking.Packets.Tools.Build
         private List<string> MaterialTags = new List<string>();
         private PrioritySetting Priority;
         private ObjectLayer ObjectLayer;
+        private bool InstantBuild;
 
         public BuildPacket()
         {
         }
 
-        public BuildPacket(string prefabID, int cell, Orientation orientation, IEnumerable<Tag> materials, ObjectLayer objectLayer)
+        public BuildPacket(string prefabID, int cell, Orientation orientation, IEnumerable<Tag> materials, ObjectLayer objectLayer, bool instantBuild = false)
         {
             using var _ = Profiler.Scope();
 
             PrefabID = prefabID;
             Cell = cell;
-            Orientation  = orientation;
+            Orientation = orientation;
             MaterialTags = materials.Select(t => t.ToString()).ToList();
+            InstantBuild = instantBuild;
 
             if (PlanScreen.Instance)
                 Priority = PlanScreen.Instance.GetBuildingPriority();
@@ -56,6 +58,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
             writer.Write(Priority.priority_value);
 
             writer.Write((int)ObjectLayer);
+            writer.Write(InstantBuild);
         }
 
         public void Deserialize(BinaryReader reader)
@@ -78,7 +81,8 @@ namespace ONI_Together.Networking.Packets.Tools.Build
                 MaterialTags.Add(reader.ReadString());
 
             Priority = new PrioritySetting((PriorityScreen.PriorityClass)reader.ReadInt32(), reader.ReadInt32());
-            ObjectLayer = (ObjectLayer) reader.ReadInt32();
+            ObjectLayer = (ObjectLayer)reader.ReadInt32();
+            InstantBuild = reader.ReadBoolean();
         }
 
         public void OnDispatched()
@@ -97,32 +101,102 @@ namespace ONI_Together.Networking.Packets.Tools.Build
                 DebugConsole.LogWarning($"[BuildPacket] Unknown building def: {PrefabID}");
                 return;
             }
-			var selected_elements = MaterialTags.Select(t => TagManager.Create(t)).ToList();
-            Vector3 pos  = Grid.CellToPosCBC(Cell, Grid.SceneLayer.Building);
-            GameObject visualizer = Util.KInstantiate(def.BuildingPreview, pos);
 
-            GameObject builtItem = def.TryPlace(visualizer, pos, Orientation, selected_elements, "DEFAULT_FACADE"); // Build like normal;
-            if (builtItem == null && def.ReplacementLayer != ObjectLayer.NumLayers) // Handle replacement
-            {
-                GameObject replacementCanidate = def.GetReplacementCandidate(Cell);
-                if (replacementCanidate != null && !def.IsReplacementLayerOccupied(Cell))
-                {
-                    BuildingComplete component = replacementCanidate.GetComponent<BuildingComplete>();
-                    if (component != null && component.Def.Replaceable && def.CanReplace(replacementCanidate))
-                    {
-                        Tag tag = replacementCanidate.GetComponent<PrimaryElement>().Element.tag;
-                        if (tag.GetHash() == (int)SimHashes.StableSnow)
-                            tag = SimHashes.Snow.CreateTag();
-                        if (component.Def != def || selected_elements[0] != tag)
-                        {
-                            builtItem = def.TryReplaceTile(visualizer, pos, Orientation, selected_elements, "DEFAULT_FACADE");
-                            Grid.Objects[Cell, (int)def.ReplacementLayer] = builtItem;
-                        }
-                    }
-                }
-            }
+            var selected_elements = MaterialTags.Select(t => TagManager.Create(t)).ToList();
+            Vector3 pos = Grid.CellToPosCBC(Cell, Grid.SceneLayer.Building);
+
+            GameObject builtItem;
+            if (InstantBuild)
+                builtItem = InstantBuildBuilding(def, selected_elements, pos);
+            else
+                builtItem = QueueBuild(def, selected_elements, pos);
+
+            if (builtItem == null && def.ReplacementLayer != ObjectLayer.NumLayers)
+                builtItem = HandleReplacementInstant(def, pos, selected_elements) ?? HandleReplacementQueued(def, pos, selected_elements);
+
             SetPriority(builtItem);
             DebugConsole.Log("[BuildPacket] Built item " + def);
+        }
+
+        private GameObject QueueBuild(BuildingDef def, List<Tag> selected_elements, Vector3 pos)
+        {
+            GameObject visualizer = Util.KInstantiate(def.BuildingPreview, pos);
+            return def.TryPlace(visualizer, pos, Orientation, selected_elements, "DEFAULT_FACADE");
+        }
+
+        private GameObject HandleReplacementQueued(BuildingDef def, Vector3 pos, List<Tag> selected_elements)
+        {
+            GameObject replacementCandidate = def.GetReplacementCandidate(Cell);
+            if (replacementCandidate == null || def.IsReplacementLayerOccupied(Cell))
+                return null;
+
+            BuildingComplete component = replacementCandidate.GetComponent<BuildingComplete>();
+            if (component == null || !component.Def.Replaceable || !def.CanReplace(replacementCandidate))
+                return null;
+
+            Tag tag = replacementCandidate.GetComponent<PrimaryElement>().Element.tag;
+            if (tag.GetHash() == (int)SimHashes.StableSnow)
+                tag = SimHashes.Snow.CreateTag();
+            if (component.Def == def && selected_elements[0] == tag)
+                return null;
+
+            GameObject visualizer = Util.KInstantiate(def.BuildingPreview, pos);
+            GameObject builtItem = def.TryReplaceTile(visualizer, pos, Orientation, selected_elements, "DEFAULT_FACADE");
+            Grid.Objects[Cell, (int)def.ReplacementLayer] = builtItem;
+            return builtItem;
+        }
+
+        private GameObject InstantBuildBuilding(BuildingDef def, List<Tag> selected_elements, Vector3 pos)
+        {
+            if (!def.IsValidBuildLocation(null, pos, Orientation) || !def.IsValidPlaceLocation(null, pos, Orientation, out _))
+                return null;
+
+            if (def.ObjectLayer == ObjectLayer.Building)
+            {
+                def.RunOnArea(Cell, Orientation, offset_cell =>
+                {
+                    if (Uprootable.CanUproot(Grid.Objects[offset_cell, (int)def.ObjectLayer], out var uprootable))
+                        uprootable.CompleteWork(null);
+                });
+            }
+            else if (def.ObjectLayer == ObjectLayer.Backwall)
+            {
+                def.RunOnArea(Cell, Orientation, offset_cell =>
+                {
+                    if (BackwallManager.HasBackwall(offset_cell))
+                        SimMessages.Dig(offset_cell, -1, skipEvent: true, backwall: true);
+                });
+            }
+
+            float temp = Mathf.Min(def.Temperature, ElementLoader.GetMinMeltingPointAmongElements(selected_elements) - 10f);
+            return def.Build(Cell, Orientation, null, selected_elements, temp, "DEFAULT_FACADE", playsound: false, GameClock.Instance.GetTime());
+        }
+
+        private GameObject HandleReplacementInstant(BuildingDef def, Vector3 pos, List<Tag> selected_elements)
+        {
+            if (!InstantBuild)
+                return null;
+
+            GameObject replacementCandidate = def.GetReplacementCandidate(Cell);
+            if (replacementCandidate == null || def.IsReplacementLayerOccupied(Cell))
+                return null;
+
+            BuildingComplete component = replacementCandidate.GetComponent<BuildingComplete>();
+            if (component == null || !component.Def.Replaceable || !def.CanReplace(replacementCandidate))
+                return null;
+
+            Tag tag = replacementCandidate.GetComponent<PrimaryElement>().Element.tag;
+            if (tag.GetHash() == (int)SimHashes.StableSnow)
+                tag = SimHashes.Snow.CreateTag();
+            if (component.Def == def && selected_elements[0] == tag)
+                return null;
+
+            if (!def.IsValidBuildLocation(null, pos, Orientation, replace_tile: true) ||
+                !def.IsValidPlaceLocation(null, pos, Orientation, replace_tile: true, out _))
+                return null;
+
+            float temp = Mathf.Min(def.Temperature, ElementLoader.GetMinMeltingPointAmongElements(selected_elements) - 10f);
+            return def.Build(Cell, Orientation, null, selected_elements, temp, "DEFAULT_FACADE", playsound: false, GameClock.Instance.GetTime());
         }
 
         private void SetPriority(GameObject gameObject)
@@ -132,13 +206,6 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 
             Prioritizable prioritizable = gameObject?.GetComponent<Prioritizable>();
             prioritizable?.SetMasterPriority(Priority);
-        }
-
-        // TODO: Implement later when sandbox eventually gets done
-        private void InstantBuild(BuildingDef def, List<Tag> selected_elements)
-        {
-            if (def == null) return;
-            def.Build(Cell, Orientation, null, selected_elements, 295f, "DEFAULT_FACADE", playsound: false, GameClock.Instance.GetTime());
         }
 
     }

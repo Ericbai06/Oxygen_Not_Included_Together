@@ -57,13 +57,14 @@ namespace ONI_Together.Patches.ToolPatches.Build
                     DebugConsole.Log($"[BuildTool] Placed intention/ghost for {def.PrefabID} at cell {cell}");
                 }
 
-                // Create and send packet
+                bool instantBuild = DebugHandler.InstantBuildMode || (Game.Instance.SandboxModeActive && SandboxToolParameterMenu.instance.settings.InstantBuild);
                 var packet = new BuildPacket(
                     def.PrefabID,
                     cell,
                     orientation,
                     selectedElements,
-                    def.ObjectLayer
+                    def.ObjectLayer,
+                    instantBuild
                 );
 
                 PacketSender.SendToAllOtherPeers(packet);

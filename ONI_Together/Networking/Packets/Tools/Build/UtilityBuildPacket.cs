@@ -26,6 +26,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 		public List<string> MaterialTags = [];
 		public string PrefabID, FacadeID;
 		public PrioritySetting Priority;
+		public bool InstantBuild;
 
 		static void SerializePathNode(ref BinaryWriter writer, ref BaseUtilityBuildTool.PathNode node)
 		{
@@ -48,7 +49,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 
 		public UtilityBuildPacket() { }
 
-		public UtilityBuildPacket(string prefabId, List<BaseUtilityBuildTool.PathNode> nodes, List<string> mats, string skin)
+		public UtilityBuildPacket(string prefabId, List<BaseUtilityBuildTool.PathNode> nodes, List<string> mats, string skin, bool instantBuild = false)
 		{
 			using var _ = Profiler.Scope();
 
@@ -56,6 +57,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			path = nodes ?? [];
 			MaterialTags = mats ?? [];
 			FacadeID = skin ?? string.Empty;
+			InstantBuild = instantBuild;
 
 			if (PlanScreen.Instance)
 				Priority = PlanScreen.Instance.GetBuildingPriority();
@@ -85,6 +87,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			}
 			writer.Write((int)Priority.priority_class);
 			writer.Write(Priority.priority_value);
+			writer.Write(InstantBuild);
 		}
 
 
@@ -139,6 +142,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 					(PriorityScreen.PriorityClass)reader.ReadInt32(),
 					reader.ReadInt32());
 			//DebugConsole.Log("[UtilityBuildPacket] Priority read successfully: " + Priority.priority_class+" - "+Priority.priority_value);
+			InstantBuild = reader.ReadBoolean();
 		}
 
 		public void OnDispatched()
@@ -190,6 +194,8 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			tool.conduitMgr = conduitManagerHaver.GetNetworkManager();
 
 			ProcessingIncoming = true;
+			bool cachedInstantBuildMode = DebugHandler.InstantBuildMode;
+			DebugHandler.InstantBuildMode = InstantBuild;
 			try
 			{
 				//DebugConsole.Log($"[UtilityBuildPacket] Building path with {path.Count} nodes of prefab {def.PrefabID}");
@@ -211,6 +217,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			}
 			finally
 			{
+				DebugHandler.InstantBuildMode = cachedInstantBuildMode;
 				ProcessingIncoming = false;
 				tool.def = cachedDef;
 				tool.path = cachedPath;

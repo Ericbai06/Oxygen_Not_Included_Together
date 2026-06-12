@@ -151,7 +151,7 @@ namespace ONI_Together.Misc
 
             while (pos < count)
             {
-                int chunkEnd = pos + 13;
+                int chunkEnd = pos + UP_MAX_CELLS_PER_CHUNK;
                 if (chunkEnd > count)
                     chunkEnd = count;
 
@@ -166,7 +166,7 @@ namespace ONI_Together.Misc
                 int segmentCount = 0;
                 int i = pos + 1;
 
-                while (i < chunkEnd && segmentCount < 3)
+                while (i < chunkEnd && segmentCount < UP_MAX_SEGMENTS)
                 {
                     int from = path[i - 1].cell;
                     int to = path[i].cell;
@@ -182,7 +182,7 @@ namespace ONI_Together.Misc
 
                     int len = 1;
                     i++;
-                    while (i < chunkEnd && len < 4)
+                    while (i < chunkEnd && len < UP_MAX_LEN_PER_SEG)
                     {
                         int prev = path[i - 1].cell;
                         int curr = path[i].cell;
@@ -192,8 +192,8 @@ namespace ONI_Together.Misc
                         i++;
                     }
 
-                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << 2);
-                    segmentsPacked |= seg << (segmentCount * 4);
+                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << UP_SEG_COUNT_BITS);
+                    segmentsPacked |= seg << (segmentCount * UP_MAX_LEN_PER_SEG);
                     segmentCount++;
                 }
 
@@ -246,7 +246,7 @@ namespace ONI_Together.Misc
 
             while (pos < count)
             {
-                int chunkEnd = pos + 13;
+                int chunkEnd = pos + UP_MAX_CELLS_PER_CHUNK;
                 if (chunkEnd > count)
                     chunkEnd = count;
 
@@ -264,7 +264,7 @@ namespace ONI_Together.Misc
                 int segmentCount = 0;
                 int i = pos + 1;
 
-                while (i < chunkEnd && segmentCount < 3)
+                while (i < chunkEnd && segmentCount < UP_MAX_SEGMENTS)
                 {
                     int from = path[i - 1].cell;
                     int to = path[i].cell;
@@ -280,7 +280,7 @@ namespace ONI_Together.Misc
 
                     int len = 1;
                     i++;
-                    while (i < chunkEnd && len < 4)
+                    while (i < chunkEnd && len < UP_MAX_LEN_PER_SEG)
                     {
                         int prev = path[i - 1].cell;
                         int curr = path[i].cell;
@@ -290,8 +290,8 @@ namespace ONI_Together.Misc
                         i++;
                     }
 
-                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << 2);
-                    segmentsPacked |= seg << (segmentCount * 4);
+                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << UP_SEG_COUNT_BITS);
+                    segmentsPacked |= seg << (segmentCount * UP_MAX_LEN_PER_SEG);
                     segmentCount++;
                 }
 

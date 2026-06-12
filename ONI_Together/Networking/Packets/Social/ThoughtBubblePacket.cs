@@ -1,3 +1,4 @@
+using Database;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using System.IO;
@@ -11,6 +12,7 @@ namespace ONI_Together.Networking.Packets.Social
 		public int NetId;
 		public bool IsVisible;
 		public bool IsConvo;
+		public string ThoughtId;
 		public string HoverText;
 		public string BubbleSpriteName;
 		public string TopicSpriteName;
@@ -23,6 +25,7 @@ namespace ONI_Together.Networking.Packets.Social
 			writer.Write(NetId);
 			writer.Write(IsVisible);
 			writer.Write(IsConvo);
+			writer.Write(ThoughtId ?? string.Empty);
 			writer.Write(HoverText ?? string.Empty);
 			writer.Write(BubbleSpriteName ?? string.Empty);
 			writer.Write(TopicSpriteName ?? string.Empty);
@@ -36,6 +39,7 @@ namespace ONI_Together.Networking.Packets.Social
 			NetId = reader.ReadInt32();
 			IsVisible = reader.ReadBoolean();
 			IsConvo = reader.ReadBoolean();
+			ThoughtId = reader.ReadString();
 			HoverText = reader.ReadString();
 			BubbleSpriteName = reader.ReadString();
 			TopicSpriteName = reader.ReadString();
@@ -63,17 +67,45 @@ namespace ONI_Together.Networking.Packets.Social
 				return;
 			}
 
-			Sprite bubbleSprite = !string.IsNullOrEmpty(BubbleSpriteName) ? Assets.GetSprite(BubbleSpriteName) : null;
-			Sprite topicSprite = !string.IsNullOrEmpty(TopicSpriteName) ? Assets.GetSprite(TopicSpriteName) : null;
+			Sprite bubbleSprite = null;
+			Sprite topicSprite = null;
+			Sprite modeSprite = null;
+			string hoverText = HoverText;
+
+			if (!string.IsNullOrEmpty(ThoughtId))
+			{
+				var thought = Db.Get().Thoughts.TryGet(ThoughtId);
+				if (thought != null)
+				{
+					bubbleSprite = thought.bubbleSprite;
+					topicSprite = thought.sprite;
+					modeSprite = thought.modeSprite;
+					hoverText = (string)thought.hoverText;
+				}
+			}
+
+			if (bubbleSprite == null && !string.IsNullOrEmpty(BubbleSpriteName))
+				bubbleSprite = Assets.GetSprite(BubbleSpriteName);
+
+			if (topicSprite == null && !string.IsNullOrEmpty(TopicSpriteName))
+				topicSprite = Assets.GetSprite(TopicSpriteName);
+			
+			if (topicSprite == null && !string.IsNullOrEmpty(ThoughtId) && ThoughtId.StartsWith("Topic_"))
+			{
+				var uiData = Def.GetUISprite(ThoughtId.Substring(6), "ui", centered: true);
+				if (uiData != null)
+					topicSprite = uiData.first;
+			}
 
 			if (IsConvo)
 			{
-				Sprite modeSprite = !string.IsNullOrEmpty(ModeSpriteName) ? Assets.GetSprite(ModeSpriteName) : null;
-				NameDisplayScreen.Instance.SetThoughtBubbleConvoDisplay(go, true, HoverText, bubbleSprite, topicSprite, modeSprite);
+				if (modeSprite == null && !string.IsNullOrEmpty(ModeSpriteName))
+					modeSprite = Assets.GetSprite(ModeSpriteName);
+				NameDisplayScreen.Instance.SetThoughtBubbleConvoDisplay(go, true, hoverText ?? string.Empty, bubbleSprite, topicSprite, modeSprite);
 			}
 			else
 			{
-				NameDisplayScreen.Instance.SetThoughtBubbleDisplay(go, true, HoverText, bubbleSprite, topicSprite);
+				NameDisplayScreen.Instance.SetThoughtBubbleDisplay(go, true, hoverText ?? string.Empty, bubbleSprite, topicSprite);
 			}
 		}
 	}

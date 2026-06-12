@@ -9,6 +9,22 @@ namespace ONI_Together.Patches.Duplicant
 {
 	internal class ThoughtGraph_Patches
 	{
+		[HarmonyPatch(typeof(ThoughtGraph.Instance), nameof(ThoughtGraph.Instance.HasThoughts))]
+		public static class ThoughtGraph_HasThoughts_Patch
+		{
+			public static bool Prefix(ThoughtGraph.Instance __instance, ref bool __result)
+			{
+				using var _ = Profiler.Scope();
+
+				if (!MultiplayerSession.IsClient)
+					return true;
+
+				__instance.thoughts?.Clear();
+				__result = false;
+				return false;
+			}
+		}
+
 		[HarmonyPatch(typeof(ThoughtGraph.Instance), nameof(ThoughtGraph.Instance.AddThought))]
 		public static class ThoughtGraph_AddThought_Patch
 		{
@@ -17,6 +33,22 @@ namespace ONI_Together.Patches.Duplicant
 				using var _ = Profiler.Scope();
 
 				return !MultiplayerSession.IsClient;
+			}
+		}
+
+		[HarmonyPatch(typeof(ThoughtGraph.Instance), nameof(ThoughtGraph.Instance.HasImmediateThought))]
+		public static class ThoughtGraph_HasImmediateThought_Patch
+		{
+			public static bool Prefix(ThoughtGraph.Instance __instance, ref bool __result)
+			{
+				using var _ = Profiler.Scope();
+
+				if (!MultiplayerSession.IsClient)
+					return true;
+
+				__instance.thoughts?.Clear();
+				__result = false;
+				return false;
 			}
 		}
 
@@ -34,11 +66,16 @@ namespace ONI_Together.Patches.Duplicant
 		[HarmonyPatch(typeof(ThoughtGraph.Instance), nameof(ThoughtGraph.Instance.CreateBubble))]
 		public static class ThoughtGraph_CreateBubble_Patch
 		{
-			public static bool Prefix()
+			public static bool Prefix(ThoughtGraph.Instance __instance)
 			{
 				using var _ = Profiler.Scope();
 
-				return !MultiplayerSession.IsClient;
+				if (MultiplayerSession.IsClient)
+				{
+					__instance.thoughts?.Clear();
+					return false;
+				}
+				return true;
 			}
 
 			public static void Postfix(ThoughtGraph.Instance __instance)
@@ -64,6 +101,7 @@ namespace ONI_Together.Patches.Duplicant
 					NetId = identity.NetId,
 					IsVisible = true,
 					IsConvo = thought.modeSprite != null,
+					ThoughtId = thought.Id ?? string.Empty,
 					HoverText = (string)thought.hoverText ?? string.Empty,
 					BubbleSpriteName = thought.bubbleSprite?.name ?? string.Empty,
 					TopicSpriteName = thought.sprite?.name ?? string.Empty,

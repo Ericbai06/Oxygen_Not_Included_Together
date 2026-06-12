@@ -117,7 +117,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			for (int c = 0; c < PathChunks.Length; c++)
 			{
 				ulong chunk = PathChunks[c];
-				int[] chunkCells = BuildingUtils.DecodeUtilityPathChunk((uint)(chunk & 0xFFFFFFFF));
+				int[] chunkCells = BuildingUtils.DecodeUtilityPathChunk((uint)(chunk & 0xFFFFFFFF)); /// Lower 32 bits of the ulong chunk contain the packed path data (firstCell + direction-run segments).
 				if (chunkCells == null) continue;
 
 				uint validityMask = (uint)(chunk >> 32);

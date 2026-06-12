@@ -305,6 +305,13 @@ namespace ONI_Together.Misc
             return chunks.ToArray();
         }
 
+        /// <summary>
+        /// Decodes a single 32-bit chunk into an array of Grid cell indices.
+        /// Bits 0–16: firstCell. Bits 17–28: up to three 4-bit direction-run segments
+        /// (2-bit direction, 2-bit run length − 1). Bits 29–30: segment count.
+        /// Reconstructs cells by walking from firstCell through each direction-run.
+        /// Returns null if data is 0 or firstCell is invalid.
+        /// </summary>
         public static int[] DecodeUtilityPathChunk(uint data)
         {
             if (data == 0)

@@ -18,7 +18,7 @@
     <IncludeBuildOutput>true</IncludeBuildOutput>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\Shared\Shared.csproj" />
+    <ProjectReference Include="..\Shared\Shared.csproj" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MinVer" Version="*">

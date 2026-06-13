@@ -1,5 +1,3 @@
-![Logo](https://i.ibb.co/BVFcTP0S/onit.png)
-
 # ONI Together API
 
 API for third-party mods to add multiplayer features via **Oxygen Not Included Together**.

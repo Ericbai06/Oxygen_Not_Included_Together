@@ -88,6 +88,14 @@ namespace ONI_Together.Networking
 					DebugConsole.LogWarning($"[Registry] Lookup failed (#{_lookupFailCount}): NetId {netId} not found. Count: {identities.Count}");
 				}
 			}
+			
+			if (entity.IsNullOrDestroyed() || entity.gameObject.IsNullOrDestroyed())
+			{
+				identities.Remove(netId);
+				entity = null;
+				return false;
+			}
+			
 			return found;
 		}
 

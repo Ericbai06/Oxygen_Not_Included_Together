@@ -180,7 +180,7 @@ namespace ONI_Together.Networking.Components
 				{
 					if (!NetworkIdentityRegistry.TryGet(netId, out var identity))
 						continue;
-					if (!identity.TryGetComponent<AnimStateSyncer>(out var syncer))
+					if (!NetworkIdentityRegistry.TryGetComponent<AnimStateSyncer>(identity, out var syncer))
 						continue;
 					if (!syncer.TryBuildSnapshot(out var packet, out var activityKey))
 						continue;

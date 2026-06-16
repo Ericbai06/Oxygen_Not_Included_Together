@@ -128,17 +128,25 @@ namespace ONI_Together.Misc
         }
         
         // UP = Utility Path
-        private const int UP_FIRST_CELL_BITS = 17;
+        private const int UP_FIRST_CELL_BITS = 22;
         private const int UP_SEG_BITS = 4;
         private const int UP_SEG_COUNT_BITS = 2;
-        private const int UP_MAX_SEGMENTS = 3;
+        private const int UP_MAX_SEGMENTS = 2;
         private const int UP_MAX_LEN_PER_SEG = 4;
-        private const int UP_MAX_CELLS_PER_CHUNK = 1 + UP_MAX_SEGMENTS * UP_MAX_LEN_PER_SEG; // 13
+        private const int UP_MAX_CELLS_PER_CHUNK = 1 + UP_MAX_SEGMENTS * UP_MAX_LEN_PER_SEG; // 9
+        
+        // Derived bit masks/shifts
+        private const int UP_FIRST_CELL_MASK = (1 << UP_FIRST_CELL_BITS) - 1;
+        private const int UP_SEGMENTS_BITS = UP_SEG_BITS * UP_MAX_SEGMENTS;
+        private const int UP_SEGMENTS_MASK = (1 << UP_SEGMENTS_BITS) - 1;
+        private const int UP_SEGMENTS_SHIFT = UP_FIRST_CELL_BITS;
+        private const int UP_SEG_COUNT_MASK = (1 << UP_SEG_COUNT_BITS) - 1;
+        private const int UP_SEG_COUNT_SHIFT = UP_FIRST_CELL_BITS + UP_SEGMENTS_BITS;
         
         /// <summary>
-        /// Encodes a utility build path into an array of 32-bit chunks, each packing up to 13 cells.
-        /// Bits 0-16: firstCell index. Bits 17-28: up to 3 direction-run segments (4-bit each:
-        /// 2-bit direction + 2-bit run length-1). Bits 29-30: segment count. Bit 31: unused.
+        /// Encodes a utility build path into an array of 32-bit chunks, each packing up to 9 cells.
+        /// Bits 0-21: firstCell index. Bits 22-29: up to 2 direction-run segments (4-bit each:
+        /// 2-bit direction + 2-bit run length-1). Bits 30-31: segment count.
         /// </summary>
         public static uint[] EncodeUtilityPath(List<BaseUtilityBuildTool.PathNode> path)
         {
@@ -160,7 +168,7 @@ namespace ONI_Together.Misc
                     break;
 
                 int firstCell = path[pos].cell;
-                uint data = (uint)(firstCell & 0x1FFFF);
+                uint data = (uint)(firstCell & UP_FIRST_CELL_MASK);
 
                 int segmentsPacked = 0;
                 int segmentCount = 0;
@@ -192,13 +200,13 @@ namespace ONI_Together.Misc
                         i++;
                     }
 
-                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << UP_SEG_COUNT_BITS);
+                    int seg = (dirIndex & UP_SEG_COUNT_MASK) | (((len - 1) & UP_SEG_COUNT_MASK) << UP_SEG_COUNT_BITS);
                     segmentsPacked |= seg << (segmentCount * UP_MAX_LEN_PER_SEG);
                     segmentCount++;
                 }
 
-                data |= (uint)(segmentsPacked & 0xFFF) << 17;
-                data |= (uint)(segmentCount & 0x3) << 29;
+                data |= (uint)(segmentsPacked & UP_SEGMENTS_MASK) << UP_SEGMENTS_SHIFT;
+                data |= (uint)(segmentCount & UP_SEG_COUNT_MASK) << UP_SEG_COUNT_SHIFT;
 
                 chunks.Add(data);
                 pos = i;
@@ -208,7 +216,7 @@ namespace ONI_Together.Misc
         }
         
         /// <summary>
-        /// Decodes an array of 13-cell chunk uints back into a flat int[] of Grid cell indices.
+        /// Decodes an array of 9-cell chunk uints back into a flat int[] of Grid cell indices.
         /// Each chunk is decoded via DecodeChunk and concatenated in order.
         /// </summary>
         public static int[] DecodeUtilityPath(uint[] pathData)
@@ -233,7 +241,7 @@ namespace ONI_Together.Misc
 
         /// <summary>
         /// Encodes a utility build path into an array of 64-bit chunks. Lower 32 bits = path data
-        /// (same as EncodeUtilityPath). Upper 32 bits = validity bitmask (bits 0-12 for up to 13 cells).
+        /// (same as EncodeUtilityPath). Upper 32 bits = validity bitmask (bits 0-8 for up to 9 cells).
         /// </summary>
         public static ulong[] EncodeUtilityPathWithValidity(List<BaseUtilityBuildTool.PathNode> path)
         {
@@ -258,7 +266,7 @@ namespace ONI_Together.Misc
                 }
 
                 int firstCell = path[pos].cell;
-                uint data = (uint)(firstCell & 0x1FFFF);
+                uint data = (uint)(firstCell & UP_FIRST_CELL_MASK);
 
                 int segmentsPacked = 0;
                 int segmentCount = 0;
@@ -290,13 +298,13 @@ namespace ONI_Together.Misc
                         i++;
                     }
 
-                    int seg = (dirIndex & 0x3) | (((len - 1) & 0x3) << UP_SEG_COUNT_BITS);
+                    int seg = (dirIndex & UP_SEG_COUNT_MASK) | (((len - 1) & UP_SEG_COUNT_MASK) << UP_SEG_COUNT_BITS);
                     segmentsPacked |= seg << (segmentCount * UP_MAX_LEN_PER_SEG);
                     segmentCount++;
                 }
 
-                data |= (uint)(segmentsPacked & 0xFFF) << 17;
-                data |= (uint)(segmentCount & 0x3) << 29;
+                data |= (uint)(segmentsPacked & UP_SEGMENTS_MASK) << UP_SEGMENTS_SHIFT;
+                data |= (uint)(segmentCount & UP_SEG_COUNT_MASK) << UP_SEG_COUNT_SHIFT;
 
                 chunks.Add(((ulong)validityMask << 32) | data);
                 pos = i;
@@ -307,8 +315,8 @@ namespace ONI_Together.Misc
 
         /// <summary>
         /// Decodes a single 32-bit chunk into an array of Grid cell indices.
-        /// Bits 0–16: firstCell. Bits 17–28: up to three 4-bit direction-run segments
-        /// (2-bit direction, 2-bit run length − 1). Bits 29–30: segment count.
+        /// Bits 0–21: firstCell. Bits 22–29: up to two 4-bit direction-run segments
+        /// (2-bit direction, 2-bit run length − 1). Bits 30–31: segment count.
         /// Reconstructs cells by walking from firstCell through each direction-run.
         /// Returns null if data is 0 or firstCell is invalid.
         /// </summary>

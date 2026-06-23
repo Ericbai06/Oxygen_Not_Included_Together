@@ -23,6 +23,10 @@ using static STRINGS.BUILDINGS.PREFABS;
 using Riptide;
 using Steamworks;
 using ONI_Together.Networking.Transport.Steamworks;
+using ONI_Together.Networking.OxySync;
+using ONI_Together.Networking.OxySync.Components;
+using Shared.OxySync;
+using System.Linq;
 
 namespace ONI_Together.DebugTools
 {
@@ -168,6 +172,12 @@ namespace ONI_Together.DebugTools
                         OpenPopout("Profiler", () => Profiler.DrawImGuiInline());
                     ImGui.SameLine();
                     DisplayProfilers();
+                    ImGui.EndTabItem();
+                }
+
+                if (ImGui.BeginTabItem("OxySync"))
+                {
+                    DrawOxySyncTab();
                     ImGui.EndTabItem();
                 }
 
@@ -850,6 +860,252 @@ namespace ONI_Together.DebugTools
                 NetworkConfig.UpdateTransport(selected_transport);
                 Configuration.Instance.Save();
             }
+        }
+        private void DrawOxySyncTab()
+        {
+            if (OxySyncManager.Instance == null)
+            {
+                ImGui.TextColored(new Vector4(1f, 0.3f, 0.3f, 1f), "OxySyncManager not initialized");
+                return;
+            }
+
+            ImGui.Text($"Registered Behaviours: {OxySyncManager.Instance.RegisteredCount}");
+
+            float interval = OxySyncManager.Instance.SyncInterval;
+            if (ImGui.SliderFloat("Sync Interval (s)", ref interval, 0.05f, 2f))
+                OxySyncManager.Instance.SyncInterval = interval;
+
+            ImGui.Separator();
+
+            var behaviours = OxySyncManager.Instance.AllBehaviours;
+            if (behaviours.Count == 0)
+            {
+                ImGui.TextDisabled("No OxySync NetworkBehaviours registered.");
+                return;
+            }
+
+            for (int b = 0; b < behaviours.Count; b++)
+            {
+                var behaviour = behaviours[b];
+                if (behaviour.IsNullOrDestroyed()) continue;
+
+                string header = $"{behaviour.GetType().Name} (NetId: {behaviour.NetId})##oxy_{b}";
+                if (!ImGui.CollapsingHeader(header)) continue;
+
+                ImGui.Indent();
+
+                var syncVars = behaviour.SyncVarFields;
+                if (syncVars.Count > 0)
+                {
+                    ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), "SyncVars:");
+                    ImGui.Separator();
+
+                    for (int i = 0; i < syncVars.Count; i++)
+                    {
+                        var field = syncVars[i];
+                        var currentValue = behaviour.GetSyncVarValue(field.Hash);
+                        string typeName = field.Info.FieldType.Name;
+                        string valueStr = currentValue?.ToString() ?? "null";
+
+                        ImGui.PushID($"syncvar_{b}_{i}");
+                        ImGui.Text($"{field.Info.Name} ({typeName}): {valueStr}");
+                        ImGui.SameLine();
+
+                        if (field.Info.FieldType == typeof(bool))
+                        {
+                            if (ImGui.SmallButton("Toggle"))
+                            {
+                                behaviour.SetSyncVarValue(field.Hash, !(bool)(currentValue ?? false));
+                            }
+                        }
+                        else
+                        {
+                            string popupId = $"set_{b}_{i}";
+                            if (ImGui.SmallButton("Set"))
+                            {
+                                ImGui.OpenPopup(popupId);
+                            }
+
+                            bool openModal = true;
+                            if (ImGui.BeginPopupModal(popupId, ref openModal, ImGuiWindowFlags.AlwaysAutoResize))
+                            {
+                                string input = currentValue?.ToString() ?? "";
+                                ImGui.Text($"Set {field.Info.Name}:");
+                                ImGui.SetNextItemWidth(200);
+                                if (ImGui.InputText("##value", ref input, 256, ImGuiInputTextFlags.EnterReturnsTrue))
+                                {
+                                    object? newVal = ParseValue(input, field.Info.FieldType);
+                                    if (newVal != null)
+                                        behaviour.SetSyncVarValue(field.Hash, newVal);
+                                    ImGui.CloseCurrentPopup();
+                                }
+                                if (ImGui.Button("Cancel"))
+                                    ImGui.CloseCurrentPopup();
+                                ImGui.EndPopup();
+                            }
+                        }
+                        ImGui.PopID();
+                    }
+                }
+
+                var commands = behaviour.Commands;
+                if (commands.Count > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextColored(new Vector4(1f, 0.8f, 0.3f, 1f), "Commands:");
+                    ImGui.Separator();
+
+                    foreach (var kvp in commands)
+                    {
+                        var cmd = kvp.Value;
+                        string label = $"[Command] {cmd.Info.Name}({string.Join(", ", cmd.ArgTypes.Select(t => t.Name))})";
+                        ImGui.PushID($"cmd_{kvp.Key}");
+                        ImGui.Text(label);
+                        ImGui.SameLine();
+                        if (ImGui.SmallButton("Call"))
+                        {
+                            var packet = new Networking.OxySync.Packets.CommandPacket
+                            {
+                                NetId = behaviour.NetId,
+                                MethodHash = cmd.Hash,
+                                Args = Shared.OxySync.RpcSerializer.Serialize(System.Array.Empty<object>(), cmd.ArgTypes),
+                            };
+
+                            if (MultiplayerSession.IsHost)
+                            {
+                                if (NetworkIdentityRegistry.TryGetComponent<NetworkBehaviour>(behaviour.NetId, out var nb))
+                                    nb.InvokeCommand(cmd.Hash, packet.Args);
+                            }
+                            else
+                            {
+                                PacketSender.SendToHost(packet);
+                            }
+                        }
+                        ImGui.PopID();
+                    }
+                }
+
+                var clientRpcs = behaviour.ClientRpcs;
+                if (clientRpcs.Count > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextColored(new Vector4(0.3f, 0.8f, 1f, 1f), "ClientRpcs:");
+                    ImGui.Separator();
+
+                    foreach (var kvp in clientRpcs)
+                    {
+                        var rpc = kvp.Value;
+                        string label = $"[ClientRpc] {rpc.Info.Name}({string.Join(", ", rpc.ArgTypes.Select(t => t.Name))})";
+                        ImGui.PushID($"rpc_{kvp.Key}");
+                        ImGui.Text(label);
+                        ImGui.SameLine();
+                        if (ImGui.SmallButton("Call"))
+                        {
+                            if (MultiplayerSession.IsHost)
+                            {
+                                var packet = new Networking.OxySync.Packets.ClientRpcPacket
+                                {
+                                    NetId = behaviour.NetId,
+                                    MethodHash = rpc.Hash,
+                                    Args = Shared.OxySync.RpcSerializer.Serialize(System.Array.Empty<object>(), rpc.ArgTypes),
+                                    TargetPlayerId = ulong.MaxValue,
+                                };
+                                PacketSender.SendToAllClients(packet);
+                            }
+                        }
+                        ImGui.PopID();
+                    }
+                }
+
+                var targetRpcs = behaviour.TargetRpcs;
+                if (targetRpcs.Count > 0)
+                {
+                    ImGui.Spacing();
+                    ImGui.TextColored(new Vector4(0.8f, 0.3f, 1f, 1f), "TargetRpcs:");
+                    ImGui.Separator();
+
+                    foreach (var kvp in targetRpcs)
+                    {
+                        var rpc = kvp.Value;
+                        string label = $"[TargetRpc] {rpc.Info.Name}({string.Join(", ", rpc.ArgTypes.Select(t => t.Name))})";
+                        ImGui.PushID($"trpc_{kvp.Key}");
+                        ImGui.Text(label);
+                        ImGui.SameLine();
+                        if (ImGui.SmallButton("Call"))
+                        {
+                            if (MultiplayerSession.IsHost)
+                            {
+                                foreach (var player in MultiplayerSession.ConnectedPlayers)
+                                {
+                                    if (player.Value.PlayerId == MultiplayerSession.HostUserID) continue;
+
+                                    var packet = new Networking.OxySync.Packets.ClientRpcPacket
+                                    {
+                                        NetId = behaviour.NetId,
+                                        MethodHash = rpc.Hash,
+                                        Args = Shared.OxySync.RpcSerializer.Serialize(System.Array.Empty<object>(), rpc.ArgTypes),
+                                        TargetPlayerId = player.Value.PlayerId,
+                                    };
+                                    PacketSender.SendToPlayer(player.Value.PlayerId, packet);
+                                }
+                            }
+                        }
+                        ImGui.PopID();
+                    }
+                }
+
+                ImGui.Spacing();
+                if (ImGui.Button($"Remove Component##rm_{b}"))
+                {
+                    UnityEngine.Object.Destroy(behaviour);
+                }
+
+                ImGui.Unindent();
+            }
+
+            ImGui.Separator();
+
+            if (ImGui.Button("Spawn Test Entity"))
+            {
+                var go = new GameObject("OxySync_TestEntity");
+                go.AddComponent<Networking.Components.NetworkIdentity>();
+                go.AddComponent<OxySyncTestComponent>();
+                UnityEngine.Object.DontDestroyOnLoad(go);
+                NetworkIdentityRegistry.TryGet(go.GetComponent<ONI_Together.Networking.Components.NetworkIdentity>().NetId, out _);
+                DebugConsole.Log("[OxySync] Spawned test entity at runtime");
+            }
+
+            ImGui.SameLine();
+            if (ImGui.Button("Attach to Selected"))
+            {
+                var selected = SelectTool.Instance?.selected;
+                if (selected != null)
+                {
+                    var go = selected.gameObject;
+                    if (go.GetComponent<OxySyncTestComponent>() == null)
+                    {
+                        go.AddComponent<Networking.Components.NetworkIdentity>();
+                        go.AddComponent<OxySyncTestComponent>();
+                        DebugConsole.Log($"[OxySync] Attached test component to {go.name}");
+                    }
+                }
+            }
+        }
+
+        private static object? ParseValue(string input, Type targetType)
+        {
+            try
+            {
+                if (targetType == typeof(int)) return int.Parse(input);
+                if (targetType == typeof(float)) return float.Parse(input);
+                if (targetType == typeof(byte)) return byte.Parse(input);
+                if (targetType == typeof(long)) return long.Parse(input);
+                if (targetType == typeof(double)) return double.Parse(input);
+                if (targetType == typeof(string)) return input;
+                if (targetType == typeof(bool)) return bool.Parse(input);
+            }
+            catch { }
+            return null;
         }
     }
 }

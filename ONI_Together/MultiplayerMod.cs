@@ -19,6 +19,7 @@ using Epic.OnlineServices;
 using PeterHan.PLib.Core;
 using PeterHan.PLib.Options;
 using ONI_Together.Integrations;
+using ONI_Together.Networking.OxySync.Components;
 using System.Linq;
 using System.Threading;
 
@@ -87,6 +88,7 @@ namespace ONI_Together
 				go.AddComponent<AnimResyncRequester>();
 				go.AddComponent<BulkPacketMonitor>();
 				go.AddComponent<LogicStateSyncer>();
+				go.AddComponent<OxySyncManager>();
 
 				// CHECKPOINT 5
 				System.IO.File.AppendAllText(logPath, "[Trace] Checkpoint 5: Pre-Listeners\n");

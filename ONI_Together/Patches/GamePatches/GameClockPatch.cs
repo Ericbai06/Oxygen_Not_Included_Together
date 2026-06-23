@@ -5,6 +5,7 @@ using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync.Components;
 using System;
 using System.Collections;
+using Shared.OxySync;
 using Shared.Profiling;
 using UnityEngine;
 
@@ -29,7 +30,8 @@ namespace ONI_Together.Patches.GamePatches
 			if (!__instance.TryGetComponent<GameTimeSyncComponent>(out var gtsc))
 			{
 				var identity = __instance.gameObject.AddComponent<NetworkIdentity>();
-				identity.NetId = GameTimeSyncComponent.SYSTEM_NETID;
+				identity.NetId = PredeterminedNetIds.GameClock;
+				NetworkIdentityRegistry.RegisterOverride(identity, PredeterminedNetIds.GameClock);
 				__instance.gameObject.AddComponent<GameTimeSyncComponent>();
 			}
         }

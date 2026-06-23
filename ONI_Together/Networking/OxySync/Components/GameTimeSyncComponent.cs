@@ -8,8 +8,6 @@ namespace ONI_Together.Networking.OxySync.Components
     [SkipSaveFileSerialization]
     public class GameTimeSyncComponent : NetworkBehaviour
     {
-        public const int SYSTEM_NETID = int.MaxValue - 1;
-
         public static GameTimeSyncComponent? Instance { get; private set; }
 
         [SyncVar(Hook = nameof(OnCycleChanged))]

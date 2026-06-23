@@ -3,6 +3,7 @@ using ONI_Together.DebugTools;
 using ONI_Together.Misc;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.OxySync.Components;
 using ONI_Together.Networking.Synchronization;
 using ONI_Together.Scripts.Duplicants;
 using System.Collections;
@@ -28,7 +29,8 @@ public static class DuplicantPatch
 		}
 
 		__result.AddOrGet<EntityPositionHandler>();
-		__result.AddOrGet<VitalStatsSyncer>();
+		//__result.AddOrGet<VitalStatsSyncer>();
+		__result.AddOrGet<VitalStatsSyncComponent>();
 	}
 
 	public static void ToggleEffect(GameObject minion, string eventName, string context, bool enable)

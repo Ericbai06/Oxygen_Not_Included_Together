@@ -1,7 +1,6 @@
 ﻿using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
-using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync.Components;
 using System;
 using Shared.Profiling;
@@ -18,10 +17,7 @@ namespace ONI_Together.Patches
 		public static void OnPrefabInit_Postfix(SpeedControlScreen __instance)
 		{
 			if (!__instance.TryGetComponent<GameSpeedSyncComponent>(out _))
-			{
-				__instance.gameObject.AddComponent<NetworkIdentity>();
 				__instance.gameObject.AddComponent<GameSpeedSyncComponent>();
-			}
 		}
 
 		[HarmonyPatch("SetSpeed")]

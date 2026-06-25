@@ -33,11 +33,16 @@ namespace ONI_Together.Networking.OxySync.Components
                     ? identity.NetId
                     : 0;
 
-            NetworkBehaviour.NetIdSetter = (behaviour, newNetId) =>
+            NetworkBehaviour.NetIdSetter = (behaviour, newNetId) => behaviour.gameObject.AddOrGet<NetworkIdentity>().OverrideNetId(newNetId);
+
+            NetIdentityHelper.SetIdentity = (go, netId) =>
             {
-                var identity = ResolveIdentity(behaviour);
-                if (identity != null)
-                    identity.OverrideNetId(newNetId);
+                var identity = go.AddOrGet<NetworkIdentity>();
+                if (netId != 0)
+                    identity.OverrideNetId(netId);
+                else if (identity.NetId == 0)
+                    identity.RegisterIdentity();
+                return identity.NetId;
             };
 
             NetworkBehaviour.LogWarning = (msg) => DebugConsole.LogWarning(msg);

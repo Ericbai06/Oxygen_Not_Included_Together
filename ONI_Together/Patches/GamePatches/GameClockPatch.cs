@@ -1,7 +1,6 @@
 ﻿using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
-using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync.Components;
 using System;
 using System.Collections;
@@ -27,10 +26,7 @@ namespace ONI_Together.Patches.GamePatches
 
 			// Attach OxySync time sync component directly to GameClock
 			if (!__instance.TryGetComponent<GameTimeSyncComponent>(out var gtsc))
-			{
-				__instance.gameObject.AddComponent<NetworkIdentity>();
 				__instance.gameObject.AddComponent<GameTimeSyncComponent>();
-			}
         }
 
 		[HarmonyPatch(nameof(GameClock.OnDeserialized))]

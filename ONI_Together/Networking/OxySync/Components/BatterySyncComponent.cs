@@ -43,6 +43,7 @@ namespace ONI_Together.Networking.OxySync.Components
 
             _battery.joulesAvailable = newValue;
             RefreshBatteryTracker();
+            UpdateMeter(_joulesAvailable);
         }
 
         private void UpdateMeter(float joules)

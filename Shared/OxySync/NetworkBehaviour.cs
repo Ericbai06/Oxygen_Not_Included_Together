@@ -18,7 +18,6 @@ namespace Shared.OxySync
 
         public static Func<int, int, byte[], bool>? SendCommandToHost;
         public static Func<int, int, byte[], bool>? SendClientRpcToAll;
-        public static Func<int, int, int, byte[], bool>? SendClientRpcToGroup;
         public static Func<ulong, int, int, byte[], bool>? SendTargetRpcToPlayer;
 
         public static Func<NetworkBehaviour, int>? NetIdQuery;
@@ -43,7 +42,6 @@ namespace Shared.OxySync
 
         public float SyncInterval = 0.5f;
         public float _lastSyncTime;
-        public int InterestGroup { get; set; } = -1;
 
         public IReadOnlyList<SyncVarField> SyncVarFields =>
             _syncVarFields ?? (IReadOnlyList<SyncVarField>)Array.Empty<SyncVarField>();
@@ -64,7 +62,6 @@ namespace Shared.OxySync
             public object? LastSentValue;
             public MethodInfo? Hook;
             public float Epsilon;
-            public int InterestGroup;
         }
 
         public struct CachedMethod
@@ -72,7 +69,6 @@ namespace Shared.OxySync
             public MethodInfo Info;
             public int Hash;
             public Type[] ArgTypes;
-            public int InterestGroup;
         }
 
         public override void OnSpawn()
@@ -93,7 +89,6 @@ namespace Shared.OxySync
         {
             var fields = GetType().GetFields(FLAGS);
             var list = new List<SyncVarField>();
-            int classDefaultGroup = GetType().GetCustomAttribute<InterestGroupAttribute>()?.Group ?? -1;
 
             foreach (var field in fields)
             {
@@ -106,8 +101,6 @@ namespace Shared.OxySync
                     hook = GetType().GetMethod(attr.Hook, FLAGS);
                 }
 
-                int group = attr.InterestGroup != -1 ? attr.InterestGroup : classDefaultGroup;
-
                 list.Add(new SyncVarField
                 {
                     Info = field,
@@ -115,7 +108,6 @@ namespace Shared.OxySync
                     LastSentValue = field.GetValue(this),
                     Hook = hook,
                     Epsilon = attr.Epsilon,
-                    InterestGroup = group,
                 });
             }
 
@@ -125,7 +117,6 @@ namespace Shared.OxySync
         private void DiscoverRpcs()
         {
             var methods = GetType().GetMethods(FLAGS);
-            int classDefaultGroup = GetType().GetCustomAttribute<InterestGroupAttribute>()?.Group ?? -1;
 
             foreach (var method in methods)
             {
@@ -135,7 +126,7 @@ namespace Shared.OxySync
                 }
                 if (method.GetCustomAttribute<ClientRpcAttribute>() != null)
                 {
-                    (_clientRpcMethods ??= new())[method.Name.GetHashCode()] = MakeCachedMethod(method, method.GetCustomAttribute<ClientRpcAttribute>()!.InterestGroup, classDefaultGroup);
+                    (_clientRpcMethods ??= new())[method.Name.GetHashCode()] = MakeCachedMethod(method);
                 }
                 if (method.GetCustomAttribute<TargetRpcAttribute>() != null)
                 {
@@ -151,18 +142,6 @@ namespace Shared.OxySync
                 Info = method,
                 Hash = method.Name.GetHashCode(),
                 ArgTypes = method.GetParameters().Select(p => p.ParameterType).ToArray(),
-                InterestGroup = -1,
-            };
-        }
-
-        private static CachedMethod MakeCachedMethod(MethodInfo method, int attrGroup, int classDefaultGroup)
-        {
-            return new CachedMethod
-            {
-                Info = method,
-                Hash = method.Name.GetHashCode(),
-                ArgTypes = method.GetParameters().Select(p => p.ParameterType).ToArray(),
-                InterestGroup = attrGroup != -1 ? attrGroup : classDefaultGroup,
             };
         }
 
@@ -191,26 +170,7 @@ namespace Shared.OxySync
             var argTypes = GetClientRpcArgTypes(hash);
             var serialized = RpcSerializer.Serialize(args, argTypes);
 
-            int group = GetClientRpcGroup(hash);
-            if (group == -1) group = InterestGroup;
-            if (group == -1)
-                SendClientRpcToAll?.Invoke(NetId, hash, serialized);
-            else
-                SendClientRpcToGroup?.Invoke(group, NetId, hash, serialized);
-        }
-
-        protected void CallClientRpc(int interestGroup, string methodName, params object[] args)
-        {
-            if (!inSession || !isServer) return;
-
-            var hash = methodName.GetHashCode();
-            var argTypes = GetClientRpcArgTypes(hash);
-            var serialized = RpcSerializer.Serialize(args, argTypes);
-
-            if (interestGroup == -1)
-                SendClientRpcToAll?.Invoke(NetId, hash, serialized);
-            else
-                SendClientRpcToGroup?.Invoke(interestGroup, NetId, hash, serialized);
+            SendClientRpcToAll?.Invoke(NetId, hash, serialized);
         }
 
         protected void CallTargetRpc(ulong targetPlayer, string methodName, params object[] args)
@@ -309,13 +269,6 @@ namespace Shared.OxySync
             if (_clientRpcMethods != null && _clientRpcMethods.TryGetValue(hash, out var m))
                 return m.ArgTypes;
             return Array.Empty<Type>();
-        }
-
-        private int GetClientRpcGroup(int hash)
-        {
-            if (_clientRpcMethods != null && _clientRpcMethods.TryGetValue(hash, out var m))
-                return m.InterestGroup;
-            return -1;
         }
 
         private Type[] GetTargetRpcArgTypes(int hash)

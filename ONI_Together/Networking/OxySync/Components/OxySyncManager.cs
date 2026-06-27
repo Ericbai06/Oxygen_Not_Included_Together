@@ -15,7 +15,7 @@ namespace ONI_Together.Networking.OxySync.Components
         public static OxySyncManager? Instance { get; private set; }
 
         private readonly List<NetworkBehaviour> _behaviours = new();
-        private readonly Dictionary<int, List<(int Hash, Variant Value)>> _changedByGroup = new();
+        private readonly List<(int Hash, Variant Value)> _changedScratch = new();
 
         public int RegisteredCount => _behaviours.Count;
         public IReadOnlyList<NetworkBehaviour> AllBehaviours => _behaviours;
@@ -68,18 +68,6 @@ namespace ONI_Together.Networking.OxySync.Components
             NetworkBehaviour.SendClientRpcToAll = (netId, methodHash, args) =>
             {
                 PacketSender.SendToAllClients(new ClientRpcPacket
-                {
-                    NetId = netId,
-                    MethodHash = methodHash,
-                    Args = args,
-                    TargetPlayerId = ulong.MaxValue,
-                });
-                return true;
-            };
-
-            NetworkBehaviour.SendClientRpcToGroup = (group, netId, methodHash, args) =>
-            {
-                PacketSender.SendToGroup(group, new ClientRpcPacket
                 {
                     NetId = netId,
                     MethodHash = methodHash,
@@ -143,7 +131,7 @@ namespace ONI_Together.Networking.OxySync.Components
 
                 behaviour._lastSyncTime = Time.unscaledTime;
 
-                _changedByGroup.Clear();
+                _changedScratch.Clear();
                 var fields = behaviour.SyncVarFields;
 
                 for (int j = 0; j < fields.Count; j++)
@@ -155,50 +143,37 @@ namespace ONI_Together.Networking.OxySync.Components
 
                     if (ValuesDiffer(currentVariant, lastVariant, field.Epsilon))
                     {
-                        int group = field.InterestGroup;
-                        if (group == -1) group = behaviour.InterestGroup;
-                        if (!_changedByGroup.TryGetValue(group, out var list))
-                        {
-                            list = new List<(int Hash, Variant Value)>();
-                            _changedByGroup[group] = list;
-                        }
-                        list.Add((field.Hash, currentVariant));
+                        _changedScratch.Add((field.Hash, currentVariant));
                     }
                 }
 
-                if (_changedByGroup.Count == 0) continue;
+                if (_changedScratch.Count == 0) continue;
 
                 var identity = behaviour.GetComponent<NetworkIdentity>();
                 if (identity == null || identity.NetId == 0)
                     continue;
 
                 int netId = identity.NetId;
+
                 long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-                foreach (var kvp in _changedByGroup)
+                if (_changedScratch.Count == 1)
                 {
-                    int groupId = kvp.Key;
-                    var updates = kvp.Value;
-
-                    if (updates.Count == 1)
+                    var update = _changedScratch[0];
+                    PacketSender.SendToAllClients(new SyncVarPacket
                     {
-                        var update = updates[0];
-                        PacketSender.SendToGroup(groupId, new SyncVarPacket
-                        {
-                            NetId = netId,
-                            FieldHash = update.Hash,
-                            Value = update.Value,
-                            Timestamp = timestamp,
-                        }, PacketSendMode.Unreliable);
-                    }
-                    else
+                        NetId = netId,
+                        FieldHash = update.Hash,
+                        Value = update.Value,
+                        Timestamp = timestamp,
+                    }, PacketSendMode.Unreliable);
+                }
+                else
+                {
+                    var batch = new SyncVarBatchPacket(netId, _changedScratch)
                     {
-                        var batch = new SyncVarBatchPacket(netId, updates)
-                        {
-                            Timestamp = timestamp,
-                        };
-                        PacketSender.SendToGroup(groupId, batch, PacketSendMode.Unreliable);
-                    }
+                        Timestamp = timestamp,
+                    };
+                    PacketSender.SendToAllClients(batch, PacketSendMode.Unreliable);
                 }
 
                 behaviour.SyncLastSentValues();

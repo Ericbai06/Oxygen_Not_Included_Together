@@ -10,5 +10,6 @@ namespace Shared.OxySync.Attributes
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
     public class ClientRpcAttribute : Attribute
     {
+        public int InterestGroup { get; set; } = -1;
     }
 }

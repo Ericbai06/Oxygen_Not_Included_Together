@@ -15,6 +15,7 @@ using System.Runtime.InteropServices;
 using Shared.Profiling;
 using UnityEngine;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.OxySync;
 
 namespace ONI_Together.Networking
 {
@@ -315,7 +316,32 @@ namespace ONI_Together.Networking
 			}
 		}
 
-		public static void SendToAllClients(IPacket packet, PacketSendMode sendType = PacketSendMode.Reliable)
+        public static void SendToGroup(int groupId, IPacket packet, PacketSendMode sendType = PacketSendMode.Reliable)
+        {
+            using var _ = Profiler.Scope();
+
+            if (!MultiplayerSession.IsHost)
+            {
+                DebugConsole.LogWarning("[PacketSender] Only the host can send to groups. Tried sending: " + packet.GetType());
+                return;
+            }
+
+            if (groupId == -1)
+            {
+                SendToAll(packet, MultiplayerSession.HostUserID, sendType);
+                return;
+            }
+
+            foreach (var playerId in InterestGroupManager.GetGroupMemberIds(groupId))
+            {
+                if (playerId == MultiplayerSession.HostUserID) continue;
+                if (!MultiplayerSession.ConnectedPlayers.TryGetValue(playerId, out var player)) continue;
+                if (!CanBroadcastTo(player)) continue;
+                TrySendToConnection(player, packet, sendType);
+            }
+        }
+
+        public static void SendToAllClients(IPacket packet, PacketSendMode sendType = PacketSendMode.Reliable)
 		{
 			using var _ = Profiler.Scope();
 

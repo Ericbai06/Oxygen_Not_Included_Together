@@ -17,5 +17,6 @@ namespace Shared.OxySync.Attributes
     {
         public string? Hook { get; set; }
         public float Epsilon { get; set; } = 0.01f;
+        public int InterestGroup { get; set; } = -1;
     }
 }

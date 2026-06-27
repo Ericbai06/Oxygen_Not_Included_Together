@@ -63,9 +63,9 @@ namespace Shared.OxySync
             if (target == null) target = transform;
             SyncInterval = 0.05f;
             _snapshots = new List<SnapshotEntry>(16);
-            _netPositionHash = "_netPosition".GetHashCode();
-            _netRotationHash = "_netRotation".GetHashCode();
-            _netScaleHash = "_netScale".GetHashCode();
+            _netPositionHash = nameof(_netPosition).GetHashCode();
+            _netRotationHash = nameof(_netRotation).GetHashCode();
+            _netScaleHash = nameof(_netScale).GetHashCode();
         }
 
         public override void ApplySyncVar(int fieldHash, object value, long timestamp)

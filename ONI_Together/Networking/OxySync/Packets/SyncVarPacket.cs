@@ -60,6 +60,7 @@ namespace ONI_Together.Networking.OxySync.Packets
             if (targetType == typeof(Vector3)) return v.Vector3;
             if (targetType == typeof(Vector2)) return v.Vector2;
             if (targetType == typeof(byte[])) return v.ByteArray ?? System.Array.Empty<byte>();
+            if (targetType == typeof(Quaternion)) return v.Quaternion;
             return v.String ?? string.Empty;
         }
     }

@@ -76,6 +76,8 @@ namespace ONI_Together.Networking.OxySync.Components
                 return true;
             };
 
+            NetworkBehaviour.LocalUserIdQuery = () => MultiplayerSession.LocalUserID;
+
             NetworkBehaviour.SendTargetRpcToPlayer = (targetPlayer, netId, methodHash, args) =>
             {
                 PacketSender.SendToPlayer(targetPlayer, new ClientRpcPacket
@@ -182,6 +184,7 @@ namespace ONI_Together.Networking.OxySync.Components
             if (value is Vector3 v3) return v3;
             if (value is Vector2 v2) return v2;
             if (value is byte[] ba) return ba;
+            if (value is Quaternion q) return q;
             return 0;
         }
 
@@ -198,6 +201,7 @@ namespace ONI_Together.Networking.OxySync.Components
                 Variant.TypeCode.Vector3 => Vector3.Distance(a.Vector3, b.Vector3) > epsilon,
                 Variant.TypeCode.Vector2 => Vector2.Distance(a.Vector2, b.Vector2) > epsilon,
                 Variant.TypeCode.ByteArray => !ByteArraysEqual(a.ByteArray, b.ByteArray),
+                Variant.TypeCode.Quaternion => Quaternion.Angle(a.Quaternion, b.Quaternion) > epsilon,
                 _ => true,
             };
         }

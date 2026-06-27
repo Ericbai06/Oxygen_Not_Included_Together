@@ -7,15 +7,12 @@ using UnityEngine;
 namespace ONI_Together.Networking.OxySync.Components
 {
     [SkipSaveFileSerialization]
-    public class OxySyncEntityPositionHandler : NetworkBehaviour
+    public class OxySyncEntityPositionHandler : NetworkTransform
     {
         [MyCmpGet]
         private KBatchedAnimController kbac;
         [MyCmpGet]
         private Navigator navigator;
-
-        [SyncVar(Epsilon = 0.01f)]
-        private Vector3 _netPosition;
 
         [SyncVar]
         private bool _netFlipX;
@@ -25,38 +22,25 @@ namespace ONI_Together.Networking.OxySync.Components
         [SyncVar(Hook = nameof(OnNavTypeChanged))]
         private NavType _netNavType;
 
-        private const float SNAP_DISTANCE = 1.5f;
-        private const float LERP_SPEED = 20f;
-        private const float REQUEST_COOLDOWN = 0.5f;
         private const int VIEWPORT_MARGIN = 2;
-
-        private float _lastRequestTime;
 
         public override void OnSpawn()
         {
             base.OnSpawn();
-            SyncInterval = 0.05f;
-        }
-
-        private void Update()
-        {
-            if (NetId == 0 || !inSession) return;
-
-            if (isServer)
-                UpdateServer();
-            else
-                UpdateClient();
+            syncRotation = false;
+            syncScale = false;
+            lerpSpeed = 20f;
         }
 
         [Server]
-        private void UpdateServer()
+        protected override void ServerUpdate()
         {
             int cell = Grid.PosToCell(transform.position);
             if (WorldStateSyncer.Instance != null
                 && !WorldStateSyncer.Instance.IsCellVisibleToAnyClientViewport(cell, VIEWPORT_MARGIN))
                 return;
 
-            _netPosition = transform.position;
+            base.ServerUpdate();
 
             if (kbac != null)
             {
@@ -69,66 +53,39 @@ namespace ONI_Together.Networking.OxySync.Components
         }
 
         [Client]
-        private void UpdateClient()
+        protected override void ClientUpdate()
         {
+            base.ClientUpdate();
+
             if (kbac != null)
             {
                 kbac.FlipX = _netFlipX;
                 kbac.FlipY = _netFlipY;
             }
-
-            Vector3 currentPos = transform.position;
-            float error = Vector3.Distance(currentPos, _netPosition);
-
-            if (error > SNAP_DISTANCE)
-            {
-                transform.SetPosition(_netPosition);
-            }
-            else
-            {
-                float t = Mathf.Clamp01(LERP_SPEED * Time.unscaledDeltaTime);
-                transform.SetPosition(Vector3.Lerp(currentPos, _netPosition, t));
-            }
-
-            TryRequestPosition();
         }
 
-        private void OnNavTypeChanged(NavType old, NavType current)
-        {
-            if (navigator != null)
-                navigator.SetCurrentNavType(current);
-        }
-
-        private void TryRequestPosition()
+        protected override bool ShouldRequestPosition()
         {
             if (!WorldStateSyncer.TryGetLocalViewport(out var viewport))
-                return;
+                return false;
 
             int cell = Grid.PosToCell(transform.position);
-            if (!WorldStateSyncer.IsCellInRect(cell, viewport))
-                return;
-
-            if (Time.unscaledTime - _lastRequestTime < REQUEST_COOLDOWN)
-                return;
-
-            _lastRequestTime = Time.unscaledTime;
-            CallCommand(nameof(CmdRequestPositionSync), MultiplayerSession.LocalUserID);
+            return WorldStateSyncer.IsCellInRect(cell, viewport);
         }
 
-        [Command]
-        private void CmdRequestPositionSync(ulong requesterId)
+        protected override void OnServerPositionRequest(ulong requesterId)
         {
-            Vector3 pos = transform.position;
             bool flipX = kbac != null && kbac.FlipX;
             bool flipY = kbac != null && kbac.FlipY;
             NavType navType = navigator != null && navigator.CurrentNavType != NavType.NumNavTypes
                 ? navigator.CurrentNavType : NavType.Floor;
-            
-            CallTargetRpc(requesterId, nameof(RpcReceivePosition), pos, flipX, flipY, navType);
+
+            CallTargetRpc(requesterId, nameof(TargetRpcReceiveFullState),
+                transform.position, flipX, flipY, navType);
         }
 
         [TargetRpc]
-        private void RpcReceivePosition(Vector3 position, bool flipX, bool flipY, NavType navType)
+        private void TargetRpcReceiveFullState(Vector3 position, bool flipX, bool flipY, NavType navType)
         {
             _netPosition = position;
             _netFlipX = flipX;
@@ -145,6 +102,14 @@ namespace ONI_Together.Networking.OxySync.Components
 
             if (navigator != null)
                 navigator.SetCurrentNavType(navType);
+
+            _lastRequestTime = Time.unscaledTime;
+        }
+
+        private void OnNavTypeChanged(NavType old, NavType current)
+        {
+            if (navigator != null)
+                navigator.SetCurrentNavType(current);
         }
     }
 }

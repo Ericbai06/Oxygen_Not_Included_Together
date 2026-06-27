@@ -256,7 +256,7 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("Null string serializes as empty");
         }
 
-        [UnitTest(name: "Variant all 8 types round-trip", category: "OxySync")]
+        [UnitTest(name: "Variant all 9 types round-trip", category: "OxySync")]
         public static UnitTestResult VariantAllTypesRoundTrip()
         {
             Variant[] inputs = {
@@ -268,6 +268,7 @@ namespace ONI_Together.DebugTools.UnitTests
                 (Variant)new Vector3(1f, 2f, 3f),
                 (Variant)new Vector2(4f, 5f),
                 (Variant)new byte[] { 0x01, 0x02 },
+                (Variant)new Quaternion(0.1f, 0.2f, 0.3f, 0.4f),
             };
 
             for (int i = 0; i < inputs.Length; i++)
@@ -313,10 +314,18 @@ namespace ONI_Together.DebugTools.UnitTests
                         if (output.ByteArray.Length != 2 || output.ByteArray[0] != 0x01)
                             return UnitTestResult.Fail($"byte[] variant {i} mismatch");
                         break;
+                    case Variant.TypeCode.Quaternion:
+                        var q = new Quaternion(0.1f, 0.2f, 0.3f, 0.4f);
+                        if (Mathf.Abs(output.Quaternion.x - q.x) > 0.001f ||
+                            Mathf.Abs(output.Quaternion.y - q.y) > 0.001f ||
+                            Mathf.Abs(output.Quaternion.z - q.z) > 0.001f ||
+                            Mathf.Abs(output.Quaternion.w - q.w) > 0.001f)
+                            return UnitTestResult.Fail($"Quaternion variant {i} mismatch");
+                        break;
                 }
             }
 
-            return UnitTestResult.Pass("All 8 Variant types round-trip correctly");
+            return UnitTestResult.Pass("All 9 Variant types round-trip correctly");
         }
 
         [UnitTest(name: "SyncVarPacket VariantToObject supports all types", category: "OxySync")]
@@ -332,6 +341,7 @@ namespace ONI_Together.DebugTools.UnitTests
                 ((Variant)new Vector3(1,2,3), typeof(Vector3), new Vector3(1,2,3)),
                 ((Variant)new Vector2(4,5), typeof(Vector2), new Vector2(4,5)),
                 ((Variant)new byte[] { 0x01 }, typeof(byte[]), new byte[] { 0x01 }),
+                ((Variant)new Quaternion(0.1f, 0.2f, 0.3f, 0.4f), typeof(Quaternion), new Quaternion(0.1f, 0.2f, 0.3f, 0.4f)),
             };
 
             foreach (var (v, type, expected) in testCases)
@@ -366,13 +376,21 @@ namespace ONI_Together.DebugTools.UnitTests
                     if (r.Length != e.Length || r[0] != e[0])
                         return UnitTestResult.Fail($"byte[] conversion mismatch");
                 }
+                else if (type == typeof(Quaternion))
+                {
+                    var r = (Quaternion)result;
+                    var e = (Quaternion)expected;
+                    if (Mathf.Abs(r.x - e.x) > 0.001f || Mathf.Abs(r.y - e.y) > 0.001f ||
+                        Mathf.Abs(r.z - e.z) > 0.001f || Mathf.Abs(r.w - e.w) > 0.001f)
+                        return UnitTestResult.Fail($"Quaternion conversion mismatch: {r} != {e}");
+                }
                 else if (!result.Equals(expected))
                 {
                     return UnitTestResult.Fail($"{type.Name} conversion mismatch: {result} != {expected}");
                 }
             }
 
-            return UnitTestResult.Pass("VariantToObject converts all 8 supported types");
+            return UnitTestResult.Pass("VariantToObject converts all 9 supported types");
         }
 
         [UnitTest(name: "VariantToObject null string fallback", category: "OxySync")]

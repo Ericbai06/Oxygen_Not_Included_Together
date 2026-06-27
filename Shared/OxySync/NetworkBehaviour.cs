@@ -8,7 +8,7 @@ namespace Shared.OxySync
 {
     public abstract class NetworkBehaviour : KMonoBehaviour
     {
-        private const BindingFlags FLAGS = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+        private const BindingFlags FLAGS = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
         public static event Action<NetworkBehaviour>? OnSpawned;
         public static event Action<NetworkBehaviour>? OnBehaviourCleanUp;
 
@@ -23,6 +23,7 @@ namespace Shared.OxySync
         public static Func<NetworkBehaviour, int>? NetIdQuery;
         public static Action<NetworkBehaviour, int>? NetIdSetter;
         public static Action<string>? LogWarning;
+        public static Func<ulong>? LocalUserIdQuery;
 
         private List<SyncVarField>? _syncVarFields;
         private Dictionary<int, CachedMethod>? _commandMethods;

@@ -90,6 +90,7 @@ namespace ONI_Together.Networking.OxySync.Components
             {
                 _outhouseToilet.meter?.SetPositionPercent(
                     Mathf.Clamp01((float)_flushesUsed / _outhouseToilet.maxFlushes));
+                _outhouseToilet.FlushesUsed = _flushesUsed;
             }
 
             UpdateOperationalState(_isOperational);

@@ -29,7 +29,7 @@ namespace ONI_Together.Networking.OxySync.Components
             base.OnSpawn();
             syncRotation = false;
             syncScale = false;
-            lerpSpeed = 20f;
+            useSnapshotInterpolation = true;
         }
 
         [Server]

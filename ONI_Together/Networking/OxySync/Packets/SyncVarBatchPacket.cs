@@ -15,6 +15,7 @@ namespace ONI_Together.Networking.OxySync.Packets
         public int Count;
         public int[] FieldHashes;
         public Variant[] Values;
+        public long Timestamp;
 
         public SyncVarBatchPacket()
         {
@@ -38,6 +39,7 @@ namespace ONI_Together.Networking.OxySync.Packets
         public void Serialize(BinaryWriter writer)
         {
             writer.Write(NetId);
+            writer.Write(Timestamp);
             writer.Write(Count);
             for (int i = 0; i < Count; i++)
             {
@@ -49,6 +51,7 @@ namespace ONI_Together.Networking.OxySync.Packets
         public void Deserialize(BinaryReader reader)
         {
             NetId = reader.ReadInt32();
+            Timestamp = reader.ReadInt64();
             Count = reader.ReadInt32();
             FieldHashes = new int[Count];
             Values = new Variant[Count];
@@ -79,7 +82,7 @@ namespace ONI_Together.Networking.OxySync.Packets
                     if (fields[j].Hash == hash)
                     {
                         var obj = SyncVarPacket.VariantToObject(val, fields[j].Info.FieldType);
-                        behaviour.ApplySyncVar(hash, obj);
+                        behaviour.ApplySyncVar(hash, obj, Timestamp);
                         break;
                     }
                 }

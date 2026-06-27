@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ONI_Together.DebugTools;
 using ONI_Together.Misc;
@@ -154,6 +155,7 @@ namespace ONI_Together.Networking.OxySync.Components
 
                 int netId = identity.NetId;
 
+                long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                 if (_changedScratch.Count == 1)
                 {
                     var update = _changedScratch[0];
@@ -162,11 +164,15 @@ namespace ONI_Together.Networking.OxySync.Components
                         NetId = netId,
                         FieldHash = update.Hash,
                         Value = update.Value,
+                        Timestamp = timestamp,
                     }, PacketSendMode.Unreliable);
                 }
                 else
                 {
-                    var batch = new SyncVarBatchPacket(netId, _changedScratch);
+                    var batch = new SyncVarBatchPacket(netId, _changedScratch)
+                    {
+                        Timestamp = timestamp,
+                    };
                     PacketSender.SendToAllClients(batch, PacketSendMode.Unreliable);
                 }
 

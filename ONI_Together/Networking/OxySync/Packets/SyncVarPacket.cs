@@ -14,12 +14,14 @@ namespace ONI_Together.Networking.OxySync.Packets
         public int NetId;
         public int FieldHash;
         public Variant Value;
+        public long Timestamp;
 
         public void Serialize(BinaryWriter writer)
         {
             writer.Write(NetId);
             writer.Write(FieldHash);
             Value.Write(writer);
+            writer.Write(Timestamp);
         }
 
         public void Deserialize(BinaryReader reader)
@@ -27,6 +29,7 @@ namespace ONI_Together.Networking.OxySync.Packets
             NetId = reader.ReadInt32();
             FieldHash = reader.ReadInt32();
             Value = Variant.Read(reader);
+            Timestamp = reader.ReadInt64();
         }
 
         public void OnDispatched()
@@ -44,7 +47,7 @@ namespace ONI_Together.Networking.OxySync.Packets
                 if (fields[i].Hash == FieldHash)
                 {
                     var obj = VariantToObject(Value, fields[i].Info.FieldType);
-                    behaviour.ApplySyncVar(FieldHash, obj);
+                    behaviour.ApplySyncVar(FieldHash, obj, Timestamp);
                     return;
                 }
             }

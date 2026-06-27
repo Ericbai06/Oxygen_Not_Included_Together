@@ -184,7 +184,7 @@ namespace Shared.OxySync
             SendTargetRpcToPlayer?.Invoke(targetPlayer, NetId, hash, serialized);
         }
 
-        public void ApplySyncVar(int fieldHash, object value)
+        public virtual void ApplySyncVar(int fieldHash, object value, long timestamp = 0)
         {
             if (_syncVarFields == null) return;
 

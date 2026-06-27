@@ -18,6 +18,7 @@ namespace ONI_Together.DebugTools.UnitTests
                 NetId = 12345,
                 FieldHash = "health".GetHashCode(),
                 Value = (Variant)100f,
+                Timestamp = 987654321098L,
             };
 
             using var ms = new MemoryStream();
@@ -35,6 +36,8 @@ namespace ONI_Together.DebugTools.UnitTests
                 return UnitTestResult.Fail("FieldHash mismatch");
             if (Mathf.Abs(output.Value.Float - 100f) > 0.001f)
                 return UnitTestResult.Fail($"Float value mismatch: {output.Value.Float}");
+            if (output.Timestamp != 987654321098L)
+                return UnitTestResult.Fail($"Timestamp mismatch: {output.Timestamp}");
 
             return UnitTestResult.Pass("SyncVarPacket round-trips correctly");
         }
@@ -50,7 +53,10 @@ namespace ONI_Together.DebugTools.UnitTests
                 ("count".GetHashCode(), (Variant)42),
             };
 
-            var input = new SyncVarBatchPacket(999, updates);
+            var input = new SyncVarBatchPacket(999, updates)
+            {
+                Timestamp = 1234567890123L,
+            };
 
             using var ms = new MemoryStream();
             using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
@@ -63,6 +69,8 @@ namespace ONI_Together.DebugTools.UnitTests
 
             if (output.NetId != 999)
                 return UnitTestResult.Fail($"NetId mismatch: {output.NetId}");
+            if (output.Timestamp != 1234567890123L)
+                return UnitTestResult.Fail($"Timestamp mismatch: {output.Timestamp}");
             if (output.Count != 4)
                 return UnitTestResult.Fail($"Count mismatch: {output.Count}");
             if (output.FieldHashes[0] != updates[0].Hash)

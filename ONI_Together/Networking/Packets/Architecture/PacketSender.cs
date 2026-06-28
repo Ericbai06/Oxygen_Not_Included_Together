@@ -16,6 +16,7 @@ using Shared.Profiling;
 using UnityEngine;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync;
+using ONI_Together.Networking.Overlay;
 
 namespace ONI_Together.Networking
 {
@@ -158,6 +159,15 @@ namespace ONI_Together.Networking
 				pendingPackets = bulkPacketWaitingData[packetId];
 			}
 			var serialized = packet.SerializeToByteArray();
+
+			var tracker = NetIdActivityTracker.Instance;
+			if (tracker != null)
+			{
+				int netId = NetIdActivityTracker.GetNetIdFromPacket(packet);
+				if (netId > 0)
+					tracker.RecordActivity(netId, serialized.Length + 4);
+			}
+
 			pendingPackets.Add(serialized);
 
 			if (!WaitingBulkPacketBytes.TryGetValue(conn, out var byteTotals))
@@ -208,6 +218,17 @@ namespace ONI_Together.Networking
 			{
 				AppendPendingBulkPacket(conn, packet, bp);
 				return true;
+			}
+
+			var tracker = NetIdActivityTracker.Instance;
+			if (tracker != null)
+			{
+				int netId = NetIdActivityTracker.GetNetIdFromPacket(packet);
+				if (netId > 0)
+				{
+					byte[] serialized = SerializePacketForSending(packet);
+					tracker.RecordActivity(netId, serialized.Length);
+				}
 			}
 
 			return NetworkConfig.TransportPacketSender.SendToConnection(conn, packet, sendType);

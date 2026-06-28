@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using ONI_Together.Networking.OxySync.Packets;
+using Steamworks;
 
 namespace ONI_Together.Networking.OxySync
 {
@@ -69,6 +70,13 @@ namespace ONI_Together.Networking.OxySync
                     result.Add(kvp.Key);
             }
             return result;
+        }
+
+        public static List<int> GetGroupsPlayerIsIn(ulong playerId)
+        {
+            if (_playerGroups.TryGetValue(playerId, out var groups))
+                return new List<int>(groups);
+            return new List<int>();
         }
 
         public static void SubscribeToGroup(int groupId)

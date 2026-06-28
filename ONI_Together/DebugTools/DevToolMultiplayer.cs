@@ -899,30 +899,30 @@ namespace ONI_Together.DebugTools
                         ImGui.Text($"  {name} ({pid}):");
                         ImGui.SameLine();
                         ImGui.PushID($"ig_player_{pid}");
-                        if (ImGui.SmallButton("+1"))
+                        for (int i = 0; i < 5; i++)
                         {
-                            InterestGroupManager.AddPlayerToGroup(pid, 1);
+                            ImGui.SameLine();
+                            if (ImGui.SmallButton($"+{i}"))
+                            {
+                                InterestGroupManager.AddPlayerToGroup(pid, i);
+                            }
                         }
                         ImGui.SameLine();
-                        if (ImGui.SmallButton("+2"))
+                        ImGui.Spacing();
+                        for (int i = 0; i < 5; i++)
                         {
-                            InterestGroupManager.AddPlayerToGroup(pid, 2);
+                            ImGui.SameLine();
+                            if (ImGui.SmallButton($"-{i}"))
+                            {
+                                InterestGroupManager.RemovePlayerFromGroup(pid, i);
+                            }
                         }
-                        ImGui.SameLine();
-                        if (ImGui.SmallButton("+3"))
-                        {
-                            InterestGroupManager.AddPlayerToGroup(pid, 3);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.SmallButton("+4"))
-                        {
-                            InterestGroupManager.AddPlayerToGroup(pid, 4);
-                        }
-                        ImGui.SameLine();
-                        if (ImGui.SmallButton("+5"))
-                        {
-                            InterestGroupManager.AddPlayerToGroup(pid, 5);
-                        }
+
+                        var groups = InterestGroupManager.GetGroupsPlayerIsIn(pid);
+                        if (groups.Count > 0)
+                            ImGui.Text($"  Groups: {string.Join(", ", groups)}");
+                        else
+                            ImGui.TextDisabled("  No groups");
                         ImGui.PopID();
                     }
                 }
@@ -975,7 +975,7 @@ namespace ONI_Together.DebugTools
                     string goName = b.gameObject?.name ?? "?";
                     if (goName.Length > 40)
                         goName = goName[..40] + "…";
-                    string label = $"{typeName}  [NetId: {b.NetId}]  ({goName})";
+                    string label = $"{typeName}  [NetId: {b.NetId}, Group:{b.InterestGroup}]  ({goName})";
                     bool isSelected = b == _selectedBehaviour;
 
                     if (ImGui.Selectable(label, isSelected))

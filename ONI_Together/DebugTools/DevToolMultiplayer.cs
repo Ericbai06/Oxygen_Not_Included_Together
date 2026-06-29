@@ -921,6 +921,8 @@ namespace ONI_Together.DebugTools
                         var groups = InterestGroupManager.GetGroupsPlayerIsIn(pid);
                         if (groups.Count > 0)
                             ImGui.Text($"  Groups: {string.Join(", ", groups)}");
+                        else if (pid == MultiplayerSession.HostUserID)
+                            ImGui.TextDisabled("  Host — no groups needed");
                         else
                             ImGui.TextDisabled("  No groups");
                         ImGui.PopID();

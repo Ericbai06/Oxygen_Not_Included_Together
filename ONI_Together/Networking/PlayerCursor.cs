@@ -38,6 +38,8 @@ namespace ONI_Together.Networking
 		public PlayerUtilityVisualizer utilityVisualizer = new PlayerUtilityVisualizer();
 
 		public int InterestGroup = -1;
+		public int ViewMinX, ViewMinY, ViewMaxX, ViewMaxY;
+		public HashSet<int> SubscribedChunks = new HashSet<int>();
 
         private readonly Dictionary<CursorState, float> cursorActionThresholds = new Dictionary<CursorState, float>()
 				{

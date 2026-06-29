@@ -1,8 +1,12 @@
 using ONI_Together.DebugTools;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.OxySync;
+using Shared.OxySync;
 using System;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace ONI_Together.Networking.Overlay
 {
@@ -53,6 +57,7 @@ namespace ONI_Together.Networking.Overlay
 		public const string FILTER_LIQUID_SYNC = "LIQUIDSYNC";
 		public const string FILTER_ANIM_SYNC = "ANIMSYNC";
 		public const string FILTER_VIEWPORTS = "VIEWPORTS";
+		public const string FILTER_GROUPS = "GROUPS";
 
 		private const float HIGH_ACTIVITY_THRESHOLD = 500f;
 		private const float MEDIUM_ACTIVITY_THRESHOLD = 100f;
@@ -75,9 +80,16 @@ namespace ONI_Together.Networking.Overlay
 		private bool showLiquidSync = true;
 		private bool showAnimSync = true;
 		private bool showViewports = true;
+		private static bool _showGroups = true;
 
 		private readonly HashSet<int> _animSyncNetIds = new HashSet<int>();
 		private bool _animSyncDataValid;
+
+		private GameObject _groupLabelContainer;
+		private List<TextMeshProUGUI> _groupLabels = new List<TextMeshProUGUI>();
+		private Camera _groupLabelCamera;
+		private Canvas _groupLabelCanvas;
+		private const int MAX_GROUP_LABELS = 256;
 
 		public NetworkingOverlayMode()
 		{
@@ -109,10 +121,39 @@ namespace ONI_Together.Networking.Overlay
 			CameraController.Instance.ToggleColouredOverlayView(true);
 			Camera.main.cullingMask |= cameraLayerMask;
 			SelectTool.Instance.SetLayerMask(selectionMask);
+
+			_groupLabelCamera = GameScreenManager.Instance.GetCamera(GameScreenManager.UIRenderTarget.ScreenSpaceCamera);
+			_groupLabelCanvas = GameScreenManager.Instance.ssCameraCanvas?.GetComponent<Canvas>();
+			_groupLabelContainer = new GameObject("GroupLabels");
+			_groupLabelContainer.transform.SetParent(_groupLabelCanvas?.transform, false);
+
+			for (int i = 0; i < MAX_GROUP_LABELS; i++)
+			{
+				var go = new GameObject($"GroupLabel_{i}");
+				go.transform.SetParent(_groupLabelContainer.transform, false);
+				var rect = go.AddComponent<RectTransform>();
+				rect.sizeDelta = new Vector2(80, 16);
+				var tmp = go.AddComponent<TextMeshProUGUI>();
+				tmp.font = Localization.FontAsset;
+				tmp.fontSize = 10;
+				tmp.alignment = TextAlignmentOptions.Center;
+				tmp.color = Color.white;
+				tmp.raycastTarget = false;
+				_groupLabels.Add(tmp);
+			}
 		}
 
 		public override void Disable()
 		{
+			if (_groupLabelContainer != null)
+			{
+				UnityEngine.Object.Destroy(_groupLabelContainer);
+				_groupLabelContainer = null;
+			}
+			_groupLabels.Clear();
+			_groupLabelCamera = null;
+			_groupLabelCanvas = null;
+
 			DisableHighlightTypeOverlay(layerTargets);
 			CameraController.Instance.ToggleColouredOverlayView(false);
 			Camera.main.cullingMask &= ~cameraLayerMask;
@@ -197,6 +238,8 @@ namespace ONI_Together.Networking.Overlay
 			RefreshAnimSyncData();
 			UpdateCellActivity(min, max);
 			UpdateViewportOverlay(min, max);
+
+			UpdateGroupLabels(min, max);
 		}
 
 		private void RefreshAnimSyncData()
@@ -440,6 +483,7 @@ namespace ONI_Together.Networking.Overlay
 				new ToolParameterMenu.ToggleData(FILTER_LIQUID_SYNC, ToolParameterMenu.ToggleState.On),
 				new ToolParameterMenu.ToggleData(FILTER_ANIM_SYNC, ToolParameterMenu.ToggleState.On),
 				new ToolParameterMenu.ToggleData(FILTER_VIEWPORTS, ToolParameterMenu.ToggleState.On),
+				new ToolParameterMenu.ToggleData(FILTER_GROUPS, ToolParameterMenu.ToggleState.On),
 			};
 		}
 
@@ -450,6 +494,61 @@ namespace ONI_Together.Networking.Overlay
 			showLiquidSync = InFilter(FILTER_LIQUID_SYNC, legendFilters);
 			showAnimSync = InFilter(FILTER_ANIM_SYNC, legendFilters);
 			showViewports = InFilter(FILTER_VIEWPORTS, legendFilters);
+			_showGroups = InFilter(FILTER_GROUPS, legendFilters);
+		}
+
+		private void UpdateGroupLabels(Vector2 min, Vector2 max)
+		{
+			if (_groupLabelContainer == null || _groupLabelCamera == null) return;
+			if (ClusterManager.Instance == null) return;
+
+			float planeZ = _groupLabelCanvas?.planeDistance ?? 10f;
+			int worldId = ClusterManager.Instance.activeWorldId;
+			if (worldId < 0) return;
+
+			int cs = WorldChunkHelper.ChunkSize;
+			int scx = (int)min.x / cs;
+			int scy = (int)min.y / cs;
+			int ecx = (int)max.x / cs;
+			int ecy = (int)max.y / cs;
+
+			int idx = 0;
+			for (int cy = scy; cy <= ecy; cy++)
+			{
+				for (int cx = scx; cx <= ecx; cx++)
+				{
+					if (idx >= _groupLabels.Count) break;
+
+					int groupId = WorldChunkHelper.GetGroupId(worldId, cx, cy);
+
+					int centerX = cx * cs + cs / 2;
+					int centerY = cy * cs + cs / 2;
+					int cell = Grid.XYToCell(centerX, centerY);
+					if (!Grid.IsValidCell(cell)) continue;
+
+					Vector3 worldPos = Grid.CellToPos2D(cell);
+					Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
+					if (screenPos.z < 0f) continue;
+					screenPos.z = planeZ;
+
+					var tmp = _groupLabels[idx++];
+					tmp.gameObject.SetActive(true);
+					tmp.transform.position = _groupLabelCamera.ScreenToWorldPoint(screenPos);
+					tmp.text = $"Group: {groupId}";
+				}
+			}
+			for (int i = idx; i < _groupLabels.Count; i++)
+				_groupLabels[i].gameObject.SetActive(false);
+		}
+
+		private static Color GetChunkColor(int groupId)
+		{
+			int h = groupId * 1234567 + 7654321;
+			int h2 = h >> 8;
+			float r = ((h >> 16) & 0xFF) / 255f * 0.25f + 0.05f;
+			float g = ((h2 >> 16) & 0xFF) / 255f * 0.25f + 0.05f;
+			float b = ((h >> 0) & 0xFF) / 255f * 0.25f + 0.05f;
+			return new Color(r, g, b, 0.2f);
 		}
 
 		public static Color GetCellColor(SimDebugView _, int cell)
@@ -462,24 +561,26 @@ namespace ONI_Together.Networking.Overlay
 			float bps = _cellActivity[cell];
 			bool inViewport = _cellInViewport != null && _cellInViewport[cell];
 
-			if (bps <= 0f && !inViewport)
-				return Color.black;
-
 			Color result = Color.black;
+
+			if (_showGroups)
+			{
+				byte worldId = Grid.WorldIdx[cell];
+				if (worldId != byte.MaxValue)
+					result = GetChunkColor(WorldChunkHelper.GetGroupId(worldId, cell));
+			}
 
 			if (bps > 0f)
 			{
 				float intensity = Mathf.Clamp01(bps / HIGH_ACTIVITY_THRESHOLD);
-				result = Color.Lerp(Color.green, Color.red, intensity);
+				Color activityColor = Color.Lerp(Color.green, Color.red, intensity);
+				result = Color.Lerp(result, activityColor, 0.5f);
 			}
 
 			if (inViewport)
 			{
 				Color viewportColor = new Color(0f, 0.4f, 1f);
-				if (result == Color.black)
-					result = viewportColor;
-				else
-					result = Color.Lerp(result, viewportColor, 0.4f);
+				result = Color.Lerp(result, viewportColor, 0.4f);
 			}
 
 			return result;

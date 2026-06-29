@@ -782,6 +782,12 @@ namespace ONI_Together
 						public static LocString NAME = "Viewports";
 						public static LocString TOOLTIP = "Show/hide other players\u0027 camera viewports";
 					}
+
+					public class GROUPS
+					{
+						public static LocString NAME = "Interest Groups";
+						public static LocString TOOLTIP = "Show/hide network interest group regions";
+					}
 				}
 			}
 

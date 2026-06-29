@@ -132,18 +132,19 @@ namespace ONI_Together.Networking.OxySync.Components
                 Instance = null;
         }
 
-        private void Register(NetworkBehaviour behaviour)
-        {
-            if (!_behaviours.Contains(behaviour))
-                _behaviours.Add(behaviour);
+		private void Register(NetworkBehaviour behaviour)
+		{
+			if (!_behaviours.Contains(behaviour))
+				_behaviours.Add(behaviour);
 
-            if (behaviour.InterestGroup == -1)
-            {
-                int worldId = behaviour.GetMyWorldId();
-                if (worldId >= 0)
-                    behaviour.InterestGroup = worldId;
-            }
-        }
+			if (behaviour.InterestGroup == -1)
+			{
+				int worldId = behaviour.GetMyWorldId();
+				if (worldId >= 0)
+					behaviour.InterestGroup = WorldChunkHelper.GetGroupId(worldId,
+						Grid.PosToCell(behaviour.transform.position));
+			}
+		}
 
         private void Unregister(NetworkBehaviour behaviour)
         {
@@ -235,9 +236,14 @@ namespace ONI_Together.Networking.OxySync.Components
 
                 behaviour.SyncLastSentValues();
 
-                int currentWorld = behaviour.GetMyWorldId();
-                if (currentWorld >= 0 && currentWorld != behaviour.InterestGroup)
-                    behaviour.InterestGroup = currentWorld;
+				int currentWorld = behaviour.GetMyWorldId();
+				if (currentWorld >= 0)
+				{
+					int newGroup = WorldChunkHelper.GetGroupId(currentWorld,
+						Grid.PosToCell(behaviour.transform.position));
+					if (newGroup != behaviour.InterestGroup)
+						behaviour.InterestGroup = newGroup;
+				}
             }
         }
 

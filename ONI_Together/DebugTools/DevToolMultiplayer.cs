@@ -70,6 +70,7 @@ namespace ONI_Together.DebugTools
         private List<string> _oxySyncTypeNames = new() { "All" };
         private string[] _oxySyncWorldOptions = new[] { "All", "Group -1 (Broadcast)" };
         private int[] _oxySyncWorldIds = new[] { -2, -1 };
+        private bool _oxySyncShowSyncingOnly = false;
 
         // Independent popout windows
         private struct PopoutWindow
@@ -910,6 +911,9 @@ namespace ONI_Together.DebugTools
             ImGui.SetNextItemWidth(200);
             ImGui.InputText("Search", ref _oxySyncFilter, 128);
 
+            ImGui.SameLine();
+            ImGui.Checkbox("Syncing only", ref _oxySyncShowSyncingOnly);
+
             ImGui.Text($"Registered Behaviours: {behaviours.Count}");
 
             if (ImGui.CollapsingHeader("Interest Groups", ImGuiTreeNodeFlags.DefaultOpen))
@@ -1028,6 +1032,9 @@ namespace ONI_Together.DebugTools
                         if (!matchesType && !matchesId && !matchesGroup && !matchesName) continue;
                     }
 
+                    if (_oxySyncShowSyncingOnly && MultiplayerSession.IsHost &&
+                        (Time.unscaledTime - b._lastActiveSyncTime) > 2f) continue;
+
                     filteredCount++;
                     if (goName.Length > 40)
                         goName = goName[..40] + "…";
@@ -1047,7 +1054,7 @@ namespace ONI_Together.DebugTools
                         ImGui.PopStyleColor();
                 }
 
-                if (hasTextFilter || selectedWorldId != -2 || hasTypeFilter)
+                if (hasTextFilter || selectedWorldId != -2 || hasTypeFilter || _oxySyncShowSyncingOnly)
                     ImGui.TextDisabled($"Filtered: {filteredCount} / {behaviours.Count}");
 
                 ImGui.EndChild();
@@ -1118,6 +1125,17 @@ namespace ONI_Together.DebugTools
             else
             {
                 ImGui.TextDisabled("Sync status only available on host");
+            }
+
+            if (MultiplayerSession.IsHost)
+            {
+                float lastActive = Time.unscaledTime - behaviour._lastActiveSyncTime;
+                float lastCheck = Time.unscaledTime - behaviour._lastSyncTime;
+                ImGui.Text($"Last synced: {lastActive:F1}s ago  |  Last check: {lastCheck:F1}s ago");
+            }
+            else
+            {
+                ImGui.TextDisabled("Last synced: N/A (client)");
             }
 
             int ig = behaviour.InterestGroup;

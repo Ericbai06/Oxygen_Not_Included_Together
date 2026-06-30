@@ -42,6 +42,8 @@ namespace ONI_Together.DebugTools
 		// bytes = packet size, durationMs = current retry interval in ms for easy log read).
 		public static SyncMetric AnimResyncRequest = new SyncMetric { Name = "AnimResyncReq", Interval = 5f };
 
+		public static SyncMetric OxySync = new SyncMetric() { Name = "OxySync", Interval = 0.5f };
+
 		/// <summary>
 		/// Updates a metric after a sync operation.
 		/// </summary>
@@ -63,7 +65,8 @@ namespace ONI_Together.DebugTools
 			Gas, Digging, Chores, Research,
 			Buildings, Structures, VitalStats, Plants,
 			DragTool,
-			AnimSync, AnimResyncRequest
+			AnimSync, AnimResyncRequest,
+			OxySync
 		};
 	}
 }

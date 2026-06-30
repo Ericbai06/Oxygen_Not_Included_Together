@@ -1,4 +1,5 @@
 using ONI_Together.DebugTools;
+using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync;
 using Shared.OxySync;
@@ -69,7 +70,6 @@ namespace ONI_Together.Networking.Overlay
 
 		private NetIdActivityTracker tracker;
 
-		private static float[] _cellActivity;
 		private static Color[] _cellInViewport;
 
 		private bool showObjects = true;
@@ -105,8 +105,6 @@ namespace ONI_Together.Networking.Overlay
 			tracker = NetIdActivityTracker.Instance;
 			RegisterSaveLoadListeners();
 			partition = OverlayModes.Mode.PopulatePartition<NetworkIdentity>(new List<Tag>());
-			if (_cellActivity == null || _cellActivity.Length != Grid.CellCount)
-				_cellActivity = new float[Grid.CellCount];
 			if (_cellInViewport == null || _cellInViewport.Length != Grid.CellCount)
 				_cellInViewport = new Color[Grid.CellCount];
 			CameraController.Instance.ToggleColouredOverlayView(true);
@@ -192,21 +190,23 @@ namespace ONI_Together.Networking.Overlay
 			var highlights = new List<OverlayModes.ColorHighlightCondition>();
 			if (showObjects)
 			{
+				var green = GlobalAssets.Instance.colorSet.cropGrown;
+				var yellow = GlobalAssets.Instance.colorSet.cropGrowing;
+				var red = GlobalAssets.Instance.colorSet.cropHalted;
+
 				highlights.Add(new OverlayModes.ColorHighlightCondition(
-					(_) => Color.gray,
-					(kmb) => kmb == null
-				));
-				highlights.Add(new OverlayModes.ColorHighlightCondition(
-					(_) => GlobalAssets.Instance.colorSet.cropGrown,
-					(kmb) => GetActivityLevel(kmb as NetworkIdentity) == ActivityLevel.Low
-				));
-				highlights.Add(new OverlayModes.ColorHighlightCondition(
-					(_) => GlobalAssets.Instance.colorSet.cropGrowing,
-					(kmb) => GetActivityLevel(kmb as NetworkIdentity) == ActivityLevel.Medium
-				));
-				highlights.Add(new OverlayModes.ColorHighlightCondition(
-					(_) => GlobalAssets.Instance.colorSet.cropHalted,
-					(kmb) => GetActivityLevel(kmb as NetworkIdentity) == ActivityLevel.High
+					(kmb) =>
+					{
+						var ni = kmb as NetworkIdentity;
+						if (ni == null || tracker == null) return Color.gray;
+						float bps = tracker.GetBytesPerSecond(ni.NetId);
+						if (bps <= 0f) return Color.gray;
+						float t = Mathf.Clamp01(bps / HIGH_ACTIVITY_THRESHOLD);
+						if (t < 0.5f)
+							return Color.Lerp(green, yellow, t * 2f);
+						return Color.Lerp(yellow, red, (t - 0.5f) * 2f);
+					},
+					(kmb) => kmb != null
 				));
 			}
 
@@ -214,44 +214,9 @@ namespace ONI_Together.Networking.Overlay
 			UpdateHighlightTypeOverlay(min, max, layerTargets, emptyTags,
 				highlights.ToArray(), OverlayModes.BringToFrontLayerSetting.Constant, targetLayer);
 
-			UpdateCellActivity(min, max);
 			UpdateViewportOverlay(min, max);
 
 			UpdateGroupLabels(min, max);
-		}
-
-		private void UpdateCellActivity(Vector2I min, Vector2I max)
-		{
-			if (_cellActivity == null || tracker == null)
-				return;
-
-			int layerCount = (int)ObjectLayer.NumLayers;
-			for (int y = min.y; y <= max.y; y++)
-			{
-				for (int x = min.x; x <= max.x; x++)
-				{
-					int cell = Grid.XYToCell(x, y);
-					if (!Grid.IsValidCell(cell))
-						continue;
-
-					float bps = 0f;
-					for (int i = 0; i < layerCount; i++)
-					{
-						var go = Grid.Objects[cell, i];
-						if (go != null)
-						{
-							var identity = go.GetComponent<NetworkIdentity>();
-							if (identity != null)
-							{
-								float objBps = tracker.GetBytesPerSecond(identity.NetId);
-								if (objBps > bps)
-									bps = objBps;
-							}
-						}
-					}
-					_cellActivity[cell] = bps;
-				}
-			}
 		}
 
 		private void UpdateViewportOverlay(Vector2I min, Vector2I max)
@@ -304,18 +269,6 @@ namespace ONI_Together.Networking.Overlay
 			}
 		}
 
-		private enum ActivityLevel { None, Low, Medium, High }
-
-		private ActivityLevel GetActivityLevel(NetworkIdentity identity)
-		{
-			if (identity == null || tracker == null) return ActivityLevel.None;
-			float bps = tracker.GetBytesPerSecond(identity.NetId);
-			if (bps > HIGH_ACTIVITY_THRESHOLD) return ActivityLevel.High;
-			if (bps > MEDIUM_ACTIVITY_THRESHOLD) return ActivityLevel.Medium;
-			if (bps > 0f) return ActivityLevel.Low;
-			return ActivityLevel.None;
-		}
-
 		private bool ShouldShowObject(NetworkIdentity identity)
 		{
 			return showObjects;
@@ -366,15 +319,13 @@ namespace ONI_Together.Networking.Overlay
 
 			if (showObjects)
 			{
-				entries.Add(new LegendEntry("HIGH ACTIVITY",
-					string.Format("> {0} B/s", HIGH_ACTIVITY_THRESHOLD),
-					GlobalAssets.Instance.colorSet.cropHalted));
-				entries.Add(new LegendEntry("MEDIUM ACTIVITY",
-					string.Format("> {0} B/s", MEDIUM_ACTIVITY_THRESHOLD),
+				entries.Add(new LegendEntry(string.Format("  High (≥{0}/s)", Utils.FormatBytes((long) HIGH_ACTIVITY_THRESHOLD)),
+					null, GlobalAssets.Instance.colorSet.cropHalted));
+				entries.Add(new LegendEntry(string.Format("  Medium (≥{0}/s <{1}/s)", Utils.FormatBytes((long) MEDIUM_ACTIVITY_THRESHOLD), Utils.FormatBytes((long) HIGH_ACTIVITY_THRESHOLD)), null,
 					GlobalAssets.Instance.colorSet.cropGrowing));
-				entries.Add(new LegendEntry("LOW ACTIVITY", "> 0 B/s",
+				entries.Add(new LegendEntry("  Low (> 0 B/s)", null,
 					GlobalAssets.Instance.colorSet.cropGrown));
-				entries.Add(new LegendEntry("IDLE", "No activity",
+				entries.Add(new LegendEntry("  Idle (No activity)", null,
 					Color.gray));
 			}
 
@@ -421,8 +372,8 @@ namespace ONI_Together.Networking.Overlay
 						hasStats = true;
 					}
 					entries.Add(new LegendEntry(
-						string.Format("{0}: {1}B, {2:F1}ms", metric.Name,
-							metric.LastPacketBytes, metric.LastDurationMs),
+						string.Format("{0}: {1}, {2:F1}ms", metric.Name,
+							Utils.FormatBytes(metric.LastPacketBytes), metric.LastDurationMs),
 						null, Color.white, null, null, displaySprite: false));
 				}
 			}
@@ -504,14 +455,13 @@ namespace ONI_Together.Networking.Overlay
 
 		public static Color GetCellColor(SimDebugView _, int cell)
 		{
-			if (_cellActivity == null || !Grid.IsValidCell(cell))
+			if (!Grid.IsValidCell(cell))
 				return Color.black;
 			if (Grid.Solid[cell])
 				return Color.black;
 			if (!Grid.IsVisible(cell))
 				return Color.black;
 
-			float bps = _cellActivity[cell];
 			Color viewportColor = _cellInViewport != null ? _cellInViewport[cell] : Color.clear;
 			bool inViewport = viewportColor.a > 0f;
 
@@ -522,13 +472,6 @@ namespace ONI_Together.Networking.Overlay
 				byte worldId = Grid.WorldIdx[cell];
 				if (worldId != byte.MaxValue)
 					result = GetChunkColor(WorldChunkHelper.GetGroupId(worldId, cell));
-			}
-
-			if (bps > 0f)
-			{
-				float intensity = Mathf.Clamp01(bps / HIGH_ACTIVITY_THRESHOLD);
-				Color activityColor = Color.Lerp(Color.green, Color.red, intensity);
-				result = Color.Lerp(result, activityColor, 0.5f);
 			}
 
 			if (inViewport)

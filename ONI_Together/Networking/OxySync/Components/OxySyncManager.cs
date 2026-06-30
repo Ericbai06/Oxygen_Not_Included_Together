@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Reflection;
 using ONI_Together.DebugTools;
 using ONI_Together.Misc;
@@ -168,6 +169,9 @@ namespace ONI_Together.Networking.OxySync.Components
                 return;
             _tickAccumulator -= GameServer.TickInterval;
 
+            var sw = Stopwatch.StartNew();
+            int totalChanges = 0;
+
             for (int i = _behaviours.Count - 1; i >= 0; i--)
             {
                 var behaviour = _behaviours[i];
@@ -229,6 +233,7 @@ namespace ONI_Together.Networking.OxySync.Components
                 {
                     int groupId = kvp.Key;
                     var updates = kvp.Value;
+                    totalChanges += updates.Count;
 
                     if (updates.Count == 1)
                     {
@@ -277,6 +282,12 @@ namespace ONI_Together.Networking.OxySync.Components
 							behaviour.InterestGroup = newGroup;
 					}
 				}
+            }
+
+            if (totalChanges > 0)
+            {
+                sw.Stop();
+                SyncStats.RecordSync(SyncStats.OxySync, totalChanges, totalChanges * 16, sw.ElapsedMilliseconds);
             }
         }
 

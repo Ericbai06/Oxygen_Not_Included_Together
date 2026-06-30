@@ -176,27 +176,38 @@ namespace ONI_Together.Networking.OxySync.Components
 
                 behaviour._lastSyncTime = Time.unscaledTime;
 
+                uint manualDirty = behaviour.GetAndClearDirtyBits();
+
                 _changedByGroup.Clear();
                 var fields = behaviour.SyncVarFields;
 
                 for (int j = 0; j < fields.Count; j++)
                 {
                     var field = fields[j];
-                    var currentValue = field.Info.GetValue(behaviour);
-                    var currentVariant = ObjectToVariant(currentValue);
-                    var lastVariant = ObjectToVariant(field.LastSentValue);
+                    bool isManuallyDirty = (manualDirty & (1u << j)) != 0;
 
-                    if (ValuesDiffer(currentVariant, lastVariant, field.Epsilon))
+                    Variant currentVariant;
+                    if (isManuallyDirty)
                     {
-                        int group = field.InterestGroup;
-                        if (group == -1) group = behaviour.InterestGroup;
-                        if (!_changedByGroup.TryGetValue(group, out var list))
-                        {
-                            list = new List<(int Hash, Variant Value)>();
-                            _changedByGroup[group] = list;
-                        }
-                        list.Add((field.Hash, currentVariant));
+                        currentVariant = ObjectToVariant(field.Info.GetValue(behaviour));
                     }
+                    else
+                    {
+                        var currentValue = field.Info.GetValue(behaviour);
+                        currentVariant = ObjectToVariant(currentValue);
+                        var lastVariant = ObjectToVariant(field.LastSentValue);
+                        if (!ValuesDiffer(currentVariant, lastVariant, field.Epsilon))
+                            continue;
+                    }
+
+                    int group = field.InterestGroup;
+                    if (group == -1) group = behaviour.InterestGroup;
+                    if (!_changedByGroup.TryGetValue(group, out var list))
+                    {
+                        list = new List<(int Hash, Variant Value)>();
+                        _changedByGroup[group] = list;
+                    }
+                    list.Add((field.Hash, currentVariant));
                 }
 
                 if (_changedByGroup.Count == 0) continue;
@@ -233,6 +244,19 @@ namespace ONI_Together.Networking.OxySync.Components
                         PacketSender.SendToGroup(groupId, batch, PacketSendMode.Unreliable);
                     }
                 }
+
+                bool hasSubscribers = false;
+                foreach (int g in _changedByGroup.Keys)
+                {
+                    if (InterestGroupManager.GetPlayersInGroup(g).Count > 0)
+                    {
+                        hasSubscribers = true;
+                        break;
+                    }
+                }
+
+                if (hasSubscribers)
+                    behaviour._lastActiveSyncTime = Time.unscaledTime;
 
                 behaviour.SyncLastSentValues();
 

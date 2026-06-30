@@ -1035,7 +1035,7 @@ namespace ONI_Together.DebugTools
                     bool isSelected = b == _selectedBehaviour;
 
                     // Highlight actively syncing behaviours
-                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastSyncTime) <= 2f)
+                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
                         ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.3f, 1f, 0.3f, 1f));
 
                     if (ImGui.Selectable(label, isSelected))
@@ -1043,7 +1043,7 @@ namespace ONI_Together.DebugTools
                         _selectedBehaviour = b;
                     }
 
-                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastSyncTime) <= 2f)
+                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
                         ImGui.PopStyleColor();
                 }
 
@@ -1109,7 +1109,7 @@ namespace ONI_Together.DebugTools
 
             if (MultiplayerSession.IsHost)
             {
-                bool isSyncing = (Time.unscaledTime - behaviour._lastSyncTime) <= 2f;
+                bool isSyncing = (Time.unscaledTime - behaviour._lastActiveSyncTime) <= 2f;
                 if (isSyncing)
                     ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), "● Syncing");
                 else

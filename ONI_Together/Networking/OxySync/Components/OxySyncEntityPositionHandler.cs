@@ -35,13 +35,6 @@ namespace ONI_Together.Networking.OxySync.Components
         [Server]
         protected override void ServerUpdate()
         {
-            /* Replaced by Interest Groups
-            int cell = Grid.PosToCell(transform.position);
-            if (WorldStateSyncer.Instance != null
-                && !WorldStateSyncer.Instance.IsCellVisibleToAnyClientViewport(cell, VIEWPORT_MARGIN))
-                return;
-            */
-            
             base.ServerUpdate();
 
             if (kbac != null)

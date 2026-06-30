@@ -30,6 +30,8 @@ namespace Shared.OxySync
         private Dictionary<int, CachedMethod>? _commandMethods;
         private Dictionary<int, CachedMethod>? _clientRpcMethods;
         private Dictionary<int, CachedMethod>? _targetRpcMethods;
+        private uint _syncVarDirtyBits;
+        private Dictionary<int, int>? _syncVarHashToIndex;
 
         protected bool isServer => IsHostQuery?.Invoke() ?? false;
         protected bool isClient => IsClientQuery?.Invoke() ?? false;
@@ -43,6 +45,7 @@ namespace Shared.OxySync
 
         public float SyncInterval = 0.5f;
         public float _lastSyncTime;
+        public float _lastActiveSyncTime;
         public int InterestGroup { get; set; } = -1;
 
         public IReadOnlyList<SyncVarField> SyncVarFields =>
@@ -120,6 +123,12 @@ namespace Shared.OxySync
             }
 
             _syncVarFields = list;
+
+            _syncVarHashToIndex = new Dictionary<int, int>();
+            for (int i = 0; i < list.Count; i++)
+                _syncVarHashToIndex[list[i].Hash] = i;
+
+            _syncVarDirtyBits = 0;
         }
 
         private void DiscoverRpcs()
@@ -348,6 +357,7 @@ namespace Shared.OxySync
                 var updated = field;
                 updated.LastSentValue = value;
                 _syncVarFields[i] = updated;
+                SetSyncVarDirty(fieldHash);
                 return;
             }
         }
@@ -361,6 +371,25 @@ namespace Shared.OxySync
                 field.LastSentValue = field.Info.GetValue(this);
                 _syncVarFields[i] = field;
             }
+        }
+
+        protected void SetSyncVarDirty(int fieldHash)
+        {
+            if (_syncVarHashToIndex != null && _syncVarHashToIndex.TryGetValue(fieldHash, out int idx))
+                _syncVarDirtyBits |= 1u << idx;
+        }
+
+        public uint GetAndClearDirtyBits()
+        {
+            uint bits = _syncVarDirtyBits;
+            _syncVarDirtyBits = 0;
+            return bits;
+        }
+
+        public void MarkAllDirty()
+        {
+            if (_syncVarFields != null)
+                _syncVarDirtyBits = _syncVarFields.Count < 32 ? (1u << _syncVarFields.Count) - 1 : ~0u;
         }
     }
 }

@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using ONI_Together.DebugTools;
 using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.OxySync.Packets;
 using Shared.OxySync;
+using Shared.OxySync.Attributes;
 using Shared.Profiling;
 using UnityEngine;
 
@@ -16,6 +18,7 @@ namespace ONI_Together.Networking.OxySync.Components
 
         private readonly List<NetworkBehaviour> _behaviours = new();
         private readonly Dictionary<int, List<(int Hash, Variant Value)>> _changedByGroup = new();
+        private readonly HashSet<Type> _explicitGroupTypes = new();
 
         private float _tickAccumulator;
 
@@ -137,7 +140,10 @@ namespace ONI_Together.Networking.OxySync.Components
 			if (!_behaviours.Contains(behaviour))
 				_behaviours.Add(behaviour);
 
-			if (behaviour.InterestGroup == -1)
+			if (behaviour.GetType().GetCustomAttribute<FixedInterestGroupAttribute>() != null)
+				_explicitGroupTypes.Add(behaviour.GetType());
+
+			if (behaviour.InterestGroup == -1 && !_explicitGroupTypes.Contains(behaviour.GetType()))
 			{
 				int worldId = behaviour.GetMyWorldId();
 				if (worldId >= 0)
@@ -260,13 +266,16 @@ namespace ONI_Together.Networking.OxySync.Components
 
                 behaviour.SyncLastSentValues();
 
-				int currentWorld = behaviour.GetMyWorldId();
-				if (currentWorld >= 0)
+				if (!_explicitGroupTypes.Contains(behaviour.GetType()))
 				{
-					int newGroup = WorldChunkHelper.GetGroupId(currentWorld,
-						Grid.PosToCell(behaviour.transform.position));
-					if (newGroup != behaviour.InterestGroup)
-						behaviour.InterestGroup = newGroup;
+					int currentWorld = behaviour.GetMyWorldId();
+					if (currentWorld >= 0)
+					{
+						int newGroup = WorldChunkHelper.GetGroupId(currentWorld,
+							Grid.PosToCell(behaviour.transform.position));
+						if (newGroup != behaviour.InterestGroup)
+							behaviour.InterestGroup = newGroup;
+					}
 				}
             }
         }

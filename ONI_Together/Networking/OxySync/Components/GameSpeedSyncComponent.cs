@@ -7,6 +7,7 @@ using UnityEngine;
 namespace ONI_Together.Networking.OxySync.Components
 {
     [SkipSaveFileSerialization]
+    [FixedInterestGroup]
     public class GameSpeedSyncComponent : NetworkBehaviour
     {
         public enum SpeedState

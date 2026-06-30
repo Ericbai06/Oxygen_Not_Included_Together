@@ -6,6 +6,7 @@ using Shared.OxySync.Attributes;
 namespace ONI_Together.Networking.OxySync.Components
 {
     [SkipSaveFileSerialization]
+    [FixedInterestGroup]
     public class GameTimeSyncComponent : NetworkBehaviour
     {
         public static GameTimeSyncComponent? Instance { get; private set; }

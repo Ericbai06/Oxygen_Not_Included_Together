@@ -197,10 +197,10 @@ namespace ONI_Together.Networking.OxySync.Components
                     original.iconName,
                     original.iconType,
                     original.notificationType,
-                    false,
+                    original.allowMultiples,
                     original.render_overlay,
                     original.status_overlays,
-                    false
+                    original.showShowWorldIcon
                 );
                 item.sprite = original.sprite;
                 item.showInHoverCardOnly = original.showInHoverCardOnly;

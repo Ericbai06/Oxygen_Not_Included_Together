@@ -408,6 +408,21 @@ namespace ONI_Together.Networking.Overlay
 					null, Color.white, null, null, displaySprite: false));
 			}
 
+			if (PacketTracker.Instance != null)
+			{
+				float inPps = PacketTracker.IncomingPps;
+				float outPps = PacketTracker.OutgoingPps;
+				float inBw = PacketTracker.IncomingBandwidth;
+				float outBw = PacketTracker.OutgoingBandwidth;
+				entries.Add(new LegendEntry(
+					string.Format("Packets: \u2193{0:F1}/s  \u2191{1:F1}/s", inPps, outPps),
+					null, Color.white, null, null, displaySprite: false));
+				entries.Add(new LegendEntry(
+					string.Format("Bandwidth: \u2193{0}/s  \u2191{1}/s",
+						Utils.FormatBytes((long)inBw), Utils.FormatBytes((long)outBw)),
+					null, Color.white, null, null, displaySprite: false));
+			}
+
 			if (showObjects)
 			{
 				entries.Add(new LegendEntry(string.Format("  High (≥{0}/s)", Utils.FormatBytes((long) HIGH_ACTIVITY_THRESHOLD)),

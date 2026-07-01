@@ -65,6 +65,7 @@ namespace ONI_Together.DebugTools
         // OxySync
         private string _oxySyncFilter = string.Empty;
         private NetworkBehaviour? _selectedBehaviour = null;
+        private int _selectedNetId = int.MinValue;
         private int _oxySyncSelectedWorldIdx = 0;
         private int _oxySyncSelectedTypeIdx = 0;
         private List<string> _oxySyncTypeNames = new() { "All" };
@@ -985,81 +986,140 @@ namespace ONI_Together.DebugTools
             bool hasTypeFilter = _oxySyncSelectedTypeIdx > 0;
             var available = ImGui.GetContentRegionAvail();
 
-            if (ImGui.BeginTable("OxySyncTable", 2, ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings,
+            // Build filtered list
+            var filteredBehaviours = new List<NetworkBehaviour>();
+            for (int i = 0; i < behaviours.Count; i++)
+            {
+                var b = behaviours[i];
+                if (b.IsNullOrDestroyed()) continue;
+
+                if (selectedWorldId == -1)
+                {
+                    if (b.InterestGroup != -1) continue;
+                }
+                else if (selectedWorldId >= 0)
+                {
+                    int myWorldId = b.GetMyWorldId();
+                    if (myWorldId < 0 || myWorldId != selectedWorldId) continue;
+                }
+
+                string typeName = b.GetType().Name;
+                if (hasTypeFilter && typeName != selectedTypeName) continue;
+
+                if (hasTextFilter)
+                {
+                    string netIdStr = b.NetId.ToString();
+                    string groupStr = b.InterestGroup.ToString();
+                    string goName = b.gameObject?.name ?? "?";
+                    bool matchesType = typeName.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool matchesId = netIdStr.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool matchesGroup = groupStr.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool matchesName = goName.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!matchesType && !matchesId && !matchesGroup && !matchesName) continue;
+                }
+
+                if (_oxySyncShowSyncingOnly && MultiplayerSession.IsHost &&
+                    (Time.unscaledTime - b._lastActiveSyncTime) > 2f) continue;
+
+                filteredBehaviours.Add(b);
+            }
+
+            // Build NetId groups
+            var netIdGroups = new Dictionary<int, List<NetworkBehaviour>>();
+            for (int i = 0; i < filteredBehaviours.Count; i++)
+            {
+                var b = filteredBehaviours[i];
+                int netId = b.NetId;
+                if (!netIdGroups.TryGetValue(netId, out var list))
+                {
+                    list = new List<NetworkBehaviour>();
+                    netIdGroups[netId] = list;
+                }
+                list.Add(b);
+            }
+
+            var sortedNetIds = netIdGroups.Keys.OrderBy(id => id).ToList();
+
+            if (ImGui.BeginTable("OxySyncTable", 3, ImGuiTableFlags.Resizable | ImGuiTableFlags.NoSavedSettings,
                 new Vector2(available.x, available.y - 30f)))
             {
-                ImGui.TableSetupColumn("Behaviours", ImGuiTableColumnFlags.WidthFixed, 350);
+                ImGui.TableSetupColumn("NetId Groups", ImGuiTableColumnFlags.WidthFixed, 350);
+                ImGui.TableSetupColumn("Behaviours", ImGuiTableColumnFlags.WidthFixed, 300);
                 ImGui.TableSetupColumn("Detail", ImGuiTableColumnFlags.WidthStretch);
 
                 ImGui.TableNextRow();
                 ImGui.TableSetColumnIndex(0);
 
-                ImGui.BeginChild("OxySyncList", new Vector2(0, 0), true);
+                ImGui.BeginChild("OxySyncNetIdList", new Vector2(0, 0), true);
 
-                int filteredCount = 0;
-                for (int i = 0; i < behaviours.Count; i++)
+                foreach (int netId in sortedNetIds)
                 {
-                    var b = behaviours[i];
-                    if (b.IsNullOrDestroyed()) continue;
+                    var group = netIdGroups[netId];
+                    var first = group[0];
+                    string goName = first.gameObject?.name ?? "?";
+                    int count = group.Count;
+                    int interestGroup = first.InterestGroup;
 
-                    // World filter
-                    if (selectedWorldId == -1)
+                    string displayName = string.Format(global::STRINGS.UI.StripLinkFormatting(goName));
+                    string label = $"{displayName} ({count} behaviours) (NetID: {netId}, Group: {interestGroup})";
+                    bool isSelected = netId == _selectedNetId;
+
+                    if (MultiplayerSession.IsHost)
                     {
-                        if (b.InterestGroup != -1) continue;
+                        bool anySyncing = group.Any(b => (Time.unscaledTime - b._lastActiveSyncTime) <= 2f);
+                        if (anySyncing)
+                            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.3f, 1f, 0.3f, 1f));
                     }
-                    else if (selectedWorldId >= 0)
-                    {
-                        int myWorldId = b.GetMyWorldId();
-                        if (myWorldId < 0 || myWorldId != selectedWorldId) continue;
-                    }
-
-                    string typeName = b.GetType().Name;
-
-                    // Type filter
-                    if (hasTypeFilter && typeName != selectedTypeName) continue;
-
-                    // Text search across Type, NetId, Group, and Object Name
-                    string netIdStr = b.NetId.ToString();
-                    string groupStr = b.InterestGroup.ToString();
-                    string goName = b.gameObject?.name ?? "?";
-
-                    if (hasTextFilter)
-                    {
-                        bool matchesType = typeName.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        bool matchesId = netIdStr.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        bool matchesGroup = groupStr.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        bool matchesName = goName.IndexOf(_oxySyncFilter, StringComparison.OrdinalIgnoreCase) >= 0;
-                        if (!matchesType && !matchesId && !matchesGroup && !matchesName) continue;
-                    }
-
-                    if (_oxySyncShowSyncingOnly && MultiplayerSession.IsHost &&
-                        (Time.unscaledTime - b._lastActiveSyncTime) > 2f) continue;
-
-                    filteredCount++;
-                    if (goName.Length > 40)
-                        goName = goName[..40] + "…";
-                    string label = $"{typeName}  [NetId: {b.NetId}, Group:{b.InterestGroup}]  ({goName})";
-                    bool isSelected = b == _selectedBehaviour;
-
-                    // Highlight actively syncing behaviours
-                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.3f, 1f, 0.3f, 1f));
 
                     if (ImGui.Selectable(label, isSelected))
                     {
-                        _selectedBehaviour = b;
+                        _selectedNetId = netId;
+                        _selectedBehaviour = null;
                     }
 
-                    if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
-                        ImGui.PopStyleColor();
+                    if (MultiplayerSession.IsHost)
+                    {
+                        bool anySyncing = group.Any(b => (Time.unscaledTime - b._lastActiveSyncTime) <= 2f);
+                        if (anySyncing)
+                            ImGui.PopStyleColor();
+                    }
                 }
-
-                if (hasTextFilter || selectedWorldId != -2 || hasTypeFilter || _oxySyncShowSyncingOnly)
-                    ImGui.TextDisabled($"Filtered: {filteredCount} / {behaviours.Count}");
 
                 ImGui.EndChild();
 
                 ImGui.TableSetColumnIndex(1);
+
+                ImGui.BeginChild("OxySyncBehaviourList", new Vector2(0, 0), true);
+
+                if (_selectedNetId == int.MinValue)
+                {
+                    ImGui.TextDisabled("Select a NetId group from the left panel");
+                }
+                else if (netIdGroups.TryGetValue(_selectedNetId, out var selectedGroup))
+                {
+                    foreach (var b in selectedGroup)
+                    {
+                        string typeName = b.GetType().Name;
+                        string goName = b.gameObject?.name ?? "?";
+                        string label = $"{typeName}";
+                        bool isSelected = b == _selectedBehaviour;
+
+                        if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
+                            ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.3f, 1f, 0.3f, 1f));
+
+                        if (ImGui.Selectable(label, isSelected))
+                        {
+                            _selectedBehaviour = b;
+                        }
+
+                        if (MultiplayerSession.IsHost && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f)
+                            ImGui.PopStyleColor();
+                    }
+                }
+
+                ImGui.EndChild();
+
+                ImGui.TableSetColumnIndex(2);
 
                 ImGui.BeginChild("OxySyncDetail", new Vector2(0, 0), true);
 
@@ -1071,7 +1131,10 @@ namespace ONI_Together.DebugTools
                 {
                     if (_selectedBehaviour != null)
                         _selectedBehaviour = null;
-                    ImGui.TextDisabled("Select a behaviour from the list to inspect.");
+                    if (_selectedNetId != int.MinValue)
+                        ImGui.TextDisabled("Select a behaviour from the centre panel to inspect.");
+                    else
+                        ImGui.TextDisabled("Select a NetId group from the left panel.");
                 }
 
                 ImGui.EndChild();
@@ -1141,14 +1204,19 @@ namespace ONI_Together.DebugTools
             int ig = behaviour.InterestGroup;
             ImGui.TextColored(new Vector4(0.3f, 1f, 1f, 1f),
                 ig == -1 ? "Interest Group: -1 (broadcast)" : $"Interest Group: {ig}");
-            if (ig != -1 && ClusterManager.Instance != null)
+            if (ig != -1 && MultiplayerSession.InSession)
             {
-                int activeWorld = ClusterManager.Instance.activeWorldId;
                 ImGui.SameLine();
-                if (ig == activeWorld)
-                    ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), " (matches active world)");
+                if (MultiplayerSession.IsHost)
+                    ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), " (host — all groups)");
                 else
-                    ImGui.TextColored(new Vector4(1f, 0.5f, 0.3f, 1f), $" (active world: {activeWorld})");
+                {
+                    var localGroups = InterestGroupManager.GetGroupsPlayerIsIn(MultiplayerSession.LocalUserID);
+                    if (localGroups.Contains(ig))
+                        ImGui.TextColored(new Vector4(0.3f, 1f, 0.3f, 1f), " (subscribed)");
+                    else
+                        ImGui.TextColored(new Vector4(1f, 0.5f, 0.3f, 1f), " (not subscribed)");
+                }
             }
 
             ImGui.Separator();

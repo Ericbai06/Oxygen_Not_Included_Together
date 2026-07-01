@@ -59,7 +59,7 @@ namespace ONI_Together.Networking.Overlay
 		public const string FILTER_GROUPS = "GROUPS";
 
 		private const float HIGH_ACTIVITY_THRESHOLD = 500f;
-		private const float MEDIUM_ACTIVITY_THRESHOLD = 100f;
+		private const float MEDIUM_ACTIVITY_THRESHOLD = 250f;
 
 		private UniformGrid<NetworkIdentity> partition;
 		private readonly HashSet<NetworkIdentity> layerTargets = new HashSet<NetworkIdentity>();
@@ -240,11 +240,9 @@ namespace ONI_Together.Networking.Overlay
 			var emptyTags = new HashSet<Tag>();
 			UpdateHighlightTypeOverlay(min, max, layerTargets, emptyTags,
 				highlights.ToArray(), OverlayModes.BringToFrontLayerSetting.Constant, targetLayer);
-
+			
 			UpdateViewportOverlay(min, max);
-
 			UpdateSyncIcons();
-
 			UpdateGroupLabels(min, max);
 		}
 
@@ -396,8 +394,6 @@ namespace ONI_Together.Networking.Overlay
 			int activeNow = tracker?.ActiveCount ?? 0;
 			var entries = new List<LegendEntry>
 			{
-				new LegendEntry("NETWORK ACTIVITY OVERLAY", null,
-					Color.white, null, null, displaySprite: false),
 				new LegendEntry(string.Format("Objects: {0} networked, {1} active/sec",
 					totalNetworked, activeNow), null,
 					Color.white, null, null, displaySprite: false),
@@ -436,7 +432,6 @@ namespace ONI_Together.Networking.Overlay
 				entries.Add(new LegendEntry("  Idle (No activity)", null,
 					Color.gray));
 
-				entries.Add(new LegendEntry("", null, Color.white, null, null, displaySprite: false));
 				entries.Add(new LegendEntry("  Syncing (last 2s)", "OxySync actively syncing",
 					Color.white, sprite: SyncSprite));
 			}
@@ -446,7 +441,6 @@ namespace ONI_Together.Networking.Overlay
 				var viewports = WorldStateSyncer.Instance.ClientViewports;
 				if (viewports.Count > 0)
 				{
-					entries.Add(new LegendEntry("", null, Color.white, null, null, displaySprite: false));
 					entries.Add(new LegendEntry("PLAYER VIEWPORTS", null,
 						new Color(0f, 0.4f, 1f), null, null, displaySprite: false));
 					foreach (var kvp in viewports)
@@ -469,9 +463,8 @@ namespace ONI_Together.Networking.Overlay
 					}
 				}
 			}
-
-			entries.Add(new LegendEntry("", null, Color.white, null, null, displaySprite: false));
-
+			
+			/* Don't need this atm
 			bool hasStats = false;
 			foreach (var metric in SyncStats.AllMetrics)
 			{
@@ -488,7 +481,7 @@ namespace ONI_Together.Networking.Overlay
 							Utils.FormatBytes(metric.LastPacketBytes), metric.LastDurationMs),
 						null, Color.white, null, null, displaySprite: false));
 				}
-			}
+			}*/
 
 			return entries;
 		}

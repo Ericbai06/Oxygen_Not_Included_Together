@@ -279,48 +279,10 @@ namespace ONI_Together.Networking.Overlay
 			}
 		}
 
-		[HarmonyPatch(typeof(SelectToolHoverTextCard), nameof(SelectToolHoverTextCard.UpdateHoverElements))]
-		public static class SelectToolHoverTextCard_UpdateHoverElements_Patch
+		[HarmonyPatch(typeof(HoverTextDrawer), nameof(HoverTextDrawer.EndDrawing))]
+		public static class HoverTextDrawer_EndDrawing_Patch
 		{
-			// Use a transpiler to insert this just before "EndDrawing" is called
-			internal static IEnumerable<CodeInstruction> Transpiler(
-				IEnumerable<CodeInstruction> instructions)
-			{
-				var codes = new List<CodeInstruction>(instructions);
-
-				int endDrawingIdx = -1;
-				for (int i = 0; i < codes.Count; i++)
-				{
-					if (codes[i].opcode == OpCodes.Callvirt &&
-						codes[i].operand is MethodInfo mi &&
-						mi.DeclaringType == typeof(HoverTextDrawer) &&
-						mi.Name == nameof(HoverTextDrawer.EndDrawing))
-					{
-						endDrawingIdx = i;
-						break;
-					}
-				}
-
-				if (endDrawingIdx < 0)
-				{
-					PUtil.LogWarning("NetworkOverlay: Could not find HoverTextDrawer.EndDrawing(), skipping transpiler");
-					return codes;
-				}
-
-				var inject = new List<CodeInstruction>
-				{
-					new CodeInstruction(OpCodes.Ldarg_0),
-					new CodeInstruction(OpCodes.Call, AccessTools.Method(
-						typeof(SelectToolHoverTextCard_UpdateHoverElements_Patch),
-						nameof(DrawNetworkHoverText),
-						new[] { typeof(SelectToolHoverTextCard) })),
-				};
-
-				codes.InsertRange(endDrawingIdx, inject);
-				return codes;
-			}
-
-			private static void DrawNetworkHoverText(SelectToolHoverTextCard card)
+			internal static void Prefix(HoverTextDrawer __instance)
 			{
 				if (SimDebugView.Instance?.GetMode() != NetworkingOverlayMode.ID)
 					return;
@@ -334,12 +296,11 @@ namespace ONI_Together.Networking.Overlay
 				if (tracker == null) return;
 
 				float bps = tracker.GetBytesPerSecond(identity.NetId);
-				var drawer = HoverTextScreen.Instance.drawer;
 
-				drawer.BeginShadowBar(false);
-				drawer.DrawText(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.NAME,
-					card.Styles_Title.Standard);
-				drawer.NewLine();
+				__instance.BeginShadowBar(false);
+				__instance.DrawText(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.NAME,
+					ToolTipScreen.Instance.defaultTooltipHeaderStyle);
+				__instance.NewLine();
 
 				string usageStr;
 				if (bps > 0f)
@@ -357,11 +318,10 @@ namespace ONI_Together.Networking.Overlay
 					usageStr = STRINGS.UI.OVERLAYS.NETWORKACTIVITY.HOVER_IDLE;
 				}
 
-				drawer.DrawIcon(card.iconDash, Color.white);
-				drawer.DrawText(
+				__instance.DrawText(
 					string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.HOVER_TOOLTIP, usageStr, identity.NetId),
-					card.Styles_BodyText.Standard);
-				drawer.EndShadowBar();
+					ToolTipScreen.Instance.defaultTooltipBodyStyle);
+				__instance.EndShadowBar();
 			}
 		}
 	}

@@ -6,6 +6,6 @@ namespace Shared.OxySync.Attributes
     public class ClientRpcAttribute : Attribute
     {
         public int InterestGroup { get; set; } = -1;
-        public int SendMode { get; set; } = 8; // PacketSendMode.Reliable
+        public int SendMode { get; set; } = 9; // PacketSendMode.ReliableImmediate
     }
 }

@@ -426,20 +426,42 @@ namespace ONI_Together.Networking.Overlay
 					null, Color.white, null, null, displaySprite: false));
 			}
 
-			if (PacketTracker.Instance != null)
-			{
-				int inPps = Mathf.RoundToInt(PacketTracker.IncomingPps);
-				int outPps = Mathf.RoundToInt(PacketTracker.OutgoingPps);
-				float inBw = PacketTracker.IncomingBandwidth;
-				float outBw = PacketTracker.OutgoingBandwidth;
-				entries.Add(new LegendEntry(
-					string.Format("Packets: \u2193{0}/s  \u2191{1}/s", inPps, outPps),
-					null, Color.white, null, null, displaySprite: false));
-				entries.Add(new LegendEntry(
-					string.Format("Bandwidth: \u2193{0}/s  \u2191{1}/s",
-						Utils.FormatBytes((long)inBw), Utils.FormatBytes((long)outBw)),
-					null, Color.white, null, null, displaySprite: false));
-			}
+            if (MultiplayerSession.IsHost)
+            {
+                var server = NetworkConfig.TransportServer;
+                if (server != null)
+                {
+                    int inPps = server.IncomingPps;
+                    int outPps = server.OutgoingPps;
+                    float inBw = server.IncomingBandwidth;
+                    float outBw = server.OutgoingBandwidth;
+                    entries.Add(new LegendEntry(
+                        string.Format("Packets: \u2193{0}/s  \u2191{1}/s", inPps, outPps),
+                        null, Color.white, null, null, displaySprite: false));
+                    entries.Add(new LegendEntry(
+                        string.Format("Bandwidth: \u2193{0}/s  \u2191{1}/s",
+                            Utils.FormatBytes((long)inBw), Utils.FormatBytes((long)outBw)),
+                        null, Color.white, null, null, displaySprite: false));
+                }
+            }
+            else
+            {
+                var client = NetworkConfig.TransportClient;
+                if (client != null)
+                {
+                    int inPps = client.IncomingPps;
+                    int outPps = client.OutgoingPps;
+                    float inBw = client.IncomingBandwidth;
+                    float outBw = client.OutgoingBandwidth;
+                    entries.Add(new LegendEntry(
+                        string.Format("Packets: \u2193{0}/s  \u2191{1}/s", inPps, outPps),
+                        null, Color.white, null, null, displaySprite: false));
+                    entries.Add(new LegendEntry(
+                        string.Format("Bandwidth: \u2193{0}/s  \u2191{1}/s",
+                            Utils.FormatBytes((long)inBw), Utils.FormatBytes((long)outBw)),
+                        null, Color.white, null, null, displaySprite: false));
+                }
+            }
 
 			if (showObjects)
 			{

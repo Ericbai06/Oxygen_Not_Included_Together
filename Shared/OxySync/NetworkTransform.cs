@@ -17,8 +17,8 @@ namespace Shared.OxySync
         protected Vector3 _netScale;
 
         public bool syncPosition = true;
-        public bool syncRotation;
-        public bool syncScale;
+        public bool syncRotation = false;
+        public bool syncScale = false;
 
         public bool interpolatePosition = true;
         public bool interpolateRotation = true;

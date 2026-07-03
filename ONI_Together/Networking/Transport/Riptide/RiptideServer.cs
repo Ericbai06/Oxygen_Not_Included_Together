@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using ONI_Together.UI;
 using Steamworks;
 using static ResearchTypes;
+using UnityEngine;
 
 namespace ONI_Together.Networking.Transport.Lan
 {
@@ -37,6 +38,13 @@ namespace ONI_Together.Networking.Transport.Lan
         public List<ulong> ClientList { get; internal set; } = new();
 
         public static ulong CLIENT_ID { get; private set; }
+
+        // Bandwidth tracking via server-side Connection.Metrics
+        private long _srvLastBytesIn, _srvLastBytesOut;
+        private int _srvLastMsgIn, _srvLastMsgOut;
+        private float _srvInBw, _srvOutBw;
+        private int _srvInPps, _srvOutPps;
+        private float _srvLastBwPollTime;
 
         public override void Prepare()
         {
@@ -204,6 +212,55 @@ namespace ONI_Together.Networking.Transport.Lan
             scope.End(1, size);
         }
 
+        private void UpdateServerBandwidth()
+        {
+            if (_server == null || !_server.IsRunning)
+            {
+                _srvInBw = 0f;
+                _srvOutBw = 0f;
+                _srvInPps = 0;
+                _srvOutPps = 0;
+                return;
+            }
+
+            float now = Time.realtimeSinceStartup;
+            float dt = now - _srvLastBwPollTime;
+            if (dt < 1f) return;
+
+            long totalIn = 0, totalOut = 0;
+            int totalMsgIn = 0, totalMsgOut = 0;
+
+            foreach (Connection client in _server.Clients)
+            {
+                if (client == null || client.IsNotConnected) continue;
+                if (client.Id == CLIENT_ID) continue; // exclude loopback client
+
+                var m = client.Metrics;
+                if (m == null) continue;
+
+                totalIn += m.BytesIn;
+                totalOut += m.BytesOut;
+                totalMsgIn += (int)m.MessagesIn;
+                totalMsgOut += (int)m.MessagesOut;
+            }
+
+            _srvInBw = (totalIn - _srvLastBytesIn) / dt;
+            _srvOutBw = (totalOut - _srvLastBytesOut) / dt;
+            _srvInPps = (int)((totalMsgIn - _srvLastMsgIn) / dt);
+            _srvOutPps = (int)((totalMsgOut - _srvLastMsgOut) / dt);
+
+            _srvLastBytesIn = totalIn;
+            _srvLastBytesOut = totalOut;
+            _srvLastMsgIn = totalMsgIn;
+            _srvLastMsgOut = totalMsgOut;
+            _srvLastBwPollTime = now;
+        }
+
+        public override float IncomingBandwidth => _srvInBw;
+        public override float OutgoingBandwidth => _srvOutBw;
+        public override int IncomingPps => _srvInPps;
+        public override int OutgoingPps => _srvOutPps;
+
         public override void Stop()
         {
             using var _ = Profiler.Scope();
@@ -263,6 +320,7 @@ namespace ONI_Together.Networking.Transport.Lan
 
             _server?.Update();
             _client?.Update();
+            UpdateServerBandwidth();
 
             if (_loadingClients.Count > 0)
             {

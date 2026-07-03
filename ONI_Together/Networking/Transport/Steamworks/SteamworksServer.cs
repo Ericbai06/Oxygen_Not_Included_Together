@@ -19,6 +19,10 @@ namespace ONI_Together.Networking.Transport.Steam
         public static HSteamNetPollGroup PollGroup { get; private set; }
         private static Callback<SteamNetConnectionStatusChangedCallback_t> _connectionStatusChangedCallback;
 
+        // Bandwidth tracking via per-connection GetConnectionRealTimeStatus
+        private float _srvInBw, _srvOutBw;
+        private int _srvInPps, _srvOutPps;
+
         public override void Prepare()
         {
             using var _ = Profiler.Scope();
@@ -117,7 +121,41 @@ namespace ONI_Together.Networking.Transport.Steam
 
             SteamAPI.RunCallbacks();
             SteamNetworkingSockets.RunCallbacks();
+            UpdateServerBandwidth();
         }
+
+        private void UpdateServerBandwidth()
+        {
+            float totalIn = 0f, totalOut = 0f;
+            float totalPpsIn = 0f, totalPpsOut = 0f;
+
+            foreach (var kvp in MultiplayerSession.ConnectedPlayers)
+            {
+                if (kvp.Value.Connection is HSteamNetConnection conn)
+                {
+                    SteamNetConnectionRealTimeStatus_t status = default;
+                    SteamNetConnectionRealTimeLaneStatus_t laneStatus = default;
+                    var res = SteamNetworkingSockets.GetConnectionRealTimeStatus(conn, ref status, 0, ref laneStatus);
+                    if (res == EResult.k_EResultOK)
+                    {
+                        totalIn += status.m_flInBytesPerSec;
+                        totalOut += status.m_flOutBytesPerSec;
+                        totalPpsIn += status.m_flInPacketsPerSec;
+                        totalPpsOut += status.m_flOutPacketsPerSec;
+                    }
+                }
+            }
+
+            _srvInBw = totalIn;
+            _srvOutBw = totalOut;
+            _srvInPps = (int)totalPpsIn;
+            _srvOutPps = (int)totalPpsOut;
+        }
+
+        public override float IncomingBandwidth => _srvInBw;
+        public override float OutgoingBandwidth => _srvOutBw;
+        public override int IncomingPps => _srvInPps;
+        public override int OutgoingPps => _srvOutPps;
 
         public override void OnMessageRecieved()
         {

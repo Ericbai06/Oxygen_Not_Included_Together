@@ -190,7 +190,7 @@ namespace ONI_Together
                     Max = NetworkConfig.GetMaxServerCapacity()
                 };
 
-                if (MultiplayerSession.IsHost && NetworkConfig.IsSteamConfig() && SteamLobby.InLobby)
+                if (NetworkConfig.IsSteamConfig() && SteamLobby.InLobby)
                 {
                     string visibility = SteamMatchmaking.GetLobbyData(SteamLobby.CurrentLobby, "visibility");
                     if (visibility != "private")

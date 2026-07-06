@@ -97,7 +97,7 @@ namespace ONI_Together
             {
                 _hasRecordedStartTime = true;
                 Game.Instance.OnSpawnComplete += RefreshAstroid;
-                Game.Instance.Subscribe(1983128072, OnActiveWorldChanged);
+                Game.Instance.Subscribe((int) GameHashes.ActiveWorldChanged, OnActiveWorldChanged);
             }
 
             App.OnPostLoadScene += OnSceneLoaded;
@@ -277,7 +277,7 @@ namespace ONI_Together
             if (Game.Instance != null)
             {
                 Game.Instance.OnSpawnComplete -= RefreshAstroid;
-                Game.Instance.Unsubscribe(1983128072, OnActiveWorldChanged);
+                Game.Instance.Unsubscribe((int) GameHashes.ActiveWorldChanged, OnActiveWorldChanged);
             }
 
             App.OnPostLoadScene -= OnSceneLoaded;

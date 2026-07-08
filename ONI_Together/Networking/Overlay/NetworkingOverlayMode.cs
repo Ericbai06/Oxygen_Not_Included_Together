@@ -231,7 +231,7 @@ namespace ONI_Together.Networking.Overlay
 						var ni = kmb as NetworkIdentity;
 						if (ni == null || tracker == null) return Color.gray;
 						float bps = tracker.GetBytesPerSecond(ni.NetId);
-						if (bps <= 0f) return Color.gray;
+						if (bps < 1f) return Color.gray;
 						float t = Mathf.Clamp01(bps / HIGH_ACTIVITY_THRESHOLD);
 						if (t < 0.5f)
 							return Color.Lerp(green, yellow, t * 2f);
@@ -340,6 +340,9 @@ namespace ONI_Together.Networking.Overlay
 
 				var behaviours = identity.GetComponents<NetworkBehaviour>();
 				bool isSyncing = behaviours.Any(b => b != null && (Time.unscaledTime - b._lastActiveSyncTime) <= 2f);
+
+				if (!isSyncing)
+					isSyncing = (NetIdActivityTracker.Instance?.GetBytesPerSecond(identity.NetId) ?? 0f) >= 1f;
 
 				if (!isSyncing) continue;
 

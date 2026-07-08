@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using Shared.OxySync;
 using UnityEngine;
 
 namespace ONI_Together.Networking.Overlay
@@ -297,6 +298,30 @@ namespace ONI_Together.Networking.Overlay
 
 				float bps = tracker.GetBytesPerSecond(identity.NetId);
 
+				var behaviour = hover.GetComponent<NetworkBehaviour>();
+				string syncMode = behaviour != null
+					? STRINGS.UI.OVERLAYS.NETWORKACTIVITY.SYNC_MODE_OXYSYNC
+					: STRINGS.UI.OVERLAYS.NETWORKACTIVITY.SYNC_MODE_ADHOC;
+
+				float lastTime = behaviour != null
+					? behaviour._lastActiveSyncTime
+					: tracker.GetLastActivityTime(identity.NetId);
+				string lastSynced;
+				if (lastTime > 0f)
+				{
+					float elapsed = Time.unscaledTime - lastTime;
+					if (elapsed < 1f)
+						lastSynced = string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.LAST_SYNCED_NOW);
+					else if (elapsed < 60f)
+						lastSynced = string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.LAST_SYNCED_SECS, (int)elapsed);
+					else
+						lastSynced = string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.LAST_SYNCED_MINS, (int)(elapsed / 60f));
+				}
+				else
+				{
+					lastSynced = STRINGS.UI.OVERLAYS.NETWORKACTIVITY.LAST_SYNCED_NEVER;
+				}
+
 				__instance.BeginShadowBar(false);
 				__instance.DrawText(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.NAME,
 					ToolTipScreen.Instance.defaultTooltipHeaderStyle);
@@ -319,7 +344,7 @@ namespace ONI_Together.Networking.Overlay
 				}
 
 				__instance.DrawText(
-					string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.HOVER_TOOLTIP, usageStr, identity.NetId),
+					string.Format(STRINGS.UI.OVERLAYS.NETWORKACTIVITY.HOVER_TOOLTIP, usageStr, identity.NetId, syncMode, lastSynced),
 					ToolTipScreen.Instance.defaultTooltipBodyStyle);
 				__instance.EndShadowBar();
 			}

@@ -31,7 +31,6 @@ namespace ONI_Together.Networking.Overlay
 			using var _ = Profiler.Scope();
 
 			float now = Time.unscaledTime;
-			var stale = new List<int>();
 			var updates = new List<KeyValuePair<int, ActivityData>>();
 			foreach (var kvp in _activities)
 			{
@@ -40,16 +39,11 @@ namespace ONI_Together.Networking.Overlay
 				{
 					var updated = kvp.Value;
 					updated.bytesPerSecond *= Mathf.Pow(DECAY_ALPHA, elapsed);
-					if (updated.bytesPerSecond < 1f)
-						stale.Add(kvp.Key);
-					else
-						updates.Add(new KeyValuePair<int, ActivityData>(kvp.Key, updated));
+					updates.Add(new KeyValuePair<int, ActivityData>(kvp.Key, updated));
 				}
 			}
 			foreach (var pair in updates)
 				_activities[pair.Key] = pair.Value;
-			foreach (var id in stale)
-				_activities.Remove(id);
 		}
 
 		public void RecordActivity(int netId, int bytes)
@@ -81,6 +75,13 @@ namespace ONI_Together.Networking.Overlay
 		{
 			if (_activities.TryGetValue(netId, out var data))
 				return data.bytesPerSecond;
+			return 0f;
+		}
+
+		public float GetLastActivityTime(int netId)
+		{
+			if (_activities.TryGetValue(netId, out var data))
+				return data.lastActivityTime;
 			return 0f;
 		}
 
@@ -136,5 +137,7 @@ namespace ONI_Together.Networking.Overlay
 				return count;
 			}
 		}
+
+		public int TotalCount => _activities.Count;
 	}
 }

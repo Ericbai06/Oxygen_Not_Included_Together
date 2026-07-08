@@ -199,7 +199,7 @@ namespace ONI_Together
                 string party_id = "oni_together_session";
                 bool isPublic = false;
                 
-                if (NetworkConfig.IsSteamConfig() && SteamLobby.InLobby)
+                if (_client.HasRegisteredUriScheme && NetworkConfig.IsSteamConfig() && SteamLobby.InLobby)
                 {
                     party_id = $"{SteamLobby.CurrentLobby.m_SteamID}";
                     string visibility = SteamMatchmaking.GetLobbyData(SteamLobby.CurrentLobby, "visibility");

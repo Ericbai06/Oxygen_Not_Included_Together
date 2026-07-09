@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using ONI_Together.Misc;
@@ -419,6 +420,357 @@ namespace ONI_Together.DebugTools.UnitTests
             if (result is not byte[] ba || ba.Length != 0)
                 return UnitTestResult.Fail("Null byte[] should become empty array");
             return UnitTestResult.Pass("Null byte[] falls back to empty");
+        }
+
+        [UnitTest(name: "RpcSerializer new primitives round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerNewPrimitives()
+        {
+            object[] args = {
+                (short)-1234,
+                (ushort)5678,
+                (uint)4000000000,
+                (sbyte)-99,
+                'Z',
+                3.14159265358979323846m,
+            };
+
+            Type[] types = {
+                typeof(short), typeof(ushort), typeof(uint),
+                typeof(sbyte), typeof(char), typeof(decimal),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            if ((short)result[0] != -1234)
+                return UnitTestResult.Fail("short mismatch");
+            if ((ushort)result[1] != 5678)
+                return UnitTestResult.Fail("ushort mismatch");
+            if ((uint)result[2] != 4000000000)
+                return UnitTestResult.Fail("uint mismatch");
+            if ((sbyte)result[3] != -99)
+                return UnitTestResult.Fail("sbyte mismatch");
+            if ((char)result[4] != 'Z')
+                return UnitTestResult.Fail("char mismatch");
+            if ((decimal)result[5] != 3.14159265358979323846m)
+                return UnitTestResult.Fail("decimal mismatch");
+
+            return UnitTestResult.Pass("All 6 new primitive types round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer typed arrays round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerTypedArrays()
+        {
+            object[] args = {
+                new int[] { 10, 20, 30 },
+                new string[] { "x", "y", "z" },
+                new Vector3[] { Vector3.right, Vector3.up, Vector3.forward },
+                new long[0],
+            };
+
+            Type[] types = {
+                typeof(int[]), typeof(string[]), typeof(Vector3[]), typeof(long[]),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var a1 = (int[])result[0];
+            if (a1.Length != 3 || a1[0] != 10 || a1[2] != 30)
+                return UnitTestResult.Fail("int[] mismatch");
+
+            var a2 = (string[])result[1];
+            if (a2.Length != 3 || a2[1] != "y")
+                return UnitTestResult.Fail("string[] mismatch");
+
+            var a3 = (Vector3[])result[2];
+            if (a3.Length != 3 || a3[0] != Vector3.right)
+                return UnitTestResult.Fail("Vector3[] mismatch");
+
+            var a4 = (long[])result[3];
+            if (a4.Length != 0)
+                return UnitTestResult.Fail("long[] empty mismatch");
+
+            return UnitTestResult.Pass("Typed arrays round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer List<T> round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerListTypes()
+        {
+            object[] args = {
+                new List<int> { 1, 2, 3 },
+                new List<string> { "a", "b" },
+                new List<Vector3> { Vector3.one, Vector3.zero, Vector3.back },
+                new List<bool>(),
+            };
+
+            Type[] types = {
+                typeof(List<int>), typeof(List<string>),
+                typeof(List<Vector3>), typeof(List<bool>),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var l1 = (List<int>)result[0];
+            if (l1.Count != 3 || l1[0] != 1 || l1[2] != 3)
+                return UnitTestResult.Fail("List<int> mismatch");
+
+            var l2 = (List<string>)result[1];
+            if (l2.Count != 2 || l2[0] != "a" || l2[1] != "b")
+                return UnitTestResult.Fail("List<string> mismatch");
+
+            var l3 = (List<Vector3>)result[2];
+            if (l3.Count != 3 || l3[0] != Vector3.one)
+                return UnitTestResult.Fail("List<Vector3> mismatch");
+
+            var l4 = (List<bool>)result[3];
+            if (l4.Count != 0)
+                return UnitTestResult.Fail("List<bool> empty mismatch");
+
+            return UnitTestResult.Pass("List<T> round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer Dictionary<K,V> round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerDictionaryTypes()
+        {
+            object[] args = {
+                new Dictionary<string, int> { { "one", 1 }, { "two", 2 }, { "three", 3 } },
+                new Dictionary<int, bool> { { 42, true }, { 0, false } },
+                new Dictionary<string, string>(),
+            };
+
+            Type[] types = {
+                typeof(Dictionary<string, int>),
+                typeof(Dictionary<int, bool>),
+                typeof(Dictionary<string, string>),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var d1 = (Dictionary<string, int>)result[0];
+            if (d1.Count != 3 || d1["one"] != 1 || d1["three"] != 3)
+                return UnitTestResult.Fail("Dictionary<string,int> mismatch");
+
+            var d2 = (Dictionary<int, bool>)result[1];
+            if (d2.Count != 2 || d2[42] != true || d2[0] != false)
+                return UnitTestResult.Fail("Dictionary<int,bool> mismatch");
+
+            var d3 = (Dictionary<string, string>)result[2];
+            if (d3.Count != 0)
+                return UnitTestResult.Fail("Dictionary<string,string> empty mismatch");
+
+            return UnitTestResult.Pass("Dictionary<K,V> round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer HashSet, Queue, Stack round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerHashSetQueueStackTypes()
+        {
+            object[] args = {
+                new HashSet<int> { 5, 10, 15, 20 },
+                new Queue<string>(new[] { "first", "second", "third" }),
+                new Stack<float>(new[] { 3.0f, 2.0f, 1.0f }),
+                new HashSet<double>(),
+            };
+
+            Type[] types = {
+                typeof(HashSet<int>), typeof(Queue<string>),
+                typeof(Stack<float>), typeof(HashSet<double>),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var h1 = (HashSet<int>)result[0];
+            if (h1.Count != 4 || !h1.Contains(5) || !h1.Contains(20))
+                return UnitTestResult.Fail("HashSet<int> mismatch");
+
+            var q1 = (Queue<string>)result[1];
+            if (q1.Count != 3 || q1.Dequeue() != "first" || q1.Dequeue() != "second" || q1.Dequeue() != "third")
+                return UnitTestResult.Fail("Queue<string> mismatch");
+
+            var s1 = (Stack<float>)result[2];
+            if (s1.Count != 3 || Mathf.Abs(s1.Pop() - 1.0f) > 0.001f)
+                return UnitTestResult.Fail("Stack<float> mismatch");
+
+            var h2 = (HashSet<double>)result[3];
+            if (h2.Count != 0)
+                return UnitTestResult.Fail("HashSet<double> empty mismatch");
+
+            return UnitTestResult.Pass("HashSet/Queue/Stack round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer Nullable<T> round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerNullableTypes()
+        {
+            object[] args = {
+                (int?)42,
+                (int?)null,
+                (float?)3.14f,
+                (Vector3?)Vector3.up,
+                (Vector3?)null,
+                (bool?)true,
+            };
+
+            Type[] types = {
+                typeof(int?), typeof(int?), typeof(float?),
+                typeof(Vector3?), typeof(Vector3?), typeof(bool?),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            // int? with value
+            var r0 = (int?)result[0];
+            if (r0 == null || r0.Value != 42)
+                return UnitTestResult.Fail("int? with value mismatch");
+
+            // int? null
+            if (result[1] != null)
+                return UnitTestResult.Fail("int? null mismatch");
+
+            // float? with value
+            var r2 = (float?)result[2];
+            if (r2 == null || Mathf.Abs(r2.Value - 3.14f) > 0.001f)
+                return UnitTestResult.Fail("float? with value mismatch");
+
+            // Vector3? with value
+            var r3 = (Vector3?)result[3];
+            if (r3 == null || r3.Value != Vector3.up)
+                return UnitTestResult.Fail("Vector3? with value mismatch");
+
+            // Vector3? null
+            if (result[4] != null)
+                return UnitTestResult.Fail("Vector3? null mismatch");
+
+            // bool? with value
+            var r5 = (bool?)result[5];
+            if (r5 == null || r5.Value != true)
+                return UnitTestResult.Fail("bool? with value mismatch");
+
+            return UnitTestResult.Pass("Nullable<T> round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer nested collections round-trip", category: "OxySync")]
+        public static UnitTestResult RpcSerializerNestedCollections()
+        {
+            object[] args = {
+                new List<List<int>> {
+                    new List<int> { 1, 2 },
+                    new List<int> { 3, 4, 5 },
+                },
+                new Dictionary<string, int[]> {
+                    { "even", new[] { 2, 4, 6 } },
+                    { "odd", new[] { 1, 3, 5 } },
+                },
+                new int[][] {
+                    new[] { 1, 0, 0 },
+                    new[] { 0, 1, 0 },
+                    new[] { 0, 0, 1 },
+                },
+            };
+
+            Type[] types = {
+                typeof(List<List<int>>),
+                typeof(Dictionary<string, int[]>),
+                typeof(int[][]),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var l1 = (List<List<int>>)result[0];
+            if (l1.Count != 2 || l1[0][0] != 1 || l1[1][2] != 5)
+                return UnitTestResult.Fail("List<List<int>> mismatch");
+
+            var d1 = (Dictionary<string, int[]>)result[1];
+            if (d1.Count != 2 || d1["even"].Length != 3 || d1["odd"][1] != 3)
+                return UnitTestResult.Fail("Dictionary<string,int[]> mismatch");
+
+            var a1 = (int[][])result[2];
+            if (a1.Length != 3 || a1[1][1] != 1 || a1[2][2] != 1)
+                return UnitTestResult.Fail("int[][] mismatch");
+
+            return UnitTestResult.Pass("Nested collections round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer null collection elements", category: "OxySync")]
+        public static UnitTestResult RpcSerializerNullCollectionElements()
+        {
+            object[] args = {
+                new List<string> { "alive", null, "dead", null },
+                new List<int?> { 1, null, 3 },
+                new string[] { "a", null, "c" },
+            };
+
+            Type[] types = {
+                typeof(List<string>),
+                typeof(List<int?>),
+                typeof(string[]),
+            };
+
+            var data = RpcSerializer.Serialize(args, types);
+            var result = RpcSerializer.Deserialize(data, types);
+
+            var l1 = (List<string>)result[0];
+            if (l1.Count != 4 || l1[0] != "alive" || l1[1] != null || l1[2] != "dead" || l1[3] != null)
+                return UnitTestResult.Fail("List<string> null elements mismatch");
+
+            var l2 = (List<int?>)result[1];
+            if (l2.Count != 3 || l2[0] != 1 || l2[1] != null || l2[2] != 3)
+                return UnitTestResult.Fail("List<int?> null elements mismatch");
+
+            var a1 = (string[])result[2];
+            if (a1.Length != 3 || a1[0] != "a" || a1[1] != null || a1[2] != "c")
+                return UnitTestResult.Fail("string[] null elements mismatch");
+
+            return UnitTestResult.Pass("Null collection elements round-trip correctly");
+        }
+
+        [UnitTest(name: "RpcSerializer IsSupportedType covers new types", category: "OxySync")]
+        public static UnitTestResult RpcSerializerIsSupportedType()
+        {
+            Type[] supported = {
+                typeof(int), typeof(float), typeof(bool), typeof(byte),
+                typeof(long), typeof(double), typeof(string),
+                typeof(Vector2), typeof(Vector3), typeof(Color),
+                typeof(Quaternion), typeof(byte[]), typeof(ulong),
+                typeof(short), typeof(ushort), typeof(uint),
+                typeof(sbyte), typeof(char), typeof(decimal),
+                typeof(int[]), typeof(string[]), typeof(Vector3[]),
+                typeof(List<int>), typeof(List<string>),
+                typeof(Dictionary<string, int>),
+                typeof(HashSet<float>), typeof(Queue<long>), typeof(Stack<bool>),
+                typeof(int?), typeof(float?), typeof(Vector3?),
+                typeof(List<List<int>>),
+                typeof(Dictionary<string, List<int>>),
+                typeof(int[][]),
+            };
+
+            foreach (var t in supported)
+            {
+                if (!RpcSerializer.IsSupportedType(t))
+                    return UnitTestResult.Fail($"Type {t} should be supported but is not");
+            }
+
+            Type[] unsupported = {
+                typeof(object),
+                typeof(Guid),
+                typeof(DateTime),
+                typeof(TimeSpan),
+                typeof(Tuple<int, int>),
+                typeof(System.Action),
+                typeof(Stream),
+            };
+
+            foreach (var t in unsupported)
+            {
+                if (RpcSerializer.IsSupportedType(t))
+                    return UnitTestResult.Fail($"Type {t} should NOT be supported but is");
+            }
+
+            return UnitTestResult.Pass("IsSupportedType correctly validates all types");
         }
     }
 }

@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEngine;
 
 namespace Shared.OxySync
@@ -10,7 +12,9 @@ namespace Shared.OxySync
         private enum ArgType : byte
         {
             Int, Float, Bool, Byte, Long, Double, String,
-            Vector2, Vector3, Color, Quaternion, ByteArray, ULong
+            Vector2, Vector3, Color, Quaternion, ByteArray, ULong,
+            Array, List, Dict, Short, UShort, UInt, SByte, Char, Decimal,
+            Nullable, HashSet, Queue, Stack
         }
 
         private static readonly Dictionary<Type, ArgType> TypeToTag = new()
@@ -28,9 +32,40 @@ namespace Shared.OxySync
             [typeof(Quaternion)] = ArgType.Quaternion,
             [typeof(byte[])] = ArgType.ByteArray,
             [typeof(ulong)] = ArgType.ULong,
+            [typeof(short)] = ArgType.Short,
+            [typeof(ushort)] = ArgType.UShort,
+            [typeof(uint)] = ArgType.UInt,
+            [typeof(sbyte)] = ArgType.SByte,
+            [typeof(char)] = ArgType.Char,
+            [typeof(decimal)] = ArgType.Decimal,
         };
 
-        public static bool IsSupportedType(Type t) => t.IsEnum || TypeToTag.ContainsKey(t);
+        public static bool IsSupportedType(Type t)
+        {
+            if (t.IsEnum) return true;
+            if (t.IsSubclassOf(typeof(Delegate)) || t.IsSubclassOf(typeof(MulticastDelegate))) return false;
+            if (TypeToTag.ContainsKey(t)) return true;
+
+            if (t.IsArray)
+                return t == typeof(byte[]) || IsSupportedType(t.GetElementType());
+
+            if (t.IsGenericType)
+            {
+                var def = t.GetGenericTypeDefinition();
+                if (def == typeof(Nullable<>))
+                    return IsSupportedType(t.GetGenericArguments()[0]);
+
+                if (def == typeof(List<>) || def == typeof(HashSet<>) ||
+                    def == typeof(Queue<>) || def == typeof(Stack<>))
+                    return IsSupportedType(t.GetGenericArguments()[0]);
+
+                if (def == typeof(Dictionary<,>))
+                    return IsSupportedType(t.GetGenericArguments()[0]) &&
+                           IsSupportedType(t.GetGenericArguments()[1]);
+            }
+
+            return false;
+        }
 
         public static byte[] Serialize(object[] args, Type[] argTypes)
         {
@@ -68,6 +103,83 @@ namespace Shared.OxySync
                 return;
             }
 
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>))
+            {
+                writer.Write((byte)ArgType.Nullable);
+                bool hasValue = value != null;
+                writer.Write(hasValue);
+                if (hasValue)
+                    WriteArg(writer, value, Nullable.GetUnderlyingType(type));
+                return;
+            }
+
+            if (type.IsArray && type != typeof(byte[]))
+            {
+                writer.Write((byte)ArgType.Array);
+                var arr = (Array)value;
+                int len = arr?.Length ?? 0;
+                writer.Write(len);
+                if (arr != null)
+                {
+                    var elementType = type.GetElementType();
+                    for (int i = 0; i < len; i++)
+                        WriteCollectionElement(writer, arr.GetValue(i), elementType);
+                }
+                return;
+            }
+
+            if (type.IsGenericType)
+            {
+                var def = type.GetGenericTypeDefinition();
+
+                if (def == typeof(List<>) || def == typeof(HashSet<>) ||
+                    def == typeof(Queue<>) || def == typeof(Stack<>))
+                {
+                    var elementType = type.GetGenericArguments()[0];
+
+                    if (def == typeof(List<>))
+                        writer.Write((byte)ArgType.List);
+                    else if (def == typeof(HashSet<>))
+                        writer.Write((byte)ArgType.HashSet);
+                    else if (def == typeof(Queue<>))
+                        writer.Write((byte)ArgType.Queue);
+                    else
+                        writer.Write((byte)ArgType.Stack);
+
+                    var collection = (IEnumerable)value;
+                    var objs = collection?.Cast<object>().ToArray();
+                    if (def == typeof(Stack<>) && objs != null)
+                        Array.Reverse(objs);
+                    int count = objs?.Length ?? 0;
+                    writer.Write(count);
+                    if (objs != null)
+                    {
+                        for (int i = 0; i < count; i++)
+                            WriteCollectionElement(writer, objs[i], elementType);
+                    }
+                    return;
+                }
+
+                if (def == typeof(Dictionary<,>))
+                {
+                    writer.Write((byte)ArgType.Dict);
+                    var dict = (IDictionary)value;
+                    int count = dict?.Count ?? 0;
+                    writer.Write(count);
+                    if (dict != null)
+                    {
+                        var keyType = type.GetGenericArguments()[0];
+                        var valueType = type.GetGenericArguments()[1];
+                        foreach (DictionaryEntry entry in dict)
+                        {
+                            WriteCollectionElement(writer, entry.Key, keyType);
+                            WriteCollectionElement(writer, entry.Value, valueType);
+                        }
+                    }
+                    return;
+                }
+            }
+
             ArgType tag = TypeToTag[type];
             writer.Write((byte)tag);
 
@@ -80,6 +192,12 @@ namespace Shared.OxySync
                 case ArgType.Long:      writer.Write((long)value); break;
                 case ArgType.ULong:     writer.Write((ulong)value); break;
                 case ArgType.Double:    writer.Write((double)value); break;
+                case ArgType.Short:     writer.Write((short)value); break;
+                case ArgType.UShort:    writer.Write((ushort)value); break;
+                case ArgType.UInt:      writer.Write((uint)value); break;
+                case ArgType.SByte:     writer.Write((sbyte)value); break;
+                case ArgType.Char:      writer.Write((char)value); break;
+                case ArgType.Decimal:   writer.Write((decimal)value); break;
                 case ArgType.String: writer.Write((string)value ?? string.Empty); break;
                 case ArgType.Vector2: writer.Write((Vector2)value); break;
                 case ArgType.Vector3: writer.Write((Vector3)value); break;
@@ -114,12 +232,19 @@ namespace Shared.OxySync
                 case ArgType.Int:
                     int intVal = reader.ReadInt32();
                     return type.IsEnum ? Enum.ToObject(type, intVal) : intVal;
+
                 case ArgType.Float: return reader.ReadSingle();
                 case ArgType.Bool: return reader.ReadBoolean();
                 case ArgType.Byte: return reader.ReadByte();
                 case ArgType.Long: return reader.ReadInt64();
                 case ArgType.ULong: return reader.ReadUInt64();
                 case ArgType.Double: return reader.ReadDouble();
+                case ArgType.Short: return reader.ReadInt16();
+                case ArgType.UShort: return reader.ReadUInt16();
+                case ArgType.UInt: return reader.ReadUInt32();
+                case ArgType.SByte: return reader.ReadSByte();
+                case ArgType.Char: return reader.ReadChar();
+                case ArgType.Decimal: return reader.ReadDecimal();
                 case ArgType.String: return reader.ReadString();
                 case ArgType.Vector2: return reader.ReadVector2();
                 case ArgType.Vector3: return reader.ReadVector3();
@@ -129,9 +254,117 @@ namespace Shared.OxySync
                     return new Quaternion(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
                 case ArgType.ByteArray:
                     return reader.ReadBytes(reader.ReadInt32());
+
+                case ArgType.Array:
+                {
+                    int len = reader.ReadInt32();
+                    var elementType = type.GetElementType();
+                    var arr = Array.CreateInstance(elementType, len);
+                    for (int i = 0; i < len; i++)
+                        arr.SetValue(ReadCollectionElement(reader, elementType), i);
+                    return arr;
+                }
+
+                case ArgType.List:
+                {
+                    int count = reader.ReadInt32();
+                    var elementType = type.GetGenericArguments()[0];
+                    var list = (IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(elementType));
+                    for (int i = 0; i < count; i++)
+                        list.Add(ReadCollectionElement(reader, elementType));
+                    return list;
+                }
+
+                case ArgType.Dict:
+                {
+                    int count = reader.ReadInt32();
+                    var keyType = type.GetGenericArguments()[0];
+                    var valueType = type.GetGenericArguments()[1];
+                    var dict = (IDictionary)Activator.CreateInstance(typeof(Dictionary<,>).MakeGenericType(keyType, valueType));
+                    for (int i = 0; i < count; i++)
+                    {
+                        var key = ReadCollectionElement(reader, keyType);
+                        var val = ReadCollectionElement(reader, valueType);
+                        dict.Add(key, val);
+                    }
+                    return dict;
+                }
+
+                case ArgType.HashSet:
+                {
+                    int count = reader.ReadInt32();
+                    var elementType = type.GetGenericArguments()[0];
+                    var hashSetType = typeof(HashSet<>).MakeGenericType(elementType);
+                    var hashSet = Activator.CreateInstance(hashSetType);
+                    var addMethod = hashSetType.GetMethod("Add");
+                    for (int i = 0; i < count; i++)
+                        addMethod.Invoke(hashSet, new[] { ReadCollectionElement(reader, elementType) });
+                    return hashSet;
+                }
+
+                case ArgType.Queue:
+                {
+                    int count = reader.ReadInt32();
+                    var elementType = type.GetGenericArguments()[0];
+                    var queueType = typeof(Queue<>).MakeGenericType(elementType);
+                    var queue = Activator.CreateInstance(queueType);
+                    var enqueueMethod = queueType.GetMethod("Enqueue");
+                    for (int i = 0; i < count; i++)
+                        enqueueMethod.Invoke(queue, new[] { ReadCollectionElement(reader, elementType) });
+                    return queue;
+                }
+
+                case ArgType.Stack:
+                {
+                    int count = reader.ReadInt32();
+                    var elementType = type.GetGenericArguments()[0];
+                    var stackType = typeof(Stack<>).MakeGenericType(elementType);
+                    var stack = Activator.CreateInstance(stackType);
+                    var pushMethod = stackType.GetMethod("Push");
+                    for (int i = 0; i < count; i++)
+                        pushMethod.Invoke(stack, new[] { ReadCollectionElement(reader, elementType) });
+                    return stack;
+                }
+
+                case ArgType.Nullable:
+                {
+                    bool hasValue = reader.ReadBoolean();
+                    if (!hasValue) return null;
+                    return ReadArg(reader, Nullable.GetUnderlyingType(type));
+                }
+
                 default:
                     throw new InvalidDataException($"Unknown RPC arg type tag: {tag}");
             }
+        }
+
+        private static void WriteCollectionElement(BinaryWriter writer, object value, Type elementType)
+        {
+            bool needsNullPrefix = !elementType.IsValueType ||
+                (elementType.IsGenericType && elementType.GetGenericTypeDefinition() == typeof(Nullable<>));
+
+            if (needsNullPrefix)
+            {
+                bool notNull = value != null;
+                writer.Write(notNull);
+                if (!notNull) return;
+            }
+
+            WriteArg(writer, value, elementType);
+        }
+
+        private static object ReadCollectionElement(BinaryReader reader, Type elementType)
+        {
+            bool needsNullPrefix = !elementType.IsValueType ||
+                (elementType.IsGenericType && elementType.GetGenericTypeDefinition() == typeof(Nullable<>));
+
+            if (needsNullPrefix)
+            {
+                bool notNull = reader.ReadBoolean();
+                if (!notNull) return null;
+            }
+
+            return ReadArg(reader, elementType);
         }
     }
 }

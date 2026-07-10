@@ -6,7 +6,7 @@ namespace ONI_Together.Misc;
 
 public static class ClusterIcons
     {
-        // Wiki image fetching inspired by Pholith
+        // Astroid image grabbing inspired by Pholith
         private const string BaseUrl = "https://oxygennotincluded.wiki.gg/images/";
 
         public struct Entry

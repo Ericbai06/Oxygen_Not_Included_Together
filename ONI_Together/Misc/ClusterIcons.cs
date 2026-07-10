@@ -6,7 +6,7 @@ namespace ONI_Together.Misc;
 
 public static class ClusterIcons
     {
-        // Astroid image grabbing inspired by Pholith
+        // Astroid image grabbing inspired by Pholith : https://github.com/Pholith/ONI-Mods/blob/master/src/DiscordRP/
         private const string BaseUrl = "https://oxygennotincluded.wiki.gg/images/";
 
         public struct Entry

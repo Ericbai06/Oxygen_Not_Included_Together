@@ -21,5 +21,7 @@ namespace ONI_Together
 
         public static readonly ModHashes OnPlayerJoined = new("OnPlayerJoined");
         public static readonly ModHashes OnPlayerLeft = new("OnPlayerLeft");
-    }
+
+		public static readonly ModHashes OnPlayerCursorCreated = new("OnCursorCreated");
+	}
 }

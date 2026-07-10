@@ -130,6 +130,8 @@ namespace ONI_Together.Networking
 
 			PlayerCursors[steamID] = playerCursor;
 			DebugConsole.Log($"[MultiplayerSession] Created new cursor for {steamID}");
+
+			Game.Instance?.Trigger(MP_HASHES.OnPlayerCursorCreated, Boxed<ulong>.Get(steamID));
 		}
 
 		public static void CreateConnectedPlayerCursors()

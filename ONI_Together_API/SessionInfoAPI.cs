@@ -65,6 +65,14 @@ namespace ONI_Together_API
 				return false;
 			return _tryGetPlayerCursorPos(playerId, out cursorPos);
 		}
+		public static bool TryGetPlayerColor(ulong playerId, out Color color)
+		{
+			Init();
+			color = default;
+			if (_tryGetPlayeColor == null)
+				return false;
+			return _tryGetPlayeColor(playerId, out color);
+		}
 
 
 		public static bool InSession

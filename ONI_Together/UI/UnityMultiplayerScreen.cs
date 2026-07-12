@@ -23,6 +23,7 @@ using System.Threading.Tasks;
 using UI.lib.UI.FUI;
 using UI.lib.UIcmp;
 using UnityEngine;
+using UnityEngine.UI;
 using static ONI_Together.STRINGS.UI;
 using static ONI_Together.STRINGS.UI.MP_SCREEN.HOSTMENU;
 using static ONI_Together.STRINGS.UI.MP_SCREEN.HOSTMENU.LOBBYSIZE;
@@ -328,6 +329,8 @@ namespace ONI_Together.UI
 			if (!int.TryParse(LobbySize.Text, out int lobbySize))
 				lobbySize = NetworkConfig.LOBBY_SIZE_DEFAULT;
 
+			LobbySize.inputField.ForceLabelUpdate();
+
 			IncreaseSize.SetInteractable(lobbySize < NetworkConfig.LOBBY_SIZE_MAX);
 			DecreaseSize.SetInteractable(lobbySize > NetworkConfig.LOBBY_SIZE_MIN);
 		}
@@ -372,6 +375,12 @@ namespace ONI_Together.UI
 			Instance.ConsumeMouseScroll = true;
 			Instance.transform.SetAsLastSibling();
 		}
+		public override void OnSpawn()
+		{
+			base.OnSpawn();
+			RefreshLobbySizeButtons();
+		}
+
 		public override void OnShow(bool show)
 		{
 			using var _ = Profiler.Scope();
@@ -383,6 +392,15 @@ namespace ONI_Together.UI
 			else
 				StopCoroutine(LobbyRefresh);
 		}
+		public override void OnKeyDown(KButtonEvent e)
+		{
+			if (e.TryConsume(Action.Escape) || e.TryConsume(Action.MouseRight))
+			{
+				this.Show(false);
+			}
+			base.OnKeyDown(e);
+		}
+
 
 		public static void OpenFromMainMenu()
 		{

@@ -1,8 +1,10 @@
 ﻿using ONI_Together.DebugTools;
 using ONI_Together.Misc;
-using System.Collections.Generic;
+using ONI_Together.Networking.States;
 using Shared.Profiling;
+using System.Collections.Generic;
 using UnityEngine;
+using YamlDotNet.Core;
 
 namespace ONI_Together.Networking
 {
@@ -17,6 +19,7 @@ namespace ONI_Together.Networking
         /// </summary>
         public static readonly Dictionary<ulong, MultiplayerPlayer> ConnectedPlayers = new Dictionary<ulong, MultiplayerPlayer>();
 
+		[API_Method]
 		public static ulong LocalUserID => NetworkConfig.GetLocalID();
 
 		[System.Obsolete] //Keep for api compatibility
@@ -24,17 +27,21 @@ namespace ONI_Together.Networking
 		[System.Obsolete] //Keep for api compatibility
 		public static ulong HostSteamID => HostUserID;
 
+		[API_Method]
 		public static ulong HostUserID { get; set; } = Utils.NilUlong();
 
 		public static string ServerIp { get; set; } = "127.0.0.1";
 		public static int ServerPort { get; set; } = 7777;
 
+		[API_Method]
 		public static bool InSession = false;
 		public static bool SessionHasPlayers => InSession && ConnectedPlayers.Count > 1;
 		public static bool NotInSession => !InSession;
 
+		[API_Method]
 		public static bool IsHost { get; set; } //HostUserID == LocalUserID;
 
+		[API_Method]
 		public static bool IsClient => InSession && !IsHost;
 
 		public static bool IsHostInSession => IsHost && InSession;
@@ -42,6 +49,26 @@ namespace ONI_Together.Networking
 		public static readonly Dictionary<ulong, PlayerCursor> PlayerCursors = new Dictionary<ulong, PlayerCursor>();
 
 		public static readonly Dictionary<ulong, string> KnownPlayerNames = new Dictionary<ulong, string>();
+
+		[API_Method]
+		public static bool TryGetPlayerCursorPos(ulong playerId, out Vector3 cursorPos)
+		{
+			cursorPos = default;
+			if(!PlayerCursors.TryGetValue(playerId, out var cursor)) 
+				return false;
+			cursorPos = cursor.transform.position;
+			return true;
+		}
+		[API_Method]
+		public static bool TryGetPlayerColor(ulong playerId, out Color color)
+		{
+			color = default;
+			if (!PlayerCursors.TryGetValue(playerId, out var cursor))
+				return false;
+			color = cursor.PlayerColor;
+			return true;
+		}
+		
 
 		public static void Clear()
 		{
@@ -80,7 +107,7 @@ namespace ONI_Together.Networking
 		public static IEnumerable<MultiplayerPlayer> AllPlayers => ConnectedPlayers.Values;
 
 		// New player cursors are created automatically if one doesn't exist
-		public static void CreateNewPlayerCursor(ulong steamID)
+		public static void CreateNewPlayerCursor(ulong steamID, States.CursorState cursorState, Color color)
 		{
 			using var _ = Profiler.Scope();
 
@@ -102,26 +129,30 @@ namespace ONI_Together.Networking
 
 			playerCursor.AssignPlayer(steamID);
 			playerCursor.Init();
+			playerCursor.SetState(cursorState);
+			playerCursor.SetColor(color);
 
 			PlayerCursors[steamID] = playerCursor;
 			DebugConsole.Log($"[MultiplayerSession] Created new cursor for {steamID}");
+
+			Game.Instance?.Trigger(MP_HASHES.OnPlayerCursorCreated, Boxed<ulong>.Get(steamID));
 		}
 
 		public static void CreateConnectedPlayerCursors()
 		{
-			using var _ = Profiler.Scope();
+			//using var _ = Profiler.Scope();
 
-            var members = NetworkConfig.GetConnectedClients();
-            foreach (var playerId in members)
-			{
-				if (playerId == LocalUserID)
-					continue;
+			//var members = NetworkConfig.GetConnectedClients();
+			//foreach (var playerId in members)
+			//{
+			//	if (playerId == LocalUserID)
+			//		continue;
 
-				if (!PlayerCursors.ContainsKey(playerId))
-				{
-					CreateNewPlayerCursor(playerId);
-				}
-			}
+			//	if (!PlayerCursors.ContainsKey(playerId))
+			//	{
+			//		CreateNewPlayerCursor(playerId);
+			//	}
+			//}
 		}
 
 		public static void RemovePlayerCursor(ulong playerId)

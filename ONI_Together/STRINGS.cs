@@ -476,6 +476,42 @@ namespace ONI_Together
 				public static LocString LOBBY_VISIBILITY_FRIENDSONLY = "Friends Only";
 			}
 
+			public class MP_CHATBOX
+			{
+				public class TEXTINPUT
+				{
+					public class INPUT
+					{
+						public class TEXTAREA
+						{
+							public static LocString PLACEHOLDER = "Enter Text...";
+						}
+					}
+				}
+				public class TOPBAR
+				{
+					public static LocString LABEL = "Chat";
+					public class FILTERBUTTON
+					{
+						public static LocString TEXT = "Settings";
+						public class DROPDOWNCONTENT
+						{
+							public class RESETPOS
+							{
+								public static LocString LABEL = "Reset Position";
+							}
+							public class RESETSIZE
+							{
+								public static LocString LABEL = "Reset Size";
+							}
+						}
+					}
+				}
+			}
+
+
+
+
 			public class MP_SCREEN
 			{
 				public class MAINMENU

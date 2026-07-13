@@ -1,9 +1,11 @@
 ﻿using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.OxySync.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.UI;
 using Steamworks;
 using System;
+using System.Globalization;
 using System.IO;
 using Shared.Profiling;
 using UnityEngine;
@@ -76,12 +78,8 @@ namespace ONI_Together.Networking.Packets.Social
                 senderName = SteamFriends.GetFriendPersonaName(SenderId.AsCSteamID());
             }
 			string colorHex = ColorUtility.ToHtmlStringRGB(PlayerColor);
-			ChatScreen.PendingMessage message = new ChatScreen.PendingMessage()
-			{
-				timestamp = Timestamp,
-				message = string.Format("<color=#{0}>{1}:</color> {2}", colorHex, senderName, Message)
-			};
-			ChatScreen.QueueMessage(message);
+			string timestampString = DateTimeOffset.FromUnixTimeMilliseconds(Timestamp).DateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+			UnityChatBoxUI.Instance?.SendNewNewMessage($"<color=#{colorHex}>{senderName}</color>", timestampString, Message);
 
 			if (MultiplayerSession.IsHost)
 			{

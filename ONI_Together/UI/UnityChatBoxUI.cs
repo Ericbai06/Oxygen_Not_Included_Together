@@ -14,6 +14,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using static AnimEventHandler;
 using static ONI_Together.STRINGS.UI.MP_CHATBOX.TOPBAR.FILTERBUTTON;
+using ONI_Together.Networking.OxySync.Components;
 
 namespace ONI_Together.UI
 {
@@ -37,6 +38,7 @@ namespace ONI_Together.UI
 		FButton SendMsg;
 
 		List<ChatMessageContainer> ChatMessages = [];
+		static List<string> _pendingSystemMessages = [];
 
 		public static void DestroyInstance() { Instance = null; }
 
@@ -49,7 +51,6 @@ namespace ONI_Together.UI
 				//under build menu, above notifications
 				Instance.transform.SetSiblingIndex(4);
 				Instance.Init();
-				Instance.Show(true);
 			}
 		}
 		public override void OnShow(bool show)
@@ -109,6 +110,8 @@ namespace ONI_Together.UI
 
 			MsgPrefab = transform.Find("ScrollArea/Content/MessagePrefab").gameObject.AddOrGet<ChatMessageContainer>();
 			MsgPrefab.gameObject.SetActive(false);
+
+			ProcessPendingSystemMessages();
 		}
 
 		void SendChatMessage()
@@ -117,8 +120,7 @@ namespace ONI_Together.UI
 			MsgInput.SetTextFromData(string.Empty);
 			if (messageText.Any())
 			{
-				//TODO: hook up sending here!				
-				SendNewNewMessage("Myself", Now(), messageText);
+				OxySyncChat.Instance?.SendMessage(messageText);
 			}
 		}
 
@@ -132,9 +134,40 @@ namespace ONI_Together.UI
 			var newMessage = Util.KInstantiateUI<ChatMessageContainer>(MsgPrefab.gameObject, ItemContainer, true);
 			newMessage.SetValues(sender, timestamp, message);
 			ChatMessages.Add(newMessage);
-			if (scrollDown)
+			if (scrollDown && gameObject.activeInHierarchy)
 				StartCoroutine(ScrollToBottom());
 		}
+		public static bool IsFocused()
+		{
+			return Instance != null && Instance.MsgInput?.isEditing == true;
+		}
+
+		public static bool IsMouseOverChatPanel()
+		{
+			return Instance != null && Instance.mouseOver;
+		}
+
+		public static void AddSystemMessage(string message)
+		{
+			if (Instance != null)
+			{
+				long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+				string timestampString = DateTimeOffset.FromUnixTimeMilliseconds(timestamp).DateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+				Instance.SendNewNewMessage("<color=yellow>System</color>", timestampString, message);
+			}
+			else
+			{
+				_pendingSystemMessages.Add(message);
+			}
+		}
+
+		void ProcessPendingSystemMessages()
+		{
+			foreach (var msg in _pendingSystemMessages)
+				AddSystemMessage(msg);
+			_pendingSystemMessages.Clear();
+		}
+
 		private IEnumerator ScrollToBottom()
 		{
 			yield return null;
@@ -196,6 +229,7 @@ namespace ONI_Together.UI
 
 		void Refresh()
 		{
+			StartCoroutine(ScrollToBottom());
 		}
 		static string Now() => System.DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
 

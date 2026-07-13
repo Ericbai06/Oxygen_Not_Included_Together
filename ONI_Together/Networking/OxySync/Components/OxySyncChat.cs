@@ -52,10 +52,9 @@ public class OxySyncChat : NetworkBehaviour
         }
         DebugConsole.Log("Spawned OxySync Chat!");
     }
-    
+
     public void Update()
     {
-        DebugConsole.Log("Showing chatbox: " + MultiplayerSession.InSession);
         UnityChatBoxUI.Instance?.Show(MultiplayerSession.InSession);
     }
 
@@ -86,6 +85,11 @@ public class OxySyncChat : NetworkBehaviour
         }*/
     }
 
+    public static void AddSystemMessage(string message)
+    {
+        UnityChatBoxUI.AddSystemMessage(message);
+    }
+
     public void SendMessage(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
@@ -99,7 +103,7 @@ public class OxySyncChat : NetworkBehaviour
         long timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         string colorHex = ColorUtility.ToHtmlStringRGB(playerColor);
-        AddMessageToChatbox(playerName, text, timestamp);
+        AddMessageToChatbox($"<color=#{colorHex}>{playerName}</color>", text, timestamp);
 
         string compressed = CompressString(text);
         CallCommand(nameof(ClientSendMessage), playerId, playerName, playerColor, compressed, timestamp);
@@ -132,7 +136,12 @@ public class OxySyncChat : NetworkBehaviour
                 senderName = SteamFriends.GetFriendPersonaName(cSteamId);
         }
 
-        AddMessageToChatbox($"<color=#{colorHex}>{senderName}</color>", message, timestamp);
+        // The command was called from the server and thus has already added the message to the chatbox
+        if (playerId != MultiplayerSession.LocalUserID)
+        {
+            AddMessageToChatbox($"<color=#{colorHex}>{senderName}</color>", message, timestamp);
+        }
+
         CallClientRpc(nameof(BroadcastMessage), playerId, playerName, playerColor, compressed, timestamp);
     }
 
@@ -176,16 +185,12 @@ public class OxySyncChat : NetworkBehaviour
     [TargetRpc]
     public void TargetRpcReceiveHistory(long[] timestamps, string[] messages)
     {
-        ChatScreen.Instance?.ClearMessages();
-        ChatScreen.AddSystemMessage(STRINGS.UI.MP_CHATWINDOW.CHAT_INITIALIZED);
+        AddSystemMessage(STRINGS.UI.MP_CHATWINDOW.CHAT_INITIALIZED);
 
         for (int i = 0; i < timestamps.Length; i++)
         {
-            ChatScreen.QueueMessage(new ChatScreen.PendingMessage
-            {
-                timestamp = timestamps[i],
-                message = DecompressString(messages[i])
-            });
+            string ts = DateTimeOffset.FromUnixTimeMilliseconds(timestamps[i]).DateTime.ToString("HH:mm", CultureInfo.InvariantCulture);
+            UnityChatBoxUI.Instance?.SendNewNewMessage("System", ts, DecompressString(messages[i]));
         }
     }*/
     

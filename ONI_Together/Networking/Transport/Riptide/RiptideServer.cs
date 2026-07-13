@@ -7,6 +7,7 @@ using ONI_Together.Networking.Packets.Architecture;
 using Shared.Profiling;
 using ONI_Together.Networking.Transfer;
 using System.Collections.Generic;
+using ONI_Together.Networking.OxySync.Components;
 using ONI_Together.UI;
 using Steamworks;
 using static ResearchTypes;
@@ -60,7 +61,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (_server != null)
                 return;
 
-            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, "LAN"));
+            OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, "LAN"));
 
             string ip = Configuration.Instance.Host.LanSettings.Ip;
             int port = Configuration.Instance.Host.LanSettings.Port;
@@ -101,7 +102,7 @@ namespace ONI_Together.Networking.Transport.Lan
 
             int id = e.Client.Id;
             DebugConsole.Log("[RiptideServer] A client failed to connect to the server.");
-            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_FAILED, "A client"));
+            OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_FAILED, "A client"));
         }
 
         private void OnLocalClientConnected(object sender, EventArgs e)
@@ -115,7 +116,7 @@ namespace ONI_Together.Networking.Transport.Lan
             MultiplayerSession.InSession = true;
 
             string hostName = Utils.GetLocalPlayerName();
-            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, hostName));
+            OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, hostName));
         }
 
         private void OnLocalClientDisconnected(object sender, DisconnectedEventArgs e)
@@ -268,7 +269,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (!_server.IsRunning)
                 return;
 
-            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, "LAN"));
+            OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, "LAN"));
 
             if (!_client.IsNotConnected)
             {
@@ -380,7 +381,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (!_loadingClients.ContainsKey(id))
             {
                 string name = MultiplayerSession.GetPlayer(id)?.PlayerName ?? $"Player {id}";
-                ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
+                OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
                 Utils.PauseSimOnPlayerLeft();
 			}
 			var boxedId = Boxed<ulong>.Get(id);

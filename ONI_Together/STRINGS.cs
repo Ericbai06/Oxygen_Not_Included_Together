@@ -325,14 +325,14 @@ namespace ONI_Together
 			}
 			public class MP_CHATWINDOW
 			{
-				public static LocString CHAT_INITIALIZED = "<color=yellow>[System]</color> Chat initialized.";
-				public static LocString CHAT_CLIENT_REJECTED = "<color=red>[System]</color> {0} was rejected due to mod incompatibility: {1}";
-				public static LocString CHAT_CLIENT_JOINED = "<color=yellow>[System]</color> <b>{0}</b> joined the game.";
-				public static LocString CHAT_CLIENT_LEFT = "<color=yellow>[System]</color> <b>{0}</b> left the game.";
-				public static LocString CHAT_CLIENT_FAILED = "<color=red>[System]</color>{0} failed to connect to the server.";
+				public static LocString CHAT_INITIALIZED = "Chat initialized.";
+				public static LocString CHAT_CLIENT_REJECTED = "<color=red>{0} was rejected due to mod incompatibility: {1}</color>";
+				public static LocString CHAT_CLIENT_JOINED = "<b>{0}</b> joined the game.";
+				public static LocString CHAT_CLIENT_LEFT = "<b>{0}</b> left the game.";
+				public static LocString CHAT_CLIENT_FAILED = "<color=red>{0} failed to connect to the server.</color>";
 
-                public static LocString CHAT_SERVER_STARTED = "<color=yellow>[System]</color> Started server over {0}";
-				public static LocString CHAT_SERVER_STOPPED = "<color=yellow>[System]</color> Stopped {0} server";
+                public static LocString CHAT_SERVER_STARTED = "Started server over <b>{0}</b>";
+				public static LocString CHAT_SERVER_STOPPED = "Stopped <b>{0}</b> server";
 
                 public class RESIZE
 				{

@@ -11,6 +11,7 @@ using ONI_Together.Menus;
 using System.Collections.Generic;
 using UnityEngine;
 using System.Collections;
+using ONI_Together.Networking.OxySync.Components;
 using ONI_Together.Networking.States;
 using ONI_Together.UI;
 using Steamworks;
@@ -318,7 +319,7 @@ namespace ONI_Together.Networking.Transport.Lan
             else
             {
                 string name = MultiplayerSession.KnownPlayerNames.TryGetValue(id, out var cached) ? cached : $"Player {id}";
-                ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
+                OxySyncChat.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
                 Utils.PauseSimOnPlayerLeft();
 			}
 			var boxedId = Boxed<ulong>.Get(id);

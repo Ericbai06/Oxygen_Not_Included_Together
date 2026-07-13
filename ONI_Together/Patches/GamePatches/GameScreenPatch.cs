@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Menus;
 using ONI_Together.Misc;
 using ONI_Together.Networking;
@@ -19,10 +20,13 @@ namespace ONI_Together.Patches.GamePatches
 			// Setup indicators
 			NetworkIndicatorsScreen.Show();
 
-			// Setup chat window
+            // Setup chat window
             //ChatScreen.Show();
             UnityChatBoxUI.InitScreen();
-            UnityChatBoxUI.Instance.gameObject.AddComponent<OxySyncChat>();
+            DebugConsole.Log("Unity chatbox init!");
+            var chatHost = new GameObject("OxySyncChatHost");
+            chatHost.AddComponent<OxySyncChat>();
+            DebugConsole.Log("Unity chatbox added oxysync");
 		}
 	}
 

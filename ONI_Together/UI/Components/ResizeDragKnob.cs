@@ -11,7 +11,7 @@ namespace ONI_Together.UI.Components
 	internal class ResizeDragKnob : KMonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 	{
 		public Transform Target;
-		public Vector2 MinSize = new Vector2(205, 205);
+		public Vector2 MinSize = new Vector2(205, 300);
 		internal System.Action OnResized;
 		private Vector3 ownStartPosition;
 
@@ -45,7 +45,7 @@ namespace ONI_Together.UI.Components
 			float uiscale = scaler.scaleFactor;
 			var rect = Target.rectTransform();
 			var size = rect.sizeDelta;
-			size.y -= (diff.y / uiscale);
+			size.y += (diff.y / uiscale);
 			size.x -= (diff.x / uiscale);
 			size.y = Mathf.Max(size.y, MinSize.y);
 			size.x = Mathf.Max(size.x, MinSize.x);

@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace ONI_Together.UI.Components
 {
@@ -12,6 +14,7 @@ namespace ONI_Together.UI.Components
 		bool init = false;
 		string _sender, _stamp, _text;
 		bool spawned = false;
+		bool frozen = false;
 
 		void Init()
 		{
@@ -24,6 +27,7 @@ namespace ONI_Together.UI.Components
 			TimeStamp.key = string.Empty;
 			Text = transform.Find("Message").gameObject.GetComponent<LocText>();
 			Text.key = string.Empty;
+			Text.AllowLinks = true;
 		}
 		public void SetValues(string sender, string stamp, string text)
 		{
@@ -39,6 +43,10 @@ namespace ONI_Together.UI.Components
 			Sender.text = _sender;
 			TimeStamp.text = _stamp;
 			Text.text = _text;
+
+
+			//if (!frozen && gameObject.activeInHierarchy)
+			//	StartCoroutine(FreezeLayoutEnumerator());
 		}
 		public override void OnPrefabInit()
 		{
@@ -50,7 +58,41 @@ namespace ONI_Together.UI.Components
 			base.OnSpawn();
 			spawned = true;
 			ApplyText();
+
 		}
 
+		IEnumerator FreezeLayoutEnumerator()
+		{
+			yield return null;
+			FreezeDimensions();
+			frozen = true;
+		}
+
+		void FreezeDimensions()
+		{
+			if (transform.TryGetComponent(out LayoutGroup group))
+			{
+				gameObject.AddOrGet<LayoutElement>().CopyFrom(group);
+				Destroy(group);
+			}
+		}
+	}
+	static class LayoutElementHelper
+	{
+		/// <summary>
+		/// Copies layout information to a fixed layout element. Useful for freezing a UI
+		/// object.
+		/// </summary>
+		/// <param name="dest">The fixed layout component that will replace it.</param>
+		/// <param name="src">The current layout component.</param>
+		public static void CopyFrom(this LayoutElement dest, ILayoutElement src)
+		{
+			dest.flexibleHeight = src.flexibleHeight;
+			dest.flexibleWidth = src.flexibleWidth;
+			dest.preferredHeight = src.preferredHeight;
+			dest.preferredWidth = src.preferredWidth;
+			dest.minHeight = src.minHeight;
+			dest.minWidth = src.minWidth;
+		}
 	}
 }

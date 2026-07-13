@@ -60,8 +60,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (_server != null)
                 return;
 
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, $"LAN"));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, "LAN"));
 
             string ip = Configuration.Instance.Host.LanSettings.Ip;
             int port = Configuration.Instance.Host.LanSettings.Port;
@@ -102,8 +101,7 @@ namespace ONI_Together.Networking.Transport.Lan
 
             int id = e.Client.Id;
             DebugConsole.Log("[RiptideServer] A client failed to connect to the server.");
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_FAILED, "A client"));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_FAILED, "A client"));
         }
 
         private void OnLocalClientConnected(object sender, EventArgs e)
@@ -117,9 +115,7 @@ namespace ONI_Together.Networking.Transport.Lan
             MultiplayerSession.InSession = true;
 
             string hostName = Utils.GetLocalPlayerName();
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(
-                string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, hostName));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, hostName));
         }
 
         private void OnLocalClientDisconnected(object sender, DisconnectedEventArgs e)
@@ -272,8 +268,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (!_server.IsRunning)
                 return;
 
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, $"LAN"));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, "LAN"));
 
             if (!_client.IsNotConnected)
             {
@@ -383,8 +378,7 @@ namespace ONI_Together.Networking.Transport.Lan
             if (!_loadingClients.ContainsKey(id))
             {
                 string name = MultiplayerSession.GetPlayer(id)?.PlayerName ?? $"Player {id}";
-                ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
-                ChatScreen.QueueMessage(pending);
+                ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_LEFT, name));
                 Utils.PauseSimOnPlayerLeft();
             }
             Game.Instance?.Trigger(MP_HASHES.OnPlayerLeft);

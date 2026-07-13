@@ -39,8 +39,7 @@ namespace ONI_Together.Networking.Transport.Steam
         {
             using var _ = Profiler.Scope();
 
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, $"Steam"));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STARTED, "Steam"));
 
             // Create listen socket for P2P
             var options = new SteamNetworkingConfigValue_t[2];
@@ -84,8 +83,7 @@ namespace ONI_Together.Networking.Transport.Steam
         {
             using var _ = Profiler.Scope();
 
-            ChatScreen.PendingMessage pending = ChatScreen.GeneratePendingMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, $"Steam"));
-            ChatScreen.QueueMessage(pending);
+            ChatScreen.AddSystemMessage(string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_SERVER_STOPPED, "Steam"));
 
             if (PollGroup.m_HSteamNetPollGroup != 0)
                 SteamNetworkingSockets.DestroyPollGroup(PollGroup);

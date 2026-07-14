@@ -58,7 +58,7 @@ namespace ONI_Together.Patches.InterfacePatches
 			public static void Postfix(DetailsScreen __instance)
 			{
 				string text = __instance.CodexEntryButton_GetCodexId();
-				LinkInChatButton.SetActive(MultiplayerSession.InSession);
+				LinkInChatButton.SetActive(MultiplayerSession.InActiveSession);
 				LinkInChatButton.GetComponent<KButton>().isInteractable = text != "";
 			}
 		}

@@ -24,7 +24,7 @@ namespace ONI_Together.Scripts.Creatures
 
 		IEnumerator WaitForSessionAndInit()
 		{
-			yield return new WaitUntil((() => MultiplayerSession.InSession));
+			yield return new WaitUntil((() => MultiplayerSession.InActiveSession));
 			InitializeMP();
 		}
 

@@ -37,7 +37,7 @@ public static class DuplicantPatch
 	{
 		using var _ = Profiler.Scope();
 
-		if (!MultiplayerSession.InSession || MultiplayerSession.IsClient)
+		if (!MultiplayerSession.InActiveSession || MultiplayerSession.IsClient)
 			return;
 
 		if (!minion.TryGetComponent(out NetworkIdentity net))

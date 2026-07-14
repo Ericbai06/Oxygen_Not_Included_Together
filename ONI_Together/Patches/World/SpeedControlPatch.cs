@@ -29,7 +29,7 @@ namespace ONI_Together.Patches
 			try
 			{
 				if (IsSyncing) return;
-				if (!MultiplayerSession.InSession) return;
+				if (!MultiplayerSession.InActiveSession) return;
 
 				GameSpeedSyncComponent.Instance?.RequestSetSpeed(Speed);
 			}
@@ -48,7 +48,7 @@ namespace ONI_Together.Patches
 			try
 			{
 				if (IsSyncing) return;
-				if (!MultiplayerSession.InSession) return;
+				if (!MultiplayerSession.InActiveSession) return;
 
 				// Original TogglePause has already run. Determine the resulting state.
 				var newState = SpeedControlScreen.Instance.IsPaused

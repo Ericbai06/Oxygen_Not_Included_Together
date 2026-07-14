@@ -14,6 +14,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using ONI_Together.DebugTools;
+using Shared;
 using UnityEngine;
 
 namespace ONI_Together.Networking.OxySync.Components;

@@ -61,7 +61,7 @@ namespace ONI_Together.Networking.OxySync.Components
 
             NetworkBehaviour.IsHostQuery = () => MultiplayerSession.IsHost;
             NetworkBehaviour.IsClientQuery = () => MultiplayerSession.IsClient;
-            NetworkBehaviour.InSessionQuery = () => MultiplayerSession.InSession;
+            NetworkBehaviour.InSessionQuery = () => MultiplayerSession.InActiveSession;
 
             NetworkBehaviour.SendCommandToHost = (netId, methodHash, args, sendType) =>
             {

@@ -150,7 +150,7 @@ namespace ONI_Together.Patches.GamePatches
 		{
 			using var _ = Profiler.Scope();
 
-			if (!MultiplayerSession.InSession) return;
+			if (!MultiplayerSession.InActiveSession) return;
 
 			DebugConsole.Log("[ImmigrantScreen] Initialize postfix triggered");
 
@@ -244,7 +244,7 @@ namespace ONI_Together.Patches.GamePatches
 		{
 			using var _ = Profiler.Scope();
 
-			if (!MultiplayerSession.InSession) return true;
+			if (!MultiplayerSession.InActiveSession) return true;
 
 			if (__instance.Telepad == null) return true;
 
@@ -292,7 +292,7 @@ namespace ONI_Together.Patches.GamePatches
 
             if (__instance.Telepad == null) return true;
 
-            if (!MultiplayerSession.InSession) return true;
+            if (!MultiplayerSession.InActiveSession) return true;
 
 			DebugConsole.Log("[ImmigrantScreen] Reject All clicked");
 
@@ -318,7 +318,7 @@ namespace ONI_Together.Patches.GamePatches
 		{
 			using var _ = Profiler.Scope();
 
-			if (!MultiplayerSession.InSession) return;
+			if (!MultiplayerSession.InActiveSession) return;
 
 			if (MultiplayerSession.IsHost)
 			{

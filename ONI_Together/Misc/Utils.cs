@@ -193,7 +193,7 @@ namespace ONI_Together.Misc
 		{
 			using var _ = Profiler.Scope();
 
-			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
+			if (!MultiplayerSession.InActiveSession || !MultiplayerSession.IsHost)
 				return false;
 			if (behavior.IsNullOrDestroyed() || behavior.gameObject.IsNullOrDestroyed())
 				return false;

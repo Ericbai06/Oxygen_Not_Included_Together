@@ -47,7 +47,7 @@ namespace ONI_Together.Patches.GamePatches
 
 			try
 			{
-				if (!MultiplayerSession.InSession)
+				if (!MultiplayerSession.InActiveSession)
 					return true;
 
 				if (MultiplayerSession.IsClient && !allowAddTimeForSetTime)
@@ -71,7 +71,7 @@ namespace ONI_Together.Patches.GamePatches
 
 			try
 			{
-				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
+				if (!MultiplayerSession.InActiveSession || !MultiplayerSession.IsHost)
 					return;
 
 				float currentTime = __instance.GetTime();

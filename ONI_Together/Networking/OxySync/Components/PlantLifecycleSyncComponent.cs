@@ -44,7 +44,7 @@ namespace ONI_Together.Networking.OxySync.Components
             Instance != null &&
             Instance._initialized &&
             Time.unscaledTime - Instance._initializationTime >= LIVE_EVENT_DELAY &&
-            MultiplayerSession.InSession &&
+            MultiplayerSession.InActiveSession &&
             MultiplayerSession.IsHost &&
             MultiplayerSession.ConnectedPlayers.Count > 0 &&
             !GameServerHardSync.IsHardSyncInProgress;
@@ -160,7 +160,7 @@ namespace ONI_Together.Networking.OxySync.Components
             {
                 yield return null;
 
-                if (!MultiplayerSession.InSession || MultiplayerSession.IsHost)
+                if (!MultiplayerSession.InActiveSession || MultiplayerSession.IsHost)
                     yield break;
 
                 if (HandleSpawnPlant(data))
@@ -176,7 +176,7 @@ namespace ONI_Together.Networking.OxySync.Components
             {
                 yield return null;
 
-                if (!MultiplayerSession.InSession || MultiplayerSession.IsHost)
+                if (!MultiplayerSession.InActiveSession || MultiplayerSession.IsHost)
                     yield break;
 
                 if (HandleRemovePlant(data))

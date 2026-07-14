@@ -10,7 +10,7 @@ namespace ONI_Together.Patches.OxySync
     {
         public static void Postfix(Edible __instance)
         {
-            if (!MultiplayerSession.InSession)
+            if (!MultiplayerSession.InActiveSession)
                 return;
             if (__instance.IsNullOrDestroyed())
                 return;

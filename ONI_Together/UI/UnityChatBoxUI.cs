@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using Shared;
 using TMPro;
 using TUNING;
 using UI.lib.UI.FUI;
@@ -57,7 +58,7 @@ namespace ONI_Together.UI
 
 		static void OnToggleClicked()
 		{
-			if (!MultiplayerSession.InSession)
+			if (!MultiplayerSession.InActiveSession)
 			{
 				KMonoBehaviour.PlaySound(GlobalAssets.GetSound("Negative"));
 				ChatToggle.ChangeState(0);
@@ -79,18 +80,26 @@ namespace ONI_Together.UI
 				Instance.transform.SetSiblingIndex(4);
 				Instance.Init();
 
-				Game.Instance.Subscribe(MP_HASHES.GameClient_OnConnectedInGame, ShowOnNewSession);
-				Game.Instance.Subscribe(MP_HASHES.GameServer_OnServerStarted, ShowOnNewSession);
-				Game.Instance.Subscribe(MP_HASHES.OnDisconnected, HideOnDisconnect);
+				Game.Instance.Subscribe(MP_HASHES.OnInSessionChanged, OnSessionChanged);
+				//Game.Instance.Subscribe(MP_HASHES.GameClient_OnConnectedInGame, ShowOnNewSession);
+				//Game.Instance.Subscribe(MP_HASHES.GameServer_OnServerStarted, ShowOnNewSession);
+				//Game.Instance.Subscribe(MP_HASHES.OnDisconnected, HideOnDisconnect);
 				Instance.Show(false);
 				ChatToggle?.ChangeState(0);
 			}
 		}
 
+		private static void OnSessionChanged(object data)
+		{
+			InitScreen();
+			//bool show = ((Boxed<bool>)data).value;
+			Instance.Show(MultiplayerSession.InActiveSession);
+		}
+
 		static void ShowOnNewSession(object _)
 		{
 			InitScreen();
-			Instance.Show(MultiplayerSession.InSession);
+			Instance.Show(MultiplayerSession.InActiveSession);
 		}
 		static void HideOnDisconnect(object _)
 		{
@@ -357,7 +366,7 @@ namespace ONI_Together.UI
 			int state = 0;
 			if (show)
 				state = 2;
-			else if (MultiplayerSession.InSession)
+			else if (MultiplayerSession.InActiveSession)
 				state = 1;
 			ChatToggle?.ChangeState(state);
 		}

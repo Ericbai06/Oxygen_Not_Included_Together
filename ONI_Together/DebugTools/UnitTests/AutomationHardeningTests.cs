@@ -10,6 +10,15 @@ namespace ONI_Together.DebugTools.UnitTests
 		[UnitTest(name: "Debug menu: follows game UI scale", category: "Debug")]
 		public static UnitTestResult DebugMenuFollowsGameUiScale()
 		{
+			KCanvasScaler scaler = UnityEngine.Object.FindAnyObjectByType<KCanvasScaler>();
+			if (scaler == null)
+				return UnitTestResult.Skip("Requires an active game UI canvas");
+			float actualScale = DebugMenu.GetGameUiScale();
+			float expectedScale = scaler.GetCanvasScale();
+			if (!Mathf.Approximately(actualScale, expectedScale))
+				return UnitTestResult.Fail(
+					$"Expected active canvas scale {expectedScale}, got {actualScale}");
+
 			Matrix4x4 matrix = DebugMenu.ComposeUiScaleMatrix(Matrix4x4.identity, 1.5f);
 			Vector3 scaled = matrix.MultiplyPoint3x4(new Vector3(100f, 50f));
 			return Mathf.Approximately(scaled.x, 150f)

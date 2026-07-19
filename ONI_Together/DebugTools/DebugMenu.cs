@@ -157,10 +157,9 @@ namespace ONI_Together.DebugTools
 			}
 		}
 
-		private static float GetGameUiScale()
+		internal static float GetGameUiScale()
 		{
-			var canvas = GameScreenManager.Instance?.ssOverlayCanvas;
-			var scaler = canvas?.GetComponent<KCanvasScaler>();
+			var scaler = UnityEngine.Object.FindAnyObjectByType<KCanvasScaler>();
 			return scaler != null ? scaler.GetCanvasScale() : 1f;
 		}
 

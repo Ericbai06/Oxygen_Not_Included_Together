@@ -2,10 +2,10 @@
 
 ## Install from Steam Workshop
 
-Subscribe to the current ONI Together Workshop item, wait for Steam to finish downloading it, and then start Oxygen Not Included.
+Subscribe to the current ONI ONLINE Workshop item, wait for Steam to finish downloading it, and then start Oxygen Not Included.
 
 1. Open **Mods**.
-2. Enable `Oxygen Not Included Together` for the active DLC.
+2. Enable `ONI ONLINE` for the active DLC.
 3. Accept the restart.
 4. Open **Multiplayer** from the main menu after the game restarts.
 

@@ -1,6 +1,6 @@
 # Steam Workshop Release Requirements
 
-Research date: July 19, 2026. ONI Together is published as one Steam Workshop item whose content directory includes the runtime assets for every supported platform. It is not split into macOS and Windows packages.
+Research date: July 19, 2026. ONI ONLINE is published as one Steam Workshop item whose content directory includes the runtime assets for every supported platform. It is not split into macOS and Windows packages.
 
 ## Content directory
 
@@ -50,7 +50,7 @@ Steamworks App Admin must enable ISteamUGC file transfer and configure Steam Clo
 ## AppID and Workshop item ID
 
 - Oxygen Not Included uses Steam AppID **457140**.
-- The current personal ONI Together item uses `PublishedFileId` **3768243603**: <https://steamcommunity.com/sharedfiles/filedetails/?id=3768243603>.
+- The current ONI ONLINE item uses `PublishedFileId` **3768243603**: <https://steamcommunity.com/sharedfiles/filedetails/?id=3768243603>.
 - `CreateItem` must use consumer AppID `457140`, not the uploader's AppID. Save the new `PublishedFileId_t` when creating a replacement item and reuse it for later updates.
 
 An ISteamUGC update to the existing item uses:
@@ -72,7 +72,7 @@ A SteamCMD VDF update must also set both `appid=457140` and `publishedfileid=376
 - Keep `mod_info.yaml` at the Mod root and declare `APIVersion: 2`. Klei rejects Mods that include public game data or use obfuscation that prevents review.
 - Configure Steam Cloud preview quotas and enable ISteamUGC. Incorrect AppIDs or disabled transfer support can return `InvalidParam`.
 - Update `minimumSupportedBuild`, DLC restrictions, or `archived_versions` from a build that was tested against the current ONI Live branch.
-- Package from a clean Release build, verify the generated content inventory, and confirm that the Workshop description points to this personal development fork and credits the unmaintained upstream repository.
+- Package from a clean Release build, verify the generated content inventory, and confirm that the Workshop description identifies ONI ONLINE as an independent, unofficial fork and credits the active upstream project.
 
 ## Primary sources
 

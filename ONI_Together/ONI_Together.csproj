@@ -10,8 +10,8 @@
 
 	<!-- Mod Info, used to generate yaml files on the fly -->
 	<PropertyGroup>
-		<ModName>Oxygen Not Included Together</ModName>
-		<ModDescription>Adds multiplayer to Oxygen Not Included! By Lyraedan</ModDescription>
+		<ModName>ONI ONLINE</ModName>
+		<ModDescription>Independent host-authoritative multiplayer fork based on ONI Together.</ModDescription>
 		<MinimumSupportedBuild>$(TargetGameVersion)</MinimumSupportedBuild>
 		<APIVersion>2</APIVersion>
 	</PropertyGroup>

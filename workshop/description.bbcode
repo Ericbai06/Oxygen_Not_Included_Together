@@ -1,8 +1,8 @@
-[h1]Oxygen Not Included Together 1.0.6[/h1]
+[h1]ONI ONLINE 1.0.6[/h1]
 
 Current Stage: v1.0.6
 
-Run one shared Oxygen Not Included colony with friends. Every player sees the same colony and can build, dig, manage priorities and schedules, control research, assign skills, operate rockets, and use the supported DLC systems.
+Run one shared Oxygen Not Included colony with friends. ONI ONLINE is an independent, unofficial fork with its own name, Workshop item, release line, and network protocol.
 
 [h2]Multiplayer[/h2]
 
@@ -16,11 +16,15 @@ Run one shared Oxygen Not Included colony with friends. Every player sees the sa
 [*]Large-save transfer over TCP with automatic UDP fallback
 [/list]
 
+[h2]Host-authoritative synchronization[/h2]
+
+Shared colony mutations use one request path. A client submits an action request; the host validates the sender, session, target, permissions, domain rules, and revision; the host then executes the accepted action and broadcasts the resulting authoritative state. Clients do not treat local clicks as committed colony state. Duplicate, stale, and out-of-order updates are rejected, while generation-bound snapshots and replay restore joining or reconnecting clients.
+
 [h2]Supported content[/h2]
 
 The release supports the base game, Spaced Out!, Frosty Planet Pack, Bionic Booster Pack, Prehistoric Planet Pack, Neutronium Cosmetics Pack, and Aquatic Planet Pack.
 
-Every player must use an ONI Together DLL with the same SHA-256 and enable the same DLC set. A rejected client sees the specific DLL or DLC mismatch before world transfer. Other enabled Mods, load order, and configuration are not admission checks.
+Every player must use the same ONI ONLINE DLL SHA-256 and enable the same DLC set. A rejected client sees the specific DLL or DLC mismatch before world transfer. Other enabled Mods, load order, and configuration are not admission checks.
 
 Steam multiplayer requires a separate Steam account for each running game instance. The host shares the lobby code or sends a Steam invite; SteamNetworkingSockets handles the Internet route.
 
@@ -37,9 +41,13 @@ Steam multiplayer requires a separate Steam account for each running game instan
 
 https://github.com/Ericbai06/Oxygen_Not_Included_Together
 
-This is an independent, unofficial personal development fork of the original repository, which is no longer maintained:
+ONI ONLINE is based on the active, MIT-licensed ONI Together project:
 https://github.com/Lyraedan/Oxygen_Not_Included_Together
 
-Original project by Lyraedan (ItsLuke) and Sgt_Lmalas. This release is built from the original project's MIT-licensed source.
+Original project by Lyraedan (ItsLuke), Sgt_Imalas, and its contributors. ONI ONLINE does not replace or represent the upstream project.
+
+[h2]Why a separate fork?[/h2]
+
+Protocol 10 changes the network contract across request authority, transport, replay, reconnect, entity lifecycle, revision handling, DLC synchronization, and the integration-test harness. The changes are interdependent and are not wire-compatible with the upstream 0.7.x release line. Submitting the entire fork as one pull request would create a large, non-incremental review that mixes architectural decisions with individual fixes. Fixes that can be isolated from protocol 10 should still be proposed upstream as focused pull requests.
 
 Licensed under MIT. Third-party notices are included with the Mod.

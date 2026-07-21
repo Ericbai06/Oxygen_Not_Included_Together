@@ -1,6 +1,6 @@
-# ONI Together API
+# ONI ONLINE API
 
-API for third-party mods to add multiplayer features via **Oxygen Not Included Together**.
+API for third-party mods to add multiplayer features via **ONI ONLINE**. Existing `ONI_Together_API` package and namespace identifiers remain unchanged for source compatibility.
 
 ## Installation
 
@@ -10,14 +10,14 @@ dotnet add package ONI_Together_API
 
 ## Usage
 
-### Check if ONI Together is installed and enabled
+### Check if ONI ONLINE is installed and enabled
 
 ```csharp
 using ONI_Together_API;
 
 if (MP_Mod_Info.MultiplayerModPresent)
 {
-    // ONI Together is detected and enabled
+    // ONI ONLINE is detected and enabled
 }
 ```
 
@@ -78,14 +78,14 @@ public void SendMyCoolPacket()
     if (SessionInfoAPI.IsClient) return;
     
     // Only the host can send this
-    ExamplePacket packet = new ExamplePacket(SessionInfoAPI.LocalUserID(), "Hello ONI Together");
+    ExamplePacket packet = new ExamplePacket(SessionInfoAPI.LocalUserID(), "Hello ONI ONLINE");
     PacketSenderAPI.SendToAllClients(packet, PacketSendMode.Reliable);
 }
 ```
 
 ## Requirements
 
-- Oxygen Not Included (with ONI Together mod installed)
+- Oxygen Not Included (with ONI ONLINE installed)
 - .NET Standard 2.1 compatible project
 
 ## Links

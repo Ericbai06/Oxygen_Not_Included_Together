@@ -16,7 +16,7 @@ cp "$BUILD/ONI_Together.dll" "$BUILD/mod.yaml" "$BUILD/mod_info.yaml" "$STAGE/"
 cp -R "$ROOT/ONI_Together/ModAssets/assets" "$STAGE/assets"
 cp -R "$ROOT/ONI_Together/ModAssets/translations" "$STAGE/translations"
 cp "$ROOT/LICENSE.md" "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/"
-cp "$ROOT/ONI_Together/Assets/mod_mascot.png" "$PREVIEW"
+cp "$ROOT/ONI_Together/Assets/oni_online_icon.png" "$PREVIEW"
 
 for platform in windows mac linux; do
 	test -s "$STAGE/assets/$platform/oni_mp_ui_assets" || { echo "Missing $platform asset bundle" >&2; exit 1; }

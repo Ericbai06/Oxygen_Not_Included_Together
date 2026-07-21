@@ -1,10 +1,10 @@
-Install Oxygen Not Included Together from its current Steam Workshop page, or build this personal development fork from:
+Install ONI ONLINE from its current Steam Workshop page, or build this independent development fork from:
 https://github.com/Ericbai06/Oxygen_Not_Included_Together/blob/main/INSTALL.md#install-from-source
 
-This is an independent, unofficial fork of the original repository, which is no longer maintained:
+ONI ONLINE is based on the active, MIT-licensed ONI Together project:
 https://github.com/Lyraedan/Oxygen_Not_Included_Together
 
-Enable the mod for the active DLC, accept the restart, and make sure every peer uses game build 740622, the same DLC selection, the same enabled mods, and the same ONI Together version.
+Enable the mod for the active DLC, accept the restart, and make sure every peer uses game build 740622, the same DLC selection, the same enabled mods, and the same ONI ONLINE version.
 
 For Internet play, use separate Steam accounts. The host creates a Steam lobby and shares its code or sends an invite. SteamNetworkingSockets handles NAT traversal and relay, so no port forwarding or LAN tunnel is required. Direct LAN remains available as a separate transport.
 

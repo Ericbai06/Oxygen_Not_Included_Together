@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-ONI Together includes the following third-party software.
+ONI ONLINE includes the following third-party software.
 
 ## Riptide Networking 2.2.1
 

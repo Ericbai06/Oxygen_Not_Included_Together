@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.Packets.Tools.Build;
 using ONI_Together.Networking.Packets.World;
 using UnityEngine;
 
@@ -66,6 +67,7 @@ namespace ONI_Together.Networking
 				lifecycleTombstones.Add(netId);
 			else
 				lifecycleTombstones.Remove(netId);
+			BuildCompletePacket.ReleaseForLifecycle(netId, revision, tombstone);
 			return true;
 		}
 
@@ -85,7 +87,10 @@ namespace ONI_Together.Networking
 			bool accepted = current == revision
 			                || TryAcceptLifecycleRevision(netId, revision, tombstone: false);
 			if (accepted)
+			{
 				identity.LifecycleRevision = revision;
+				BuildCompletePacket.TryApplyPending(netId, revision);
+			}
 			return accepted;
 		}
 
@@ -326,6 +331,14 @@ namespace ONI_Together.Networking
 				return false;
 			stateRevisions[key] = revision;
 			return true;
+		}
+
+		internal static void ResetStateRevisionDomain(string domain)
+		{
+			string target = domain ?? string.Empty;
+			var keys = stateRevisions.Keys.Where(key => key.Domain == target).ToArray();
+			foreach (var key in keys)
+				stateRevisions.Remove(key);
 		}
 
 		public static ulong GetLastStateRevision(int netId, string domain)

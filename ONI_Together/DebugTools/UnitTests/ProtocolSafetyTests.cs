@@ -32,7 +32,7 @@ public static class ProtocolSafetyTests
 	{
 		public override bool SendPacket(
 			object conn,
-			IPacket packet,
+			SerializedPacket packet,
 			PacketSendMode sendType = PacketSendMode.ReliableImmediate)
 			=> throw new InvalidOperationException("Synthetic transport failure");
 	}
@@ -50,6 +50,33 @@ public static class ProtocolSafetyTests
 		return UnitTestResult.Pass(
 			"Cursor wrapper and host fanout share one unreliable snapshot policy");
 	}
+
+	[UnitTest(name: "Colony diagnostics are revisioned discardable state", category: "Networking")]
+	public static UnitTestResult DiagnosticsAreRevisionedDiscardableState()
+	{
+		var source = new DiagnosticPacket
+		{
+			DiagnosticType = "FoodDiagnostic",
+			DiagnosticMsg = "current",
+			Revision = 7,
+		};
+		using var stream = new MemoryStream();
+		using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
+			source.Serialize(writer);
+		stream.Position = 0;
+		var copy = new DiagnosticPacket();
+		using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
+			copy.Deserialize(reader);
+
+		if (DiagnosticPacket.SendMode != PacketSendMode.Unreliable
+		    || copy.Revision != 7 || copy.DiagnosticType != source.DiagnosticType
+		    || !DiagnosticPacket.ShouldApplyRevision(6, 7)
+		    || DiagnosticPacket.ShouldApplyRevision(7, 7)
+		    || DiagnosticPacket.ShouldApplyRevision(8, 7))
+			return UnitTestResult.Fail("Diagnostic state lost unreliable latest-revision semantics");
+		return UnitTestResult.Pass("Diagnostic state is unreliable and rejects duplicate or stale revisions");
+	}
+
 	[UnitTest(name: "Direct send: transport exceptions become failures", category: "Networking")]
 	public static UnitTestResult DirectSendContainsTransportExceptions()
 	{
@@ -111,30 +138,6 @@ public static class ProtocolSafetyTests
         return UnitTestResult.Pass("Bulk count and length bounds are enforced");
     }
 
-    [UnitTest(name: "Chunk packet: same sequence isolated by sender", category: "Networking")]
-    public static UnitTestResult ChunkSequenceIsScopedToSender()
-    {
-        int sequence = ChunkedPacket.GetNextSequenceId();
-        var senderA = new DispatchContext(101, false);
-        var senderB = new DispatchContext(202, false);
-
-        if (ChunkedPacket.TryAcceptChunk(CreateChunk(sequence, 0, 1), senderA, out _, out _))
-            return UnitTestResult.Fail("Sender A completed before its final chunk");
-        if (ChunkedPacket.TryAcceptChunk(CreateChunk(sequence, 0, 9), senderB, out _, out _))
-            return UnitTestResult.Fail("Sender B completed before its final chunk");
-        if (!ChunkedPacket.TryAcceptChunk(CreateChunk(sequence, 1, 2), senderA, out byte[] dataA, out DispatchContext contextA))
-            return UnitTestResult.Fail("Sender A did not complete");
-        if (!ChunkedPacket.TryAcceptChunk(CreateChunk(sequence, 1, 8), senderB, out byte[] dataB, out DispatchContext contextB))
-            return UnitTestResult.Fail("Sender B did not complete");
-
-        if (dataA.Length != 2 || dataA[0] != 1 || dataA[1] != 2 || contextA.SenderId != senderA.SenderId)
-            return UnitTestResult.Fail("Sender A chunks or context were mixed");
-        if (dataB.Length != 2 || dataB[0] != 9 || dataB[1] != 8 || contextB.SenderId != senderB.SenderId)
-            return UnitTestResult.Fail("Sender B chunks or context were mixed");
-
-        return UnitTestResult.Pass("Chunk assembly is isolated by sender and preserves context");
-    }
-
 	[UnitTest(name: "Protocol compatibility: DLL hash and DLC set are required", category: "Networking")]
 	public static UnitTestResult DllHashAndDlcSetAreRequired()
 	{
@@ -180,8 +183,6 @@ public static class ProtocolSafetyTests
 	{
 		if (typeof(Configuration).GetProperty("BypassProtocolCompatibilityChecks") != null)
 			return UnitTestResult.Fail("Public protocol compatibility bypass is still exposed");
-		if (typeof(NetworkSettings).GetProperty("BypassProtocolCompatibilityChecks") != null)
-			return UnitTestResult.Fail("Serialized protocol compatibility bypass is still accepted");
 
 		return UnitTestResult.Pass("DLL and DLC validation cannot be disabled");
 	}
@@ -320,23 +321,23 @@ public static class ProtocolSafetyTests
             new ChatHistorySyncPacket(), new ToggleMinionKanimEffectPacket(),
             new BuildCompletePacket(), new DeconstructCompletePacket(),
             new ComplexFabricatorSpawnProductPacket(), new GroundItemPickedUpPacket(),
-            new PickupItemPacket(), new StorageItemPacket(),
-            new WorldDamageSpawnResourcePacket(), new SpawnPrefabPacket(),
+            new StorageItemPacket(),
+            new SpawnPrefabPacket(),
 			new DuplicantDeathStatePacket(),
             new TelepadEntitySpawnPacket(), new SecureTransferPacket(),
             new TcpTransferStartPacket(), new LargeImpactorStatePacket(),
             new LargeImpactorOutcomePacket(), new ImmigrantOptionsPacket(),
-            new AnimSyncPacket(), new MultiToolSyncPacket(),
-            new StandardWorker_WorkingState_Packet(), new SymbolOverridePacket(),
+            new AnimSyncPacket(),
+			new DuplicantPresentationBatchPacket(), new SymbolOverridePacket(),
             new SymbolVisibilityTogglePacket(), new ChoreErrandsPacket(),
-            new ClientReadyStatusUpdatePacket(), new EntityPositionPacket(),
-            new EventTriggeredPacket(), new HardSyncCompletePacket(),
-            new HardSyncPacket(), new NavigatorPathPacket(), new PlayAnimPacket(),
+			new ClientReadyStatusUpdatePacket(), new EntityMotionBatchPacket(),
+			new EventTriggeredPacket(), new HardSyncCompletePacket(),
+			new HardSyncPacket(), new PlayAnimPacket(),
             new ToggleAnimOverridePacket(), new DuplicantCarryItemPacket(),
-            new DuplicantStatePacket(), new ToggleEffectPacket(), new ToolEquipPacket(),
+			new ToggleEffectPacket(), new ToolEquipPacket(),
             new VitalStatsPacket(), new DiagnosticPacket(), new NotificationPacket(),
-            new DreamBubblePacket(), new ThoughtBubblePacket(), new DigCompletePacket(),
-            new BuildingStatePacket(), new OperationalStatePacket(), new ChoreStatePacket(),
+            new DreamBubblePacket(), new ThoughtBubblePacket(),
+            new OperationalStatePacket(), new ChoreStatePacket(),
             new ConduitContentsPacket(), new DespawnEntityPacket(), new DiggingStatePacket(),
             new DisinfectStatePacket(), new FallingObjectPacket(), new LogicStatePacket(),
             new PlantGrowthStatePacket(), new PlantLifecyclePacket(),
@@ -363,105 +364,6 @@ public static class ProtocolSafetyTests
         return UnitTestResult.Pass($"{packets.Length} host-only state packets enforce host origin");
     }
 
-	[UnitTest(name: "Protocol version: authority lifecycle wire is v9", category: "Networking")]
-	public static UnitTestResult AuthorityLifecycleWireIsVersionNine()
-	{
-		return ProtocolCompatibility.CurrentProtocolVersion == 9
-			? UnitTestResult.Pass("Protocol v9 pins lifecycle-bound authority state wire")
-			: UnitTestResult.Fail(
-				$"Expected protocol v9, got {ProtocolCompatibility.CurrentProtocolVersion}");
-	}
-
-	[UnitTest(name: "Save transfer: metadata bounds are enforced", category: "Networking")]
-	public static UnitTestResult SaveTransferBoundsAreEnforced()
-	{
-		try
-		{
-			SaveFileChunkPacket.ValidateMetadata(
-				0, SaveFileChunkPacket.MaxChunkBytes,
-				SaveFileChunkPacket.MaxChunkBytes, SaveFileChunkPacket.MaxChunkBytes);
-		}
-		catch (Exception e)
-		{
-			return UnitTestResult.Fail("Valid save chunk was rejected: " + e.Message);
-		}
-
-		if (!SaveMetadataThrows(-1, SaveFileChunkPacket.MaxChunkBytes,
-			    SaveFileChunkPacket.MaxChunkBytes, SaveFileChunkPacket.MaxChunkBytes)
-		    || !SaveMetadataThrows(0, SaveFileChunkPacket.MaxSaveBytes + 1,
-			    SaveFileChunkPacket.MaxChunkBytes, SaveFileChunkPacket.MaxChunkBytes)
-		    || !SaveMetadataThrows(0, 1024, SaveFileChunkPacket.MaxChunkBytes + 1, 512)
-		    || !SaveMetadataThrows(0, SaveFileChunkPacket.MaxChunkBytes, 1024, 1024)
-		    || !SaveMetadataThrows(SaveFileChunkPacket.MaxChunkBytes - 100,
-			    SaveFileChunkPacket.MaxChunkBytes, SaveFileChunkPacket.MaxChunkBytes, 200))
-		{
-			return UnitTestResult.Fail("Invalid save metadata was accepted");
-		}
-
-		return UnitTestResult.Pass("Save size, chunk size, offset, and copy bounds are enforced");
-	}
-	[UnitTest(name: "Save transfer: hash binds identity and payload", category: "Networking")]
-	public static UnitTestResult SaveTransferHashBindsMetadata()
-	{
-		byte[] payload = { 1, 2, 3, 4 };
-		byte[] baseline = SecureTransferPacket.ComputePayloadHash(3, "transfer-a", payload);
-		if (baseline.Length != 32)
-			return UnitTestResult.Fail("SHA-256 output length is not 32 bytes");
-		if (ByteArraysEqual(baseline, SecureTransferPacket.ComputePayloadHash(4, "transfer-a", payload)))
-			return UnitTestResult.Fail("Sequence number is not bound to the transfer hash");
-		if (ByteArraysEqual(baseline, SecureTransferPacket.ComputePayloadHash(3, "transfer-b", payload)))
-			return UnitTestResult.Fail("Transfer id is not bound to the transfer hash");
-		if (ByteArraysEqual(baseline, SecureTransferPacket.ComputePayloadHash(3, "transfer-a", new byte[] { 1, 2, 3, 5 })))
-			return UnitTestResult.Fail("Payload is not bound to the transfer hash");
-
-		return UnitTestResult.Pass("SHA-256 binds sequence, transfer identity, and payload");
-	}
-
-	[UnitTest(name: "Mod fingerprint: fields are unambiguous", category: "Networking")]
-	public static UnitTestResult ModFingerprintFieldsAreUnambiguous()
-	{
-		string left = ProtocolCompatibility.ComposeModFingerprint(
-			0, "a", "bc", string.Empty, "1", "content", "config");
-		string right = ProtocolCompatibility.ComposeModFingerprint(
-			0, "ab", "c", string.Empty, "1", "content", "config");
-		return string.Equals(left, right, StringComparison.Ordinal)
-			? UnitTestResult.Fail("Length-shifted mod metadata collided")
-			: UnitTestResult.Pass("Length-prefixed mod metadata is unambiguous");
-	}
-
-    [UnitTest(name: "Client relay: HostBroadcast owns one fanout", category: "Networking")]
-    public static UnitTestResult HostBroadcastOwnsSingleFanout()
-    {
-        int dispatchCount = 0;
-        int fanoutCount = 0;
-        bool sawVerifiedProvenance = false;
-        var directClient = new DispatchContext(101, false);
-
-        bool dispatched = HostBroadcastPacket.DispatchVerifiedRelayAndFanOut(
-            new PingPacket { PlayerID = 101 },
-            directClient,
-            (_, context) =>
-            {
-                dispatchCount++;
-                sawVerifiedProvenance = context.IsVerifiedHostBroadcast;
-                return true;
-            },
-            (_, _) => fanoutCount++);
-
-        if (!dispatched || dispatchCount != 1 || fanoutCount != 1)
-            return UnitTestResult.Fail($"Expected one dispatch and one fanout, got {dispatchCount} and {fanoutCount}");
-        if (!sawVerifiedProvenance)
-            return UnitTestResult.Fail("Nested dispatch did not carry verified HostBroadcast provenance");
-
-        fanoutCount = 0;
-        bool rejected = HostBroadcastPacket.DispatchVerifiedRelayAndFanOut(
-            new PingPacket { PlayerID = 101 }, directClient, (_, _) => false, (_, _) => fanoutCount++);
-        if (rejected || fanoutCount != 0)
-            return UnitTestResult.Fail("Rejected nested dispatch was still fanned out");
-
-        return UnitTestResult.Pass("HostBroadcast dispatches and fans out an accepted relay exactly once");
-    }
-
     private static bool DeserializeBulkThrows(int packetCount, int firstPacketLength)
     {
         using var stream = new MemoryStream();
@@ -486,39 +388,4 @@ public static class ProtocolSafetyTests
         }
     }
 
-	private static bool SaveMetadataThrows(int offset, int totalSize, int chunkSize, int length)
-	{
-		try
-		{
-			SaveFileChunkPacket.ValidateMetadata(offset, totalSize, chunkSize, length);
-			return false;
-		}
-		catch (InvalidDataException)
-		{
-			return true;
-		}
-	}
-
-	private static bool ByteArraysEqual(byte[] left, byte[] right)
-	{
-		if (left.Length != right.Length)
-			return false;
-		for (int i = 0; i < left.Length; i++)
-		{
-			if (left[i] != right[i])
-				return false;
-		}
-		return true;
-	}
-
-    private static ChunkedPacket CreateChunk(int sequence, int index, byte value)
-    {
-        return new ChunkedPacket
-        {
-            SequenceId = sequence,
-            ChunkIndex = index,
-            TotalChunks = 2,
-            ChunkData = new[] { value }
-        };
-    }
 }

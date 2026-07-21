@@ -17,7 +17,8 @@ namespace ONI_Together.Networking.Components
 			public float LastSentTime;
 		}
 
-		private const float TickInterval = 0.2f;
+		internal const float TickInterval = 0.2f;
+		internal const PacketSendMode CorrectionSendMode = PacketSendMode.Unreliable;
 		private const int ShardCount = 5;
 		private const float VisibleSyncInterval = 5f;
 		// Minimum gap between activity-triggered sends per entity. Bounds bandwidth
@@ -28,11 +29,13 @@ namespace ONI_Together.Networking.Components
 		private const long QueueTimeBackoffUsec = 100000;
 
 		private static readonly HashSet<AnimStateSyncer> TrackedSyncers = [];
+		private static readonly Dictionary<ulong, ulong> NextRevisionByRecipient = [];
 
 		public static AnimSyncCoordinator Instance { get; private set; }
 
 		private readonly Dictionary<AnimStateSyncer, SyncState> _syncStates = [];
 		private readonly Dictionary<ulong, HashSet<int>> _pendingResyncRequests = [];
+		private readonly Dictionary<ulong, Dictionary<int, AnimSyncPacket>> _pendingSnapshots = [];
 		private readonly HashSet<ulong> _visibleRecipients = [];
 		private float _tickTimer;
 		private int _currentShard;
@@ -40,6 +43,7 @@ namespace ONI_Together.Networking.Components
 		// Observability counters (reset on log flush every ~30s).
 		private int _sendsActivity;
 		private int _sendsInterval;
+		private int _batchSends;
 		private int _skipsOffscreen;
 		private float _lastStatsLogTime;
 		private const float StatsLogInterval = 30f;
@@ -91,6 +95,10 @@ namespace ONI_Together.Networking.Components
 			return syncers;
 		}
 
+		internal static void ResetSessionState() => NextRevisionByRecipient.Clear();
+
+		internal static ulong NextRevisionForTests(ulong recipient) => NextRevision(recipient);
+
 		public void QueueResyncRequest(ulong requesterId, IEnumerable<int> netIds)
 		{
 			using var _ = Profiler.Scope();
@@ -136,6 +144,7 @@ namespace ONI_Together.Networking.Components
 		{
 			using var _ = Profiler.Scope();
 
+			_pendingSnapshots.Clear();
 			ProcessPendingRequests();
 
 			var trackedSyncers = GetTrackedSyncers();
@@ -152,6 +161,7 @@ namespace ONI_Together.Networking.Components
 
 				ProcessSyncer(trackedSyncers[i], applyBackoff);
 			}
+			FlushPendingSnapshots();
 
 			_currentShard = (_currentShard + 1) % ShardCount;
 
@@ -176,33 +186,46 @@ namespace ONI_Together.Networking.Components
 					continue;
 				}
 
-				foreach (var netId in kvp.Value)
-				{
-					if (!NetworkIdentityRegistry.TryGet(netId, out var identity))
-						continue;
-					if (!NetworkIdentityRegistry.TryGetComponent<AnimStateSyncer>(identity, out var syncer))
-						continue;
-					if (!syncer.TryBuildSnapshot(out var packet, out var activityKey))
-						continue;
-
-                    if (!_syncStates.ContainsKey(syncer))
-                    {
-                        DebugConsole.LogError($"Syncer not registered: {syncer}");
-                        continue;
-                    }
-
-                    // Reliable: resync responses are small and low-frequency; a dropped
-                    // response otherwise cascades into another client retry loop.
-                    PacketSender.SendToPlayer(kvp.Key, packet, PacketSendMode.Reliable);
-					UpdateObservedState(syncer, activityKey, now);
-					_syncStates[syncer].LastSentTime = now;
-				}
+				List<AnimSyncPacket> snapshots = BuildRequestedSnapshots(kvp.Value, now);
+				if (snapshots.Count > 0)
+					SendResyncBatches(kvp.Key, snapshots);
 
 				completed.Add(kvp.Key);
 			}
 
 			foreach (var requesterId in completed)
 				_pendingResyncRequests.Remove(requesterId);
+		}
+
+		private List<AnimSyncPacket> BuildRequestedSnapshots(IEnumerable<int> netIds, float now)
+		{
+			var snapshots = new List<AnimSyncPacket>();
+			foreach (int netId in netIds)
+			{
+				if (!NetworkIdentityRegistry.TryGet(netId, out var identity)
+				    || !NetworkIdentityRegistry.TryGetComponent<AnimStateSyncer>(identity, out var syncer)
+				    || !syncer.TryBuildSnapshot(out var packet, out var activityKey))
+					continue;
+				if (!_syncStates.ContainsKey(syncer))
+				{
+					DebugConsole.LogError($"Syncer not registered: {syncer}");
+					continue;
+				}
+				snapshots.Add(packet);
+				UpdateObservedState(syncer, activityKey, now);
+				_syncStates[syncer].LastSentTime = now;
+			}
+			return snapshots;
+		}
+
+		private void SendResyncBatches(ulong recipient, List<AnimSyncPacket> snapshots)
+		{
+			ulong revision = NextRevision(recipient);
+			foreach (AnimSyncBatchPacket batch in AnimSyncBatchPacket.CreateBatches(revision, snapshots))
+			{
+				PacketSender.SendToPlayer(recipient, batch, CorrectionSendMode);
+				_batchSends++;
+			}
 		}
 
 		private void ProcessSyncer(AnimStateSyncer syncer, bool applyBackoff)
@@ -234,7 +257,7 @@ namespace ONI_Together.Networking.Components
 			// quantization noise in activityKey cannot drive 1/shard-tick sends.
 			if (activityChanged && now - syncState.LastSentTime >= ActivityChangeMinInterval)
 			{
-				SendSnapshotToVisibleClients(packet, syncer, now);
+				QueueSnapshotForVisibleClients(packet, syncer, now);
 				_sendsActivity++;
 				return;
 			}
@@ -246,7 +269,7 @@ namespace ONI_Together.Networking.Components
 			if (now - syncState.LastSentTime < interval)
 				return;
 
-			SendSnapshotToVisibleClients(packet, syncer, now);
+			QueueSnapshotForVisibleClients(packet, syncer, now);
 			_sendsInterval++;
 		}
 
@@ -262,9 +285,11 @@ namespace ONI_Together.Networking.Components
 			if (now - _lastStatsLogTime < StatsLogInterval)
 				return;
 
-			DebugConsole.Log($"[AnimSync] window={StatsLogInterval:F0}s sends(activity)={_sendsActivity} sends(interval)={_sendsInterval} offscreen-skipped={_skipsOffscreen} tracked={TrackedSyncers.Count}");
+			float window = now - _lastStatsLogTime;
+			DebugConsole.Log($"[AnimSync] window={window:F1}s states(activity)={_sendsActivity} states(interval)={_sendsInterval} batchSends={_batchSends} apiRate={_batchSends / window:F2}/s offscreen-skipped={_skipsOffscreen} tracked={TrackedSyncers.Count}");
 			_sendsActivity = 0;
 			_sendsInterval = 0;
+			_batchSends = 0;
 			_skipsOffscreen = 0;
 			_lastStatsLogTime = now;
 		}
@@ -301,19 +326,48 @@ namespace ONI_Together.Networking.Components
 			return _visibleRecipients.Count > 0;
 		}
 
-		private void SendSnapshotToVisibleClients(AnimSyncPacket packet, AnimStateSyncer syncer, float now)
+		private void QueueSnapshotForVisibleClients(AnimSyncPacket packet, AnimStateSyncer syncer, float now)
 		{
 			using var _ = Profiler.Scope();
 
-			var sw = Stopwatch.StartNew();
-			int bytes = 0;
-			try { bytes = packet.SerializeToByteArray().Length; } catch { }
 			foreach (var recipient in _visibleRecipients)
-				PacketSender.SendToPlayer(recipient, packet, PacketSendMode.Unreliable);
+			{
+				if (!_pendingSnapshots.TryGetValue(recipient, out var snapshots))
+					_pendingSnapshots[recipient] = snapshots = [];
+				snapshots[packet.NetId] = packet;
+			}
 
 			_syncStates[syncer].LastSentTime = now;
-			sw.Stop();
-			SyncStats.RecordSync(SyncStats.AnimSync, _visibleRecipients.Count, bytes, (float)sw.Elapsed.TotalMilliseconds);
+		}
+
+		private void FlushPendingSnapshots()
+		{
+			foreach (var recipientSnapshots in _pendingSnapshots)
+			{
+				ulong revision = NextRevision(recipientSnapshots.Key);
+				foreach (AnimSyncBatchPacket batch in AnimSyncBatchPacket.CreateBatches(
+					         revision, recipientSnapshots.Value.Values))
+				{
+					var sw = Stopwatch.StartNew();
+					int bytes = PacketSender.SerializePacketForSending(batch).Length;
+					PacketSender.SendToPlayer(recipientSnapshots.Key, batch, CorrectionSendMode);
+					_batchSends++;
+					sw.Stop();
+					SyncStats.RecordSync(
+						SyncStats.AnimSync, batch.States.Length, bytes,
+						(float)sw.Elapsed.TotalMilliseconds);
+				}
+			}
+		}
+
+		private static ulong NextRevision(ulong recipient)
+		{
+			NextRevisionByRecipient.TryGetValue(recipient, out ulong revision);
+			revision++;
+			if (revision == 0)
+				revision = 1;
+			NextRevisionByRecipient[recipient] = revision;
+			return revision;
 		}
 
 		private bool ShouldBackOffForSteamQueue()

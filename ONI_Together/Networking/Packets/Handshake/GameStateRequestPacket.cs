@@ -5,10 +5,11 @@ using System.IO;
 using Shared.Profiling;
 using ONI_Together.Misc;
 using ONI_Together.Networking.Transport.Steamworks;
+using ONI_Together.UI;
 
 namespace ONI_Together.Networking.Packets.Handshake
 {
-	public class GameStateRequestPacket : IPacket
+		public partial class GameStateRequestPacket : IPacket
 	{
 		internal enum ReconnectProofDecision
 		{
@@ -35,16 +36,18 @@ namespace ONI_Together.Networking.Packets.Handshake
 		public int ProtocolVersion;
 		public int PacketRegistryFingerprint;
 		public string ModVersion = string.Empty;
-		public int GameBuild;
-		public string ModBuildFingerprint = string.Empty;
+			public int GameBuild;
+			public string ModBuildFingerprint = string.Empty;
+			public long AdmissionGeneration;
 		public bool ProtocolAccepted = true;
 		public string ProtocolFailureReason = string.Empty;
 
 		public bool HasProtocolMetadata { get; private set; }
 
-		public static GameStateRequestPacket CreateClientRequest(ulong clientId)
-		{
-			using var _ = Profiler.Scope();
+			public static GameStateRequestPacket CreateClientRequest(ulong clientId)
+			{
+				using var _ = Profiler.Scope();
+				ResetAdmissionGeneration();
 
 			var packet = new GameStateRequestPacket(clientId);
 			packet.ReconnectToken = ReadyManager.ReconnectToken;
@@ -85,9 +88,10 @@ namespace ONI_Together.Networking.Packets.Handshake
 			writer.Write(ProtocolVersion);
 			writer.Write(PacketRegistryFingerprint);
 			writer.Write(ModVersion ?? string.Empty);
-			writer.Write(GameBuild);
-			writer.Write(ModBuildFingerprint ?? string.Empty);
-			writer.Write(ProtocolAccepted);
+				writer.Write(GameBuild);
+				writer.Write(ModBuildFingerprint ?? string.Empty);
+				writer.Write(AdmissionGeneration);
+				writer.Write(ProtocolAccepted);
 			writer.Write(ProtocolFailureReason ?? string.Empty);
 		}
 
@@ -142,9 +146,12 @@ namespace ONI_Together.Networking.Packets.Handshake
 				throw new InvalidDataException("Mod version metadata is too long");
 			GameBuild = reader.ReadInt32();
 			ModBuildFingerprint = reader.ReadString();
-			if (ModBuildFingerprint.Length > MaxMetadataChars)
-				throw new InvalidDataException("Mod build fingerprint is too long");
-			ProtocolAccepted = reader.ReadBoolean();
+				if (ModBuildFingerprint.Length > MaxMetadataChars)
+					throw new InvalidDataException("Mod build fingerprint is too long");
+				AdmissionGeneration = reader.ReadInt64();
+				if (AdmissionGeneration < 0)
+					throw new InvalidDataException("Invalid admission generation");
+				ProtocolAccepted = reader.ReadBoolean();
 			ProtocolFailureReason = reader.ReadString();
 			if (ProtocolFailureReason.Length > MaxMetadataChars)
 				throw new InvalidDataException("Protocol failure reason is too long");
@@ -251,8 +258,23 @@ namespace ONI_Together.Networking.Packets.Handshake
 					DebugConsole.Log("[GameStateRequestPacket] Stale reconnect proof requires a fresh snapshot.");
 
 			MarkClientAsProtocolVerified();
-			CreateStateResponse(
-				reconnectDecision == ReconnectProofDecision.ResumeLoading ? ReconnectToken : 0);
+			if (!ReadyManager.BeginSyncBarrier(ClientId))
+			{
+				DebugConsole.LogWarning(
+					$"[GameStateRequestPacket] Failed to establish sync barrier for {ClientId}");
+				RejectClient("The host could not establish a loading sync barrier.");
+				return;
+			}
+				MultiplayerPlayer player = MultiplayerSession.GetPlayer(ClientId);
+				if (player == null || player.ConnectionGeneration <= 0)
+				{
+					RejectClient("The host could not identify the current client connection.");
+					return;
+				}
+				CreateStateResponse(
+					reconnectDecision == ReconnectProofDecision.ResumeLoading ? ReconnectToken : 0,
+					player.ConnectionGeneration);
+			ChatScreen.BufferHistoryForPlayer(ClientId);
 		}
 
 		internal static ReconnectProofDecision EvaluateReconnectProof(
@@ -274,29 +296,36 @@ namespace ONI_Together.Networking.Packets.Handshake
 			return !senderIsHost && clientId == senderId;
 		}
 
-		private void CreateStateResponse(ulong acceptedReconnectToken)
+			private void CreateStateResponse(
+				ulong acceptedReconnectToken, long admissionGeneration)
 		{
 			using var _ = Profiler.Scope();
 
-			PacketSender.SendToPlayer(
-				ClientId,
-				AccumulateStateInfo(acceptedReconnectToken: acceptedReconnectToken));
+				GameStateRequestPacket response = AccumulateStateInfo(
+					acceptedReconnectToken: acceptedReconnectToken,
+					admissionGeneration: admissionGeneration);
+				bool sent = PacketSender.SendToPlayer(ClientId, response);
+#if DEBUG
+				if (sent)
+					LogDlcAdmission("host-submit", admissionGeneration, true, response);
+#endif
 		}
 
-		private static GameStateRequestPacket AccumulateStateInfo(
-			bool protocolAccepted = true,
-			string protocolFailureReason = "",
-			ulong acceptedReconnectToken = 0)
+			private static GameStateRequestPacket AccumulateStateInfo(
+				bool protocolAccepted = true,
+				string protocolFailureReason = "",
+				ulong acceptedReconnectToken = 0,
+				long admissionGeneration = 0)
 		{
 			using var _ = Profiler.Scope();
 
 			var packet = new GameStateRequestPacket();
 			packet.PopulateProtocolMetadata();
 			packet.ProtocolAccepted = protocolAccepted;
-			packet.ProtocolFailureReason = protocolFailureReason ?? string.Empty;
-			packet.ReconnectToken = acceptedReconnectToken;
-
-			if (!protocolAccepted)
+				packet.ProtocolFailureReason = protocolFailureReason ?? string.Empty;
+				packet.ReconnectToken = acceptedReconnectToken;
+				packet.AdmissionGeneration = admissionGeneration;
+				if (!protocolAccepted)
 			{
 				return packet;
 			}
@@ -304,11 +333,20 @@ namespace ONI_Together.Networking.Packets.Handshake
 			return packet;
 		}
 
-		private void ConsumeStateResponse()
-		{
-			using var _ = Profiler.Scope();
+			private void ConsumeStateResponse()
+			{
+				using var scope = Profiler.Scope();
+				if (ProtocolAccepted && IsProtocolCompatible(out _)
+				    && !TryAcceptAdmissionGeneration(AdmissionGeneration))
+					return;
 
-			GameClient.OnHostResponseReceived(this);
+#if DEBUG
+				if (ProtocolAccepted && AdmissionGeneration > 0
+				    && IsProtocolCompatible(out _))
+					RecordAcceptedDlcAdmission();
+#endif
+
+				GameClient.OnHostResponseReceived(this);
 		}
 
 		private void PopulateProtocolMetadata()
@@ -332,6 +370,12 @@ namespace ONI_Together.Networking.Packets.Handshake
 			{
 				reason = ProtocolCompatibility.BuildMismatchReason(
 					ModBuildFingerprint, ActiveDlcIds, false);
+				return false;
+			}
+
+			if (!ProtocolCompatibility.SupportsVersion(ProtocolVersion))
+			{
+				reason = ProtocolCompatibility.BuildVersionMismatchReason(ProtocolVersion);
 				return false;
 			}
 
@@ -367,18 +411,20 @@ namespace ONI_Together.Networking.Packets.Handshake
 				player.ProtocolVerified = false;
 			}
 
-			if (HasProtocolMetadata && player?.Connection != null
-			    && PacketSender.SendReliableWithCompletion(
-				    player.Connection,
-				    AccumulateStateInfo(
-					    protocolAccepted: false,
-					    protocolFailureReason: reason),
-				    _ => NetworkConfig.TransportServer?.KickClient(ClientId)))
+			if (player?.Connection == null)
 			{
+				NetworkConfig.TransportServer?.KickClient(ClientId);
 				return;
 			}
 
-			NetworkConfig.TransportServer?.KickClient(ClientId);
+			ProtocolRejectionBarrier.Begin(
+				ClientId, player.Connection, player.ConnectionGeneration);
+			PacketSender.SendToPlayer(
+				ClientId,
+				AccumulateStateInfo(
+					protocolAccepted: false,
+					protocolFailureReason: reason),
+				PacketSendMode.ReliableImmediate);
 		}
 	}
 }

@@ -14,6 +14,7 @@ using ONI_Together.Networking.Transport.Steamworks;
 using ONI_Together.DebugTools;
 using Shared.Profiling;
 using ONI_Together.Patches.ToolPatches;
+using ONI_Together.UI;
 using UnityEngine;
 using System.Collections;
 
@@ -63,6 +64,7 @@ namespace ONI_Together.Networking
 			DebugConsole.BeginConnectionTrace("host", target);
 
             SessionStateReset.Reset();
+			ChatScreen.Show();
             switch(transport)
             {
                 case NetworkTransport.STEAMWORKS:

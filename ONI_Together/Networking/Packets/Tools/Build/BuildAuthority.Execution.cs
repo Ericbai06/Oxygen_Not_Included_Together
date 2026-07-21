@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking.Components;
 using UnityEngine;
 
@@ -7,6 +8,12 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 {
 	internal static partial class BuildAuthority
 	{
+#if DEBUG
+		internal static string EvidenceState(
+			string prefabId, int cell, int netId, ulong lifecycleRevision)
+			=> $"prefab={prefabId},cell={cell},netId={netId},lifecycle={lifecycleRevision}";
+#endif
+
 		internal static bool TryExecuteHost(
 			BuildPacket request,
 			bool instantBuild,
@@ -25,16 +32,24 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			if (!TryResolve(request, out BuildingDef def, out List<Tag> materials,
 				    out PrioritySetting priority, out _))
 				return false;
+			bool applied;
 			if (TryFindMatchingOutcome(def, state.Cell, state.Outcome, out GameObject existing))
 			{
 				SetPriority(existing, priority);
-				return TryApplyIdentity(existing, state.NetId, state.LifecycleRevision);
+				applied = TryApplyIdentity(existing, state.NetId, state.LifecycleRevision);
 			}
-			bool identityApplied = false;
-			bool placed = TryPlaceExact(request, def, materials, priority, state.Outcome,
-				gameObject => identityApplied = TryApplyIdentity(
-					gameObject, state.NetId, state.LifecycleRevision), out _);
-			return placed && identityApplied;
+			else
+			{
+				bool identityApplied = false;
+				bool placed = TryPlaceExact(request, def, materials, priority, state.Outcome,
+					gameObject => identityApplied = TryApplyIdentity(
+						gameObject, state.NetId, state.LifecycleRevision), out _);
+				applied = placed && identityApplied;
+			}
+			if (applied)
+				DebugConsole.Log(
+					$"[BuildStatePacket] Applied {state.Outcome} {state.PrefabID} at cell {state.Cell}");
+			return applied;
 		}
 
 		internal static bool TryApplyIdentity(

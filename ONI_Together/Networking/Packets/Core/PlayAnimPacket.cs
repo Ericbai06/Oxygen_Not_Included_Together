@@ -109,23 +109,7 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 			return;
 		}
 
-		//// Check for DuplicantClientController first (for duplicants)
-		//var clientController = go.GetComponent<DuplicantClientController>();
-		//if (clientController != null)
-		//{
-		//	if (IsMulti)
-		//	{
-		//		var hashedStrings = AnimHashes.ConvertAll(hash => new HashedString(hash)).ToArray();
-		//		clientController.OnAnimationsReceived(hashedStrings, Mode);
-		//	}
-		//	else
-		//	{
-		//		clientController.OnAnimationReceived(new HashedString(SingleAnimHash), Mode, Speed, IsQueue);
-		//	}
-		//	return;
-		//}
-
-		//// Fallback: direct animation control for non-duplicant entities
+		// Direct animation control for non-duplicant entities.
 		if (!go.TryGetComponent(out KBatchedAnimController kbac))
 			return;
 

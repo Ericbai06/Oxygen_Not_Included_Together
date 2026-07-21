@@ -11,10 +11,10 @@ namespace ONI_Together.Networking.Packets.World
 	{
 		internal const int RiptideFragmentPayloadBytes = 980;
 		internal const int MaxRiptideFragmentsPerPage = 12;
-		internal const int MaxOrderedWireBytes =
+		internal const int MaxReliableWireBytes =
 			RiptideFragmentPayloadBytes * MaxRiptideFragmentsPerPage;
-		internal const int OrderedWireOverheadBytes = sizeof(int) * 10 + sizeof(long);
-		internal const int MaxPayloadBytes = MaxOrderedWireBytes - OrderedWireOverheadBytes;
+		internal const int ReliableWireOverheadBytes = sizeof(int) * 8;
+		internal const int MaxPayloadBytes = MaxReliableWireBytes - ReliableWireOverheadBytes;
 		internal const int MaxEntryBytes = PacketHandler.MaxPacketSize;
 		internal const int MaxPagesPerEntry =
 			(MaxEntryBytes + MaxPayloadBytes - 1) / MaxPayloadBytes;
@@ -101,11 +101,15 @@ namespace ONI_Together.Networking.Packets.World
 			return page;
 		}
 
-		internal int GetOrderedReliableWireBytes()
+		internal int GetReliableWireBytes()
 		{
 			Validate();
-			return checked(OrderedWireOverheadBytes + Payload.Length);
+			return checked(ReliableWireOverheadBytes + Payload.Length);
 		}
+
+		internal int GetRiptideFragmentCount()
+			=> (GetReliableWireBytes() + RiptideFragmentPayloadBytes - 1)
+			   / RiptideFragmentPayloadBytes;
 
 		internal bool IsValid()
 		{
@@ -134,12 +138,12 @@ namespace ONI_Together.Networking.Packets.World
 			int expectedLength = Math.Min(
 				MaxPayloadBytes, TotalBytes - checked(PageIndex * MaxPayloadBytes));
 			if (Payload.Length != expectedLength
-			    || GetUncheckedOrderedReliableWireBytes() > MaxOrderedWireBytes)
+			    || GetUncheckedReliableWireBytes() > MaxReliableWireBytes)
 				throw new InvalidDataException("Invalid soak keyframe page payload");
 		}
 
-		private int GetUncheckedOrderedReliableWireBytes()
-			=> checked(OrderedWireOverheadBytes + (Payload?.Length ?? 0));
+		private int GetUncheckedReliableWireBytes()
+			=> checked(ReliableWireOverheadBytes + (Payload?.Length ?? 0));
 	}
 }
 #endif

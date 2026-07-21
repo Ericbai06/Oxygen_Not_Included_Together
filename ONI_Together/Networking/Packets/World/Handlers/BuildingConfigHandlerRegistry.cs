@@ -2,9 +2,16 @@ using System.Collections.Generic;
 using UnityEngine;
 using ONI_Together.DebugTools;
 using Shared.Profiling;
+using Shared;
 
 namespace ONI_Together.Networking.Packets.World.Handlers
 {
+	public enum BuildingConfigMutationSemantics : byte
+	{
+		StateAssignment = 0,
+		MustExecuteAction = 1,
+	}
+
 	/// <summary>
 	/// Registry for building configuration handlers.
 	/// Maps ConfigHash values to their respective handlers for fast lookup.
@@ -12,6 +19,7 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 	public static class BuildingConfigHandlerRegistry
 	{
 		private static readonly Dictionary<int, IBuildingConfigHandler> _handlersByHash = new Dictionary<int, IBuildingConfigHandler>();
+		private static readonly Dictionary<int, BuildingConfigMutationSemantics> _semanticsByHash = new();
 		private static readonly List<IBuildingConfigHandler> _allHandlers = new List<IBuildingConfigHandler>();
 		private static bool _initialized = false;
 
@@ -28,24 +36,26 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 
 			// Register all handlers here
 			// Each handler will be registered for each of its supported ConfigHashes
-			RegisterHandler(new ActivationRangeHandler());
-			RegisterHandler(new ThresholdSwitchHandler());
-			RegisterHandler(new SliderControlHandler());
-			RegisterHandler(new CapacityHandler());
-			RegisterHandler(new DoorHandler());
-			RegisterHandler(new TimerSensorHandler());
-			RegisterHandler(new AlarmHandler());
-			RegisterHandler(new GeoTunerHandler());
-			RegisterHandler(new MissileLauncherHandler());
-			RegisterHandler(new FilterableHandler());
-			RegisterHandler(new StorageFilterHandler());
-			RegisterHandler(new ReceptacleHandler());
-			RegisterHandler(new MiscBuildingHandler());
-			RegisterHandler(new AccessControlHandler());
-			RegisterHandler(new CraftingHandler());
-			RegisterHandler(new CometDetectorHandler());
-			RegisterHandler(new ToggleableHandler());
-			RegisterHandler(new UprootHandler());
+			RegisterStateHandler(new ActivationRangeHandler());
+			RegisterStateHandler(new ThresholdSwitchHandler());
+			RegisterStateHandler(new SliderControlHandler());
+			RegisterStateHandler(new CapacityHandler());
+			RegisterStateHandler(new DoorHandler());
+			RegisterStateHandler(new TimerSensorHandler());
+			RegisterStateHandler(new AlarmHandler());
+			RegisterStateHandler(new GeoTunerHandler());
+			RegisterStateHandler(new MissileLauncherHandler());
+			RegisterStateHandler(new FilterableHandler());
+			RegisterStateHandler(new StorageFilterHandler());
+			RegisterStateHandler(new ReceptacleHandler());
+			RegisterStateHandler(new MiscBuildingHandler());
+			RegisterStateHandler(new AccessControlHandler());
+			RegisterStateHandler(new CraftingHandler());
+			RegisterStateHandler(new CometDetectorHandler());
+			RegisterStateHandler(new ToggleableHandler());
+			RegisterActionHandler(new UprootHandler());
+			RegisterActionHash(NetworkingHash.ForConfigKey("DoorUnseal"));
+			RegisterActionHash(NetworkingHash.ForConfigKey("CounterReset"));
 
 			DebugConsole.Log($"[BuildingConfigHandlerRegistry] Initialized with {_allHandlers.Count} handlers, {_handlersByHash.Count} hash mappings");
 		}
@@ -54,6 +64,17 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 		/// Registers a handler for all of its supported ConfigHashes.
 		/// </summary>
 		public static void RegisterHandler(IBuildingConfigHandler handler)
+			=> RegisterHandler(handler, BuildingConfigMutationSemantics.StateAssignment);
+
+		private static void RegisterStateHandler(IBuildingConfigHandler handler)
+			=> RegisterHandler(handler, BuildingConfigMutationSemantics.StateAssignment);
+
+		private static void RegisterActionHandler(IBuildingConfigHandler handler)
+			=> RegisterHandler(handler, BuildingConfigMutationSemantics.MustExecuteAction);
+
+		private static void RegisterHandler(
+			IBuildingConfigHandler handler,
+			BuildingConfigMutationSemantics semantics)
 		{
 			using var _ = Profiler.Scope();
 
@@ -66,7 +87,19 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 					DebugConsole.Log($"[BuildingConfigHandlerRegistry] Warning: ConfigHash {hash} already registered, overwriting");
 				}
 				_handlersByHash[hash] = handler;
+				_semanticsByHash[hash] = semantics;
 			}
+		}
+
+		private static void RegisterActionHash(int configHash)
+			=> _semanticsByHash[configHash] = BuildingConfigMutationSemantics.MustExecuteAction;
+
+		public static BuildingConfigMutationSemantics GetMutationSemantics(int configHash)
+		{
+			if (!_initialized) Initialize();
+			return _semanticsByHash.TryGetValue(configHash, out var semantics)
+				? semantics
+				: BuildingConfigMutationSemantics.StateAssignment;
 		}
 
 		/// <summary>
@@ -110,6 +143,7 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 			using var _ = Profiler.Scope();
 
 			_handlersByHash.Clear();
+			_semanticsByHash.Clear();
 			_allHandlers.Clear();
 			_initialized = false;
 		}

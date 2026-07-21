@@ -4,6 +4,7 @@ using System.IO;
 using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Misc.World;
+using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.World;
 using ONI_Together.Patches;
@@ -29,7 +30,7 @@ namespace ONI_Together.Networking
 		HardSync,
 	}
 
-	public static class ProductionDesyncRecovery
+	public static partial class ProductionDesyncRecovery
 	{
 		private const float FenceTimeoutSeconds = 30f;
 		private const float GridRepairTimeoutSeconds = 300f;
@@ -47,6 +48,8 @@ namespace ONI_Together.Networking
 		private static SpeedChangePacket.SpeedState _previousSpeed;
 		private static ProductionStateHashes _hostHashes;
 		private static ProductionDesyncDomain _mismatch;
+		private static bool _checkpointSweepQueued;
+		private static bool _worldScanPaused;
 		private static int _clientProbeId;
 		private static ProductionDesyncFencePacket _clientFence;
 		internal static bool IsActive => _phase != ProductionRecoveryPhase.Idle;
@@ -60,8 +63,10 @@ namespace ONI_Together.Networking
 			_probeId = NextProbeId();
 			_attempt = 0;
 			_localRepairAttempted = false;
+			_checkpointSweepQueued = false;
 			_mismatch = ProductionDesyncDomain.None;
 			_previousSpeed = CurrentSpeed();
+			PauseWorldScan();
 			SetLocalSpeed(SpeedChangePacket.SpeedState.Paused);
 			SpeedChangePacket.SubmitLocalChange(SpeedChangePacket.SpeedState.Paused);
 			Awaiting.Clear();
@@ -109,6 +114,12 @@ namespace ONI_Together.Networking
 				Escalate($"{_phase} timeout");
 				return;
 			}
+			if (_phase == ProductionRecoveryPhase.AwaitingReports
+			    && !WorldUpdateBatcher.IsFrozenCheckpointValid())
+			{
+				AbortUnstableCheckpoint("host checkpoint mutated while awaiting reports");
+				return;
+			}
 			PumpHostPhase();
 		}
 
@@ -138,6 +149,16 @@ namespace ONI_Together.Networking
 
 		private static void TryBeginHashFence()
 		{
+			if (!_checkpointSweepQueued)
+			{
+				if (WorldStateSyncer.Instance == null
+				    || !WorldStateSyncer.Instance.QueueChangedCellsForCheckpoint())
+				{
+					Escalate("changed-cell checkpoint sweep failed");
+					return;
+				}
+				_checkpointSweepQueued = true;
+			}
 			WorldUpdateBatcher.Flush();
 			PacketSender.DispatchPendingBulkPackets();
 			if (WorldUpdateBatcher.HasPendingDispatch
@@ -156,6 +177,7 @@ namespace ONI_Together.Networking
 			StartPhase(ProductionRecoveryPhase.AwaitingReports);
 			var fence = new ProductionDesyncFencePacket
 				{ ProbeId = _probeId, Attempt = _attempt, RepairSequenceCut = _repairSequenceCut };
+			DebugConsole.Log($"[ProductionDesync][FENCE_SENT] {HostDiagnostics()}");
 			foreach (ulong clientId in Clients)
 				if (!PacketSender.SendToPlayer(clientId, fence))
 				{
@@ -182,7 +204,7 @@ namespace ONI_Together.Networking
 		{
 			if (!WorldUpdateBatcher.IsFrozenCheckpointValid())
 			{
-				Escalate("host checkpoint mutated before comparison");
+				AbortUnstableCheckpoint("host checkpoint mutated before comparison");
 				return;
 			}
 			ProductionStateHashes current;
@@ -194,7 +216,7 @@ namespace ONI_Together.Networking
 			}
 			if (_hostHashes.DifferentDomains(current) != ProductionDesyncDomain.None)
 			{
-				Escalate("host state mutated during comparison");
+				AbortUnstableCheckpoint("host state mutated during comparison");
 				return;
 			}
 			switch (SelectRecoveryAction(_mismatch, _localRepairAttempted))
@@ -265,13 +287,7 @@ namespace ONI_Together.Networking
 		private static void ReleaseMatched()
 		{
 			WorldUpdateBatcher.ResumeRepairDispatch();
-			var release = new ProductionDesyncReleasePacket { ProbeId = _probeId };
-			foreach (ulong clientId in Clients)
-				if (!PacketSender.SendToPlayer(clientId, release))
-				{
-					Escalate("release send failed");
-					return;
-				}
+			if (!TryReleaseClients()) return;
 			SpeedChangePacket.SpeedState speed = _previousSpeed;
 			ResetHostState();
 			SetLocalSpeed(speed);
@@ -281,7 +297,8 @@ namespace ONI_Together.Networking
 
 		private static bool Escalate(string reason)
 		{
-			DebugConsole.LogWarning($"[ProductionDesync] Escalating to fresh hard sync: {reason}");
+			DebugConsole.LogWarning(
+				$"[ProductionDesync] Escalating to fresh hard sync: {reason}; {HostDiagnostics()}");
 			CancelForHardSync();
 			GameServerHardSync.PerformHardSync(false);
 			return false;
@@ -297,17 +314,21 @@ namespace ONI_Together.Networking
 		{
 			WorldUpdateBatcher.ResumeRepairDispatch();
 			ResetHostState();
+			WorldStateSyncer.SetWorldScanPaused(false);
+			_worldScanPaused = false;
 			_clientProbeId = 0;
 			_clientFence = null;
 		}
 
 		private static void ResetHostState()
 		{
+			ResumeWorldScan();
 			_phase = ProductionRecoveryPhase.Idle;
 			Clients.Clear();
 			Awaiting.Clear();
 			_probeId = 0;
 			_hostHashes = null;
+			_checkpointSweepQueued = false;
 			_mismatch = ProductionDesyncDomain.None;
 		}
 
@@ -323,7 +344,10 @@ namespace ONI_Together.Networking
 		internal static void ReceiveFence(ProductionDesyncFencePacket packet)
 		{
 			if (MultiplayerSession.IsClient && packet.ProbeId == _clientProbeId)
+			{
 				_clientFence = packet;
+				DebugConsole.Log($"[ProductionDesync][FENCE_RECEIVED] {ClientDiagnostics()}");
+			}
 		}
 
 		private static void UpdateClient()
@@ -348,6 +372,7 @@ namespace ONI_Together.Networking
 				    RepairSequenceCut = fence.RepairSequenceCut,
 				    Hashes = hashes,
 			    })) return;
+			DebugConsole.Log($"[ProductionDesync][REPORT_SENT] {ClientDiagnostics()}");
 			_clientFence = null;
 		}
 

@@ -124,7 +124,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			{
 				StationNetId = -41,
 				Revision = 3,
-				WorkerNetId = 0,
 				WorkTimeRemaining = 150f,
 				ArtifactNetId = 42,
 				ArtifactId = "artifact_teapot",
@@ -140,7 +139,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			ArtifactAnalysisStatePacket output = Roundtrip(
 				input, new ArtifactAnalysisStatePacket());
 			if (output is not IHostOnlyPacket || output.StationNetId != -41 ||
-			    output.Revision != 3 || output.WorkerNetId != 0 ||
+			    output.Revision != 3 ||
 			    output.WorkTimeRemaining != 150f || output.ArtifactNetId != 42 ||
 			    output.ArtifactCharmed || output.Selector.AnalyzedIds.Count != 1 ||
 			    output.Selector.AnalyzedTerrestrialCount != 1)

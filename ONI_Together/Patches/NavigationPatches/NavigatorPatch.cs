@@ -1,4 +1,5 @@
 using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using Shared.Profiling;
@@ -21,7 +22,19 @@ namespace ONI_Together.Patches.Navigation
 			if (MultiplayerSession.IsHost)
 				return true;
 
+			LogClientOriginalBlocked(ni.NetId, __instance);
 			return false;
+		}
+
+		internal static void LogClientOriginalBlocked(int netId, Navigator navigator)
+		{
+#if DEBUG
+			string state = $"netId={netId},position={navigator.transform.position}";
+			IntegrationScenarioEvidenceCore.Log(
+				"motion", "client-original-blocked", 0, false, state);
+			IntegrationScenarioEvidenceCore.Log(
+				"remote-dig", "client-original-blocked", 0, false, state);
+#endif
 		}
 	}
 
@@ -38,13 +51,16 @@ namespace ONI_Together.Patches.Navigation
 				return true;
 
 			if (__instance.TryGetComponent<NetworkIdentity>(out var netIdentity))
-				return MultiplayerSession.IsHost;
+			{
+				if (MultiplayerSession.IsHost)
+					return true;
+				NavigatorPatch.LogClientOriginalBlocked(netIdentity.NetId, __instance);
+				return false;
+			}
 
 			return true;
 		}
 	}
-
-	/*
 
 	[HarmonyPatch(typeof(Navigator), nameof(Navigator.BeginTransition))]
 	public static class Navigator_BeginTransition_Patch
@@ -52,40 +68,7 @@ namespace ONI_Together.Patches.Navigation
 		static void Postfix(Navigator __instance, NavGrid.Transition transition)
 		{
 			using var _ = Profiler.Scope();
-
-			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
-				return;
-
-			if (MultiplayerSession.ConnectedPlayers.Count == 0)
-				return;
-
-			if (!__instance.TryGetComponent<NetworkIdentity>(out var identity))
-				return;
-
-			if (!__instance.TryGetComponent<KPrefabID>(out var prefabId) || !prefabId.HasTag(GameTags.BaseMinion))
-				return;
-
-			var activeTransition = __instance.transitionDriver.GetTransition;
-			if (activeTransition == null)
-				return;
-
-			var packet = new NavigatorTransitionPacket
-			{
-				NetId = identity.NetId,
-				IsStop = false,
-				SourcePosition = __instance.transform.GetPosition(),
-				TransitionX = (sbyte)transition.x,
-				TransitionY = (sbyte)transition.y,
-				Speed = activeTransition.speed,
-				AnimSpeed = activeTransition.animSpeed,
-				Anim = transition.anim,
-				PreAnim = transition.preAnim,
-				IsLooping = transition.isLooping,
-				StartNavType = (byte)transition.start,
-				EndNavType = (byte)transition.end
-			};
-
-			PacketSender.SendToAllClients(packet, sendType: PacketSendMode.Unreliable);
+			RemoteMotionPresenter.PublishTransition(__instance, transition);
 		}
 	}
 
@@ -95,32 +78,8 @@ namespace ONI_Together.Patches.Navigation
 		static void Postfix(Navigator __instance, bool arrived_at_destination, bool play_idle)
 		{
 			using var _ = Profiler.Scope();
-
-			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
-				return;
-
-			if (MultiplayerSession.ConnectedPlayers.Count == 0)
-				return;
-
-			if (!__instance.TryGetComponent<NetworkIdentity>(out var identity))
-				return;
-
-			if (!__instance.TryGetComponent<KPrefabID>(out var prefabId) || !prefabId.HasTag(GameTags.BaseMinion))
-				return;
-
-			if (!play_idle)
-				return;
-
-			var packet = new NavigatorTransitionPacket
-			{
-				NetId = identity.NetId,
-				IsStop = true,
-				EndNavType = (byte)__instance.CurrentNavType
-			};
-
-			PacketSender.SendToAllClients(packet, sendType: PacketSendMode.Reliable);
+			if (play_idle)
+				RemoteMotionPresenter.PublishStop(__instance);
 		}
 	}
-
-	*/
 }

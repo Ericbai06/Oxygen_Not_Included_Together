@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using ONI_Together.Networking;
+using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.World;
 
 namespace ONI_Together.DebugTools.UnitTests
@@ -65,6 +66,16 @@ namespace ONI_Together.DebugTools.UnitTests
 			       && ProductionDesyncRecovery.CanStartAgainstDebugProbe(debugProbeRunning: false)
 				? UnitTestResult.Pass("Production and debug checkpoints cannot own the barrier together")
 				: UnitTestResult.Fail("Production checkpoint can race the debug soak barrier");
+		}
+
+		[UnitTest(name: "Production checkpoint reset releases world scan ownership", category: "Networking")]
+		public static UnitTestResult ResetReleasesWorldScanOwnership()
+		{
+			WorldStateSyncer.SetWorldScanPaused(true);
+			ProductionDesyncRecovery.ResetSessionState();
+			return !WorldStateSyncer.WorldScanPausedForTests
+				? UnitTestResult.Pass("Production reset cannot leave the unscaled world scan paused")
+				: UnitTestResult.Fail("Production reset leaked world scan ownership");
 		}
 
 		[UnitTest(name: "Production storage hash excludes identities without storage", category: "Networking")]

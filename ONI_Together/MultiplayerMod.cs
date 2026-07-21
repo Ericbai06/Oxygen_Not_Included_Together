@@ -79,7 +79,6 @@ namespace ONI_Together
 				go.AddComponent<MainThreadExecutor>();
 				go.AddComponent<CursorManager>();
 				go.AddComponent<PingManager>();
-				//go.AddComponent<BuildingSyncer>(); // Does thing with bridges (Wire Bridge, WireBridge)
 				go.AddComponent<WorldStateSyncer>();
 				go.AddComponent<PlantGrowthSyncer>();
 				go.AddComponent<ConduitFlowSyncer>();

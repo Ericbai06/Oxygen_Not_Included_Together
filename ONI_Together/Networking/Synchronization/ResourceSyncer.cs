@@ -1,4 +1,6 @@
 using HarmonyLib;
+using ONI_Together.DebugTools;
+using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.World;
 using System.Collections.Generic;
 using Shared.Profiling;
@@ -15,17 +17,8 @@ namespace ONI_Together.Networking.Synchronization
 
 		private void Update()
 		{
-			// Disabled - world inventory sync not working correctly
-			return;
-
-			/*
-			if (!MultiplayerSession.InSession) return;
-
-			if (MultiplayerSession.IsHost)
-			{
+			if (MultiplayerSession.IsHostInSession)
 				HostUpdate();
-			}
-			*/
 		}
 
 		private void HostUpdate()
@@ -52,7 +45,10 @@ namespace ONI_Together.Networking.Synchronization
 			// Simpler: Access Assets.GetPrefabsWithTag?
 			// DiscoveredResources actually holds the list of what we care about.
 
-			var packet = new ResourceCountPacket();
+			var packet = new ResourceCountPacket
+			{
+				Revision = NetworkIdentityRegistry.NextAuthorityRevision(),
+			};
 
 			// Just scan elements for now as a test? Or try to reflect discovered list.
 			// Reflection: DiscoveredResources.discoveredResources (HashSet<Tag>)
@@ -70,11 +66,14 @@ namespace ONI_Together.Networking.Synchronization
 				}
 			}
 
-			if (packet.Resources.Count > 0)
-			{
-				PacketSender.SendToAllClients(packet);
-				// DebugConsole.Log($"[ResourceSyncer] Sent {packet.Resources.Count} resources.");
-			}
+			PacketSender.SendToAllClients(packet, PacketSendMode.Reliable);
+#if DEBUG
+			string state = ResourceCountPacket.CanonicalState(packet.Resources);
+			IntegrationScenarioEvidenceCore.Log(
+				"inventory", "host-submit", (long)packet.Revision, true, state);
+			IntegrationScenarioEvidenceCore.Log(
+				"inventory", "final-state", (long)packet.Revision, true, state);
+#endif
 
 			_lastSendTime = Time.time;
 		}
@@ -93,6 +92,11 @@ namespace ONI_Together.Networking.Synchronization
 			if (ResourceSyncer.ClientResources.TryGetValue(tag.Name, out float val))
 			{
 				__result = val;
+#if DEBUG
+				IntegrationScenarioEvidenceCore.Log(
+					"inventory", "client-original-blocked", 0, false,
+					ResourceCountPacket.CanonicalState(ResourceSyncer.ClientResources));
+#endif
 				return false; // Skip original method
 			}
 

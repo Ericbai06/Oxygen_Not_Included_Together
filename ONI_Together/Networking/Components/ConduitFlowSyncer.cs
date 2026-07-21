@@ -20,8 +20,7 @@ namespace ONI_Together.Networking.Components
 	// - Delta-driven on the fast path (1.5 s) for low bandwidth, but a force
 	//   refresh tick re-emits all visible pipe contents every FORCE_REFRESH
 	//   seconds so dropped unreliable packets self-heal. Mirrors the
-	//   BuildingSyncer "full-state, unreliable, periodic" pattern called out
-	//   in oni-architecture.md.
+	//   periodic full-state repair pattern called out in oni-architecture.md.
 	// - Per-packet update cap chosen to keep on-wire size under Steam P2P's
 	//   ~1200 byte MTU for unreliable, so fragmentation does not amplify drops.
 	// - Solid rails are out of scope for this iteration: SolidConduitFlow
@@ -34,9 +33,9 @@ namespace ONI_Together.Networking.Components
 		private const float SYNC_INTERVAL = 1.5f;        // delta cadence — matches WorldStateSyncer.GAS_SYNC_INTERVAL
 		private const float FORCE_REFRESH_INTERVAL = 4.5f; // full re-emit cadence; 3x delta is the smallest spacing that does not duplicate the delta tick
 		private const float INITIAL_DELAY = 5f;
-		// 22 bytes/update (cell:4 + type:1 + element:4 + mass:4 + temp:4 + disease idx:1 + disease count:4)
-		// 50 * 22 = 1100 bytes, fits Steam P2P unreliable MTU (~1200 B) without fragmentation.
-		private const int MAX_UPDATES_PER_PACKET = 50;
+		// 30 bytes/update including the authority revision. Keep the batch below
+		// the transport's unreliable payload ceiling.
+		private const int MAX_UPDATES_PER_PACKET = 36;
 		private const float MASS_THRESHOLD = 0.01f;      // 10 g
 		private const float TEMP_THRESHOLD = 0.5f;       // 0.5 K
 
@@ -58,9 +57,11 @@ namespace ONI_Together.Networking.Components
 		private int[] _shadowGasElement;
 		private float[] _shadowGasMass;
 		private float[] _shadowGasTemp;
+		private ulong[] _shadowGasRevision;
 		private int[] _shadowLiquidElement;
 		private float[] _shadowLiquidMass;
 		private float[] _shadowLiquidTemp;
+		private ulong[] _shadowLiquidRevision;
 
 		// Fast-path state: per-cell time of last immediate emit (regardless of
 		// conduit type since gas/liquid pipes never coexist in the same cell),
@@ -141,9 +142,11 @@ namespace ONI_Together.Networking.Components
 				_shadowGasElement = new int[Grid.CellCount];
 				_shadowGasMass = new float[Grid.CellCount];
 				_shadowGasTemp = new float[Grid.CellCount];
+				_shadowGasRevision = new ulong[Grid.CellCount];
 				_shadowLiquidElement = new int[Grid.CellCount];
 				_shadowLiquidMass = new float[Grid.CellCount];
 				_shadowLiquidTemp = new float[Grid.CellCount];
+				_shadowLiquidRevision = new ulong[Grid.CellCount];
 				_lastImmediateEmit = new float[Grid.CellCount];
 				PrimeShadow(gasFlow, (int)ObjectLayer.GasConduit, _shadowGasElement, _shadowGasMass, _shadowGasTemp);
 				PrimeShadow(liquidFlow, (int)ObjectLayer.LiquidConduit, _shadowLiquidElement, _shadowLiquidMass, _shadowLiquidTemp);
@@ -179,11 +182,11 @@ namespace ONI_Together.Networking.Components
 
 				if (hasGas)
 					MaybeQueueCell(gasFlow, cell, ConduitContentsPacket.CONDUIT_GAS,
-						_shadowGasElement, _shadowGasMass, _shadowGasTemp,
+						_shadowGasElement, _shadowGasMass, _shadowGasTemp, _shadowGasRevision,
 						packet, forceRefresh);
 				if (hasLiquid)
 					MaybeQueueCell(liquidFlow, cell, ConduitContentsPacket.CONDUIT_LIQUID,
-						_shadowLiquidElement, _shadowLiquidMass, _shadowLiquidTemp,
+						_shadowLiquidElement, _shadowLiquidMass, _shadowLiquidTemp, _shadowLiquidRevision,
 						packet, forceRefresh);
 
 				if (packet.Updates.Count >= MAX_UPDATES_PER_PACKET)
@@ -223,7 +226,7 @@ namespace ONI_Together.Networking.Components
 		// Emit the cell's contents if it changed since last broadcast, or
 		// unconditionally during a force-refresh tick (catches packet drops).
 		private static void MaybeQueueCell(ConduitFlow flow, int cell, byte conduitType,
-			int[] shadowEl, float[] shadowMass, float[] shadowTemp,
+			int[] shadowEl, float[] shadowMass, float[] shadowTemp, ulong[] shadowRevision,
 			ConduitContentsPacket packet, bool forceRefresh)
 		{
 			var c = flow.GetContents(cell);
@@ -247,11 +250,13 @@ namespace ONI_Together.Networking.Components
 			shadowEl[cell] = el;
 			shadowMass[cell] = c.mass;
 			shadowTemp[cell] = c.temperature;
+			shadowRevision[cell] = NetworkIdentityRegistry.NextAuthorityRevision();
 
 			packet.Updates.Add(new ConduitCellUpdate
 			{
 				Cell = cell,
 				ConduitType = conduitType,
+				Revision = shadowRevision[cell],
 				Element = el,
 				Mass = c.mass,
 				Temperature = c.temperature,
@@ -284,6 +289,7 @@ namespace ONI_Together.Networking.Components
 						? (int)ObjectLayer.GasConduit
 						: (int)ObjectLayer.LiquidConduit;
 					if (Grid.Objects[u.Cell, layer] == null) continue; // pipe not built yet on client
+					if (!ConduitContentsPacket.TryAcceptRevision(u.Cell, u.ConduitType, u.Revision)) continue;
 
 					flow.SetContents(u.Cell, new ConduitFlow.ConduitContents(
 						(SimHashes)u.Element,
@@ -321,23 +327,27 @@ namespace ONI_Together.Networking.Components
 				// Keep the sweep's shadow in lockstep so the next 1.5 s tick
 				// doesn't re-broadcast the same state.
 				int el = (int)c.element;
+				ulong revision = NetworkIdentityRegistry.NextAuthorityRevision();
 				if (conduitType == ConduitContentsPacket.CONDUIT_GAS)
 				{
 					_shadowGasElement[cell] = el;
 					_shadowGasMass[cell] = c.mass;
 					_shadowGasTemp[cell] = c.temperature;
+					_shadowGasRevision[cell] = revision;
 				}
 				else
 				{
 					_shadowLiquidElement[cell] = el;
 					_shadowLiquidMass[cell] = c.mass;
 					_shadowLiquidTemp[cell] = c.temperature;
+					_shadowLiquidRevision[cell] = revision;
 				}
 
 				_pendingImmediate.Add(new ConduitCellUpdate
 				{
 					Cell = cell,
 					ConduitType = conduitType,
+					Revision = revision,
 					Element = el,
 					Mass = c.mass,
 					Temperature = c.temperature,
@@ -349,6 +359,25 @@ namespace ONI_Together.Networking.Components
 			{
 				DebugConsole.LogError($"[ConduitFlowSyncer] EnqueueImmediate failed for cell {cell}: {ex}");
 			}
+		}
+
+		internal static void ResetSessionState()
+		{
+			ConduitContentsPacket.ResetClientRevisionState();
+			Instance?.ResetRuntimeState();
+		}
+
+		private void ResetRuntimeState()
+		{
+			_initialized = false;
+			_lastSyncTime = 0f;
+			_lastForceRefresh = 0f;
+			_shadowGasElement = null;
+			_shadowLiquidElement = null;
+			_shadowGasRevision = null;
+			_shadowLiquidRevision = null;
+			_lastImmediateEmit = null;
+			_pendingImmediate.Clear();
 		}
 
 		// End-of-frame flush: coalesces every empty→non-empty event accumulated

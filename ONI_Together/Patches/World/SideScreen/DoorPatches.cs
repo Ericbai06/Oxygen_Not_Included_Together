@@ -16,7 +16,10 @@ namespace ONI_Together.Patches.World.SideScreen
 		public static bool Prefix(Door __instance, out bool __state)
 		{
 			__state = ShouldOrderUnseal(__instance);
-			return !MultiplayerSession.InSession || __state;
+			if (!__state)
+				return false;
+			return !MultiplayerSession.InSession || MultiplayerSession.IsHost
+			       || BuildingConfigPacket.IsApplyingPacket;
 		}
 
 		public static void Postfix(Door __instance, bool __state)

@@ -15,6 +15,7 @@ namespace ONI_Together.Networking.Packets.Events
 {
 	internal class DiagnosticPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPacket//, IBulkablePacket
 	{
+		internal const PacketSendMode SendMode = PacketSendMode.Unreliable;
 		public int MaxPackSize => 500;
 
 		public uint IntervalMs => 1000;
@@ -22,13 +23,16 @@ namespace ONI_Together.Networking.Packets.Events
 		public string DiagnosticType;
 		public Opinion DiagnosticOpinion;
 		public string DiagnosticMsg;
-		public DiagnosticPacket(string diagnosticTypeName, DiagnosticResult diagnosticResult)
+		public long Revision;
+		public DiagnosticPacket(
+			string diagnosticTypeName, DiagnosticResult diagnosticResult, long revision)
 		{
 			using var _ = Profiler.Scope();
 
 			DiagnosticType = diagnosticTypeName;
 			DiagnosticOpinion = diagnosticResult.opinion;
 			DiagnosticMsg = diagnosticResult.Message;
+			Revision = revision;
 		}
 		public DiagnosticPacket() { }
 
@@ -39,6 +43,7 @@ namespace ONI_Together.Networking.Packets.Events
 			DiagnosticType = reader.ReadString();
 			DiagnosticOpinion = (Opinion)reader.ReadInt32();
 			DiagnosticMsg = reader.ReadString();
+			Revision = reader.ReadInt64();
 		}
 
 
@@ -49,6 +54,7 @@ namespace ONI_Together.Networking.Packets.Events
 			writer.Write(DiagnosticType);
 			writer.Write((int) DiagnosticOpinion);
 			writer.Write(DiagnosticMsg);
+			writer.Write(Revision);
 		}
 		public void OnDispatched()
 		{
@@ -65,5 +71,8 @@ namespace ONI_Together.Networking.Packets.Events
 
 			return new DiagnosticResult(DiagnosticOpinion, DiagnosticMsg);
 		}
+
+		internal static bool ShouldApplyRevision(long current, long incoming)
+			=> incoming > current;
 	}
 }

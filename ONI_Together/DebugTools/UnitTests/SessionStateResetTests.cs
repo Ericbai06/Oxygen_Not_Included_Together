@@ -21,22 +21,20 @@ namespace ONI_Together.DebugTools.UnitTests
 		public static UnitTestResult ClearsCoreReplayState()
 		{
 			SessionStateReset.Reset();
-			if (!HostBroadcastPacket.TryBeginRequest(42, 7, 3))
-				return UnitTestResult.Fail("Fresh relay request was rejected before reset");
-			if (HostBroadcastPacket.TryBeginRequest(42, 7, 3))
-				return UnitTestResult.Fail("Duplicate relay request was accepted before reset");
-
-			if (ChunkedPacket.GetNextSequenceId() != 0 || ChunkedPacket.GetNextSequenceId() != 1)
-				return UnitTestResult.Fail("Chunk sequence did not advance before reset");
+			var first = PacketSender.CreateHostRelayForClient(
+				new PlayerCursorPacket { PlayerID = 42, Revision = 1 }, 42);
+			var second = PacketSender.CreateHostRelayForClient(
+				new PlayerCursorPacket { PlayerID = 42, Revision = 2 }, 42);
+			if (1UL != first.RequestId || 2UL != second.RequestId)
+				return UnitTestResult.Fail("Relay sequence did not advance before reset");
 
 			SessionStateReset.Reset();
 			SessionStateReset.Reset();
-			if (!HostBroadcastPacket.TryBeginRequest(42, 7, 3))
-				return UnitTestResult.Fail("Relay request history survived an idempotent session reset");
-			if (ChunkedPacket.GetNextSequenceId() != 0)
-				return UnitTestResult.Fail("Chunk sequence survived an idempotent session reset");
-
-			return UnitTestResult.Pass("Core replay state starts fresh after every session reset");
+			var afterReset = PacketSender.CreateHostRelayForClient(
+				new PlayerCursorPacket { PlayerID = 42, Revision = 1 }, 42);
+			if (1UL != afterReset.RequestId)
+				return UnitTestResult.Fail("Relay sequence survived an idempotent session reset");
+			return UnitTestResult.Pass("Core relay sequence starts fresh after every session reset");
 		}
 
 		[UnitTest(name: "Session reset clears Aquatic replay state", category: "Sync")]

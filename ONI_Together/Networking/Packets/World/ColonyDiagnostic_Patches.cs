@@ -12,12 +12,36 @@ namespace ONI_Together.Networking.Packets.World
 {
 	internal class ColonyDiagnostic_Patches
 	{
-		static Dictionary<string, DiagnosticResult> CachedResults = [];
+		private static readonly Dictionary<string, DiagnosticResult> CachedResults = [];
+		private static readonly Dictionary<string, long> ClientRevisions = [];
+		private static readonly Dictionary<string, long> HostRevisions = [];
+
+		internal static void ResetSessionState()
+		{
+			CachedResults.Clear();
+			ClientRevisions.Clear();
+			HostRevisions.Clear();
+		}
+
 		internal static void OnPacketReceived(DiagnosticPacket diagnosticPacket)
 		{
 			using var _ = Profiler.Scope();
 
+			if (diagnosticPacket == null || string.IsNullOrEmpty(diagnosticPacket.DiagnosticType))
+				return;
+			ClientRevisions.TryGetValue(diagnosticPacket.DiagnosticType, out long current);
+			if (!DiagnosticPacket.ShouldApplyRevision(current, diagnosticPacket.Revision))
+				return;
+			ClientRevisions[diagnosticPacket.DiagnosticType] = diagnosticPacket.Revision;
 			CachedResults[diagnosticPacket.DiagnosticType] = diagnosticPacket.ToResult();
+		}
+
+		private static long NextHostRevision(string typeName)
+		{
+			HostRevisions.TryGetValue(typeName, out long current);
+			long next = checked(current + 1);
+			HostRevisions[typeName] = next;
+			return next;
 		}
 
 		[HarmonyPatch(typeof(ColonyDiagnostic), nameof(ColonyDiagnostic.Evaluate))]
@@ -43,7 +67,9 @@ namespace ONI_Together.Networking.Packets.World
 				if (MultiplayerSession.IsHostInSession)
 				{
 					var typeName = __instance.GetType().Name;
-					PacketSender.SendToAllClients(new DiagnosticPacket(typeName, __result));
+					PacketSender.SendToAllClients(
+						new DiagnosticPacket(typeName, __result, NextHostRevision(typeName)),
+						DiagnosticPacket.SendMode);
 				}
 			}
 		}

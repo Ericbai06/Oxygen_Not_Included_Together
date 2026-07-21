@@ -11,11 +11,14 @@ public static class ReconnectProofLedgerTests
 		var ledger = new CompletedReadyProofLedger();
 		var now = new System.DateTime(2026, 1, 1, 0, 0, 0, System.DateTimeKind.Utc);
 		if (!ledger.Record(10, 77, 5, now)
-		    || !ledger.Record(10, 77, 5, now.AddSeconds(1))
+		    || !ledger.Record(10, 77, 5, now.AddMinutes(10))
 		    || ledger.Count != 1
 		    || ledger.Record(11, 77, 5, now)
 		    || ledger.Record(10, 77, 6, now))
 			return UnitTestResult.Fail("Completed proof was not idempotent and exact");
+		if (ledger.Prune(now.AddSeconds(301), TimeSpan.FromSeconds(300)) != 1)
+			return UnitTestResult.Fail("Duplicate proof recording renewed its original lease");
+		ledger.Record(10, 77, 5, now);
 		if (ledger.Acknowledge(11, 77, 5)
 		    || ledger.Acknowledge(10, 77, 6)
 		    || !ledger.Acknowledge(10, 77, 5)

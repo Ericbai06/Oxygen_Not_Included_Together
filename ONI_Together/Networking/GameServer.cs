@@ -1,6 +1,7 @@
 ﻿using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.Handshake;
+using ONI_Together.Networking.Packets.Core;
 using Shared.Profiling;
 using ONI_Together.Networking.States;
 using Shared;
@@ -79,6 +80,7 @@ namespace ONI_Together.Networking
 					{
 						NetworkConfig.TransportServer.Update();
 						NetworkConfig.TransportServer.OnMessageRecieved();
+						HostBroadcastPacket.CheckReorderTimeouts(UnityEngine.Time.unscaledTime);
 						ReadyManager.Update();
 
 						// Check for lost chunks and retransmit specific missing chunks

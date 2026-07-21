@@ -17,8 +17,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 
 		internal static void Broadcast(
 			ArtifactAnalysisStationWorkable workable,
-			GameObject artifact,
-			bool isWorking)
+			GameObject artifact)
 		{
 			if (!MultiplayerSession.IsHostInSession || workable == null)
 				return;
@@ -30,17 +29,13 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 			NetworkIdentity artifactIdentity = artifact?.AddOrGet<NetworkIdentity>();
 			artifactIdentity?.RegisterIdentity();
 			artifactIdentity?.EnsureAuthoritativeSpawnBroadcast();
-			WorkerBase worker = isWorking ? workable.GetWorker() : null;
-			int workerNetId = worker?.gameObject.GetNetIdentity()?.NetId ?? 0;
-			if (stationIdentity.NetId == 0 || (artifact != null && artifactIdentity?.NetId == 0) ||
-			    (isWorking && workerNetId == 0))
+			if (stationIdentity.NetId == 0 || (artifact != null && artifactIdentity?.NetId == 0))
 				return;
 			ArtifactAnalysisSyncMarker marker = workable.gameObject.AddOrGet<ArtifactAnalysisSyncMarker>();
 			var packet = new ArtifactAnalysisStatePacket
 			{
 				StationNetId = stationIdentity.NetId,
 				Revision = ++marker.Revision,
-				WorkerNetId = workerNetId,
 				WorkTimeRemaining = workable.WorkTimeRemaining,
 				ArtifactNetId = artifactIdentity?.NetId ?? 0,
 				ArtifactId = artifact?.PrefabID().ToString() ?? "",
@@ -76,37 +71,14 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 				if (artifact.PrefabID().ToString() != packet.ArtifactId)
 					return false;
 			}
-			WorkerBase desiredWorker = null;
-			if (packet.WorkerNetId != 0 &&
-			    !NetworkIdentityRegistry.TryGetComponent(packet.WorkerNetId, out desiredWorker))
-				return false;
-			if (desiredWorker != null && (artifact == null || !workable.storage.items.Contains(artifact)))
-				return false;
-
 			if (artifact != null && !ArtifactEntitySync.TryApply(packet.ArtifactNetId,
 				    packet.ArtifactId, packet.ArtifactCharmed, packet.TerrestrialArtifact))
 				return false;
 			if (!ArtifactPoiSync.ApplySelector(packet.Selector))
 				return false;
-			ApplyWorker(workable, desiredWorker);
 			workable.WorkTimeRemaining = packet.WorkTimeRemaining;
 			marker.AppliedRevision = packet.Revision;
 			return true;
-		}
-
-		private static void ApplyWorker(
-			ArtifactAnalysisStationWorkable workable,
-			WorkerBase desiredWorker)
-		{
-			WorkerBase current = workable.GetWorker();
-			if (current == desiredWorker)
-				return;
-			current?.StopWork();
-			if (desiredWorker == null)
-				return;
-			if (desiredWorker.GetWorkable() != null)
-				desiredWorker.StopWork();
-			desiredWorker.StartWork(new WorkerBase.StartWorkInfo(workable));
 		}
 
 		private static GameObject FindStoredArtifact(ArtifactAnalysisStationWorkable workable)
@@ -146,7 +118,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 		{
 			if (__instance is ArtifactAnalysisStationWorkable workable)
 				ArtifactAnalysisSync.Broadcast(
-					workable, ArtifactAnalysisSync.CaptureArtifact(workable), true);
+					workable, ArtifactAnalysisSync.CaptureArtifact(workable));
 		}
 	}
 
@@ -157,7 +129,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 		{
 			if (__instance is ArtifactAnalysisStationWorkable workable)
 				ArtifactAnalysisSync.Broadcast(
-					workable, ArtifactAnalysisSync.CaptureArtifact(workable), false);
+					workable, ArtifactAnalysisSync.CaptureArtifact(workable));
 		}
 	}
 
@@ -176,7 +148,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 		internal static void Postfix(Workable __instance, GameObject __state)
 		{
 			if (__instance is ArtifactAnalysisStationWorkable workable)
-				ArtifactAnalysisSync.Broadcast(workable, __state, false);
+				ArtifactAnalysisSync.Broadcast(workable, __state);
 		}
 	}
 }

@@ -111,7 +111,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 			KBatchedAnimController anim = go.GetComponent<KBatchedAnimController>();
 			NetworkIdentity identity = go.AddOrGet<NetworkIdentity>();
 			identity.RegisterIdentity();
-			go.AddOrGet<EntityPositionHandler>();
+			go.AddOrGet<RemoteMotionPresenter>();
 			go.AddOrGet<ReactorMeltdownCometMarker>();
 			if (comet == null || primary == null || anim == null || identity.NetId == 0) return null;
 
@@ -177,7 +177,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 
 		internal static void AttachClientCometComponents(GameObject go)
 		{
-			go.AddOrGet<EntityPositionHandler>();
+			go.AddOrGet<RemoteMotionPresenter>();
 			go.AddOrGet<ReactorMeltdownCometMarker>();
 		}
 

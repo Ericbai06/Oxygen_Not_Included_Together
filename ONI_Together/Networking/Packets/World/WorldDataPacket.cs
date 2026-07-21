@@ -9,15 +9,15 @@ using Shared.Profiling;
 
 namespace ONI_Together.Networking.Packets.World
 {
-	public class WorldDataPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPacket
+	public partial class WorldDataPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPacket
 	{
 		internal const int ReliableFragmentPayloadBytes = 980;
 		internal const int ReliableAckHistoryMessages = sizeof(ushort) * 8;
 		internal const int MaxReliableFragmentsPerPacket = 6;
-		internal const int OrderedReliableEnvelopeBytes = sizeof(int) * 3 + sizeof(long);
+		internal const int ReliableFixedWireBytes = sizeof(int) * 2;
 		internal const int MaxCompressedBytes =
 			ReliableFragmentPayloadBytes * MaxReliableFragmentsPerPacket
-			- OrderedReliableEnvelopeBytes - sizeof(int);
+			- ReliableFixedWireBytes;
 		internal const int MaxDecompressedBytes = 64 * 1024 * 1024;
 		internal const int MaxChunkCount = 16384;
 		internal const int MaxChunkCellCount = 16 * 16;
@@ -31,6 +31,7 @@ namespace ONI_Together.Networking.Packets.World
 
 		public static event Action<long> SnapshotApplied;
 		public long SnapshotGeneration;
+		public long HostSimTick;
 		public bool IsFinalChunk;
 		public int ChunkIndex;
 		public int ChunkCount;
@@ -41,13 +42,6 @@ namespace ONI_Together.Networking.Packets.World
 		public long WorldUpdateRepairSequenceBaseline;
 		public List<ChunkData> Chunks = new List<ChunkData>();
 		public List<NetworkIdentityRegistry.LifecycleRevisionSnapshotEntry> LifecycleBaseline = new();
-		private static long _applyingGeneration;
-		private static int _nextChunkIndex;
-		private static int _expectedChunkCount;
-		private static int _expectedGridChunkCount;
-		private static int _expectedLifecycleEntries;
-		private static WorldDataLifecycleCollector _lifecycleCollector;
-
 		public void Serialize(BinaryWriter writer)
 		{
 			using var _ = Profiler.Scope();
@@ -70,6 +64,7 @@ namespace ONI_Together.Networking.Packets.World
 					using (var compressWriter = new BinaryWriter(compressStream))
 					{
 						compressWriter.Write(SnapshotGeneration);
+						compressWriter.Write(HostSimTick);
 						compressWriter.Write(IsFinalChunk);
 						compressWriter.Write(ChunkIndex);
 						compressWriter.Write(ChunkCount);
@@ -112,6 +107,7 @@ namespace ONI_Together.Networking.Packets.World
 			using var memoryStream = new MemoryStream(Decompress(compressedData));
 			using var decompressed = new BinaryReader(memoryStream);
 			SnapshotGeneration = decompressed.ReadInt64();
+			HostSimTick = decompressed.ReadInt64();
 			IsFinalChunk = decompressed.ReadBoolean();
 			ChunkIndex = decompressed.ReadInt32();
 			ChunkCount = decompressed.ReadInt32();
@@ -142,7 +138,7 @@ namespace ONI_Together.Networking.Packets.World
 
 		private void ValidateTransferMetadata()
 		{
-			if (SnapshotGeneration <= 0 || GridChunkCount <= 0
+			if (SnapshotGeneration <= 0 || HostSimTick < 0 || GridChunkCount <= 0
 			    || GridChunkCount > MaxChunkCount
 			    || LifecycleBaselineTotalEntries < 0
 			    || LifecycleBaselineTotalEntries > MaxLifecycleBaselineEntries)
@@ -240,59 +236,6 @@ namespace ONI_Together.Networking.Packets.World
 			}
 		}
 
-
-		public void OnDispatched()
-		{
-			using var _ = Profiler.Scope();
-
-			if (MultiplayerSession.IsHost || !ReadyManager.IsCurrentClientSnapshot(SnapshotGeneration))
-				return;
-			if (!CanApplySnapshotChunk())
-			{
-				RejectGridBaseline("World baseline part is missing, duplicated, or out of order.");
-				return;
-			}
-
-			if (!TrySubmitSnapshotChunks() || !TryCollectLifecyclePage())
-			{
-				RejectGridBaseline("World baseline contains invalid grid or lifecycle state.");
-				return;
-			}
-			_nextChunkIndex++;
-			if (!GameClient.RecordWorldBaselineProgress(
-				    SnapshotGeneration, ChunkIndex, ChunkCount)
-			    || !SendProgressAck())
-			{
-				RejectGridBaseline("World grid baseline progress could not be committed.");
-				return;
-			}
-
-			DebugConsole.Log(
-				$"[WorldDataPacket] Applied baseline part {ChunkIndex + 1}/{ChunkCount}: " +
-				$"grid={Chunks.Count}, lifecycle={LifecycleBaseline.Count}.");
-
-			if (IsFinalChunk && (_lifecycleCollector == null || !_lifecycleCollector.IsComplete
-			    || !SnapshotGridObservation.TryObserve(
-				    SnapshotGeneration,
-				    Math.Max(MinimumObservationTimeoutSeconds, Configuration.Instance.Client.TimeoutSeconds),
-				    new SnapshotGridObservationCallbacks
-				    {
-					    Completed = CompleteObservedSnapshot,
-					    TimedOut = RejectUnobservableSnapshot,
-					    })))
-			{
-				RejectGridBaseline("Complete world baseline observation could not start.");
-			}
-		}
-
-		private bool SendProgressAck()
-			=> PacketSender.SendToHost(new WorldDataProgressAckPacket
-			{
-				ClientId = MultiplayerSession.LocalUserID,
-				SnapshotGeneration = SnapshotGeneration,
-				AppliedThroughChunkIndex = ChunkIndex,
-			}, PacketSendMode.ReliableImmediate);
-
 		private bool TrySubmitSnapshotChunks()
 		{
 			foreach (ChunkData chunk in Chunks)
@@ -323,6 +266,11 @@ namespace ONI_Together.Networking.Packets.World
 			}
 			if (!TryAcceptFinalLifecycleBaseline())
 				return;
+			if (!SessionStateReset.ResetPresentationForBaseline(HostSimTick, SnapshotGeneration))
+			{
+				RejectGridBaseline("World baseline presentation state could not be reset.");
+				return;
+			}
 			WorldUpdatePacket.AdvanceClientSupersededRevision(WorldUpdateRevisionBaseline);
 			WorldUpdatePacket.SetClientForegroundBaseline(WorldUpdateForegroundBaseline);
 			WorldUpdatePacket.SetClientRepairBaseline(WorldUpdateRepairSequenceBaseline);
@@ -354,6 +302,7 @@ namespace ONI_Together.Networking.Packets.World
 			if (NetworkIdentityRegistry.TryReconcileLifecycleBaseline(
 				    lifecycle, out membership))
 			{
+				PrioritizeStatePacket.ResetClientRevisionState();
 				return true;
 			}
 
@@ -369,62 +318,5 @@ namespace ONI_Together.Networking.Packets.World
 				"World identity baseline does not match the loaded save.");
 			return false;
 		}
-
-		private bool CanApplySnapshotChunk()
-		{
-			try
-			{
-				ValidateTransferMetadata();
-			}
-			catch (InvalidDataException)
-			{
-				ResetSnapshotProgress();
-				return false;
-			}
-			if (ChunkIndex == 0)
-			{
-				if (_applyingGeneration != 0 && _applyingGeneration != SnapshotGeneration)
-					ResetSnapshotProgress();
-				if (_applyingGeneration != 0)
-				{
-					ResetSnapshotProgress();
-					return false;
-				}
-				SnapshotGridObservation.BeginCollection(
-					SnapshotGeneration, MaxTotalCellCount);
-				_applyingGeneration = SnapshotGeneration;
-				_nextChunkIndex = 0;
-				_expectedChunkCount = ChunkCount;
-				_expectedGridChunkCount = GridChunkCount;
-				_expectedLifecycleEntries = LifecycleBaselineTotalEntries;
-				_lifecycleCollector = new WorldDataLifecycleCollector(
-					LifecycleBaselineTotalEntries);
-			}
-			if (_applyingGeneration != SnapshotGeneration
-				|| _expectedChunkCount != ChunkCount
-				|| _expectedGridChunkCount != GridChunkCount
-				|| _expectedLifecycleEntries != LifecycleBaselineTotalEntries
-				|| _nextChunkIndex != ChunkIndex)
-			{
-				ResetSnapshotProgress();
-				return false;
-			}
-			return true;
-		}
-
-		private static void ResetSnapshotProgress()
-		{
-			SnapshotGridObservation.Cancel();
-			_applyingGeneration = 0;
-			_nextChunkIndex = 0;
-			_expectedChunkCount = 0;
-			_expectedGridChunkCount = 0;
-			_expectedLifecycleEntries = 0;
-			_lifecycleCollector = null;
-		}
-
-		internal static void ResetSessionState()
-			=> ResetSnapshotProgress();
-
 	}
 }

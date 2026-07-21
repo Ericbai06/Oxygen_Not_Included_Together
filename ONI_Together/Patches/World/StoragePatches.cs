@@ -35,7 +35,16 @@ namespace ONI_Together.Patches.World
             {
                 using var _ = Profiler.Scope();
 
-                if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession) return;
+                if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
+				{
+#if DEBUG
+					if (MultiplayerSession.IsClient && __instance != null && go != null)
+						IntegrationScenarioEvidenceCore.Log(
+							"storage", "client-original-blocked", 0, false,
+							"local-remove-replication-blocked");
+#endif
+					return;
+				}
                 if (__instance == null || go == null) return;
 				var existingItemIdentity = go.GetComponent<NetworkIdentity>();
 					if (!ShouldReplicateRemoval(existingItemIdentity?.IsUnavailableForBinding == true)) return;
@@ -49,7 +58,7 @@ namespace ONI_Together.Patches.World
 				var primary = go.GetComponent<PrimaryElement>();
 				if ((replication & StorageReplicationKind.Membership) != 0)
 				{
-					PacketSender.SendToAllClients(new StorageItemPacket
+					var packet = new StorageItemPacket
 					{
 						NetId = goIdentity?.NetId ?? 0,
 						StorageNetId = storageIdentity.NetId,
@@ -58,7 +67,9 @@ namespace ONI_Together.Patches.World
 						FxPrefix = Storage.FXPrefix.PickedUp,
 						ConsumedPrefabHash = go.PrefabID().GetHashCode(),
 						ConsumedAmount = primary?.Mass ?? 0f
-					});
+					};
+					PacketSender.SendToAllClients(packet);
+					packet.LogHostOutcome();
 				}
 
 				if ((replication & StorageReplicationKind.CarryVisual) != 0)
@@ -118,7 +129,15 @@ namespace ONI_Together.Patches.World
                 try
                 {
                     if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
-                        return;
+					{
+#if DEBUG
+						if (MultiplayerSession.IsClient && __instance != null && go != null)
+							IntegrationScenarioEvidenceCore.Log(
+								"storage", "client-original-blocked", 0, false,
+								"local-store-replication-blocked");
+#endif
+						return;
+					}
 					GameObject authoritativeItem = __result ?? go;
 					if (__instance == null || authoritativeItem == null)
                         return;
@@ -135,7 +154,7 @@ namespace ONI_Together.Patches.World
 					StorageReplicationKind replication = RequiredReplication(isMinionStorage);
 					if ((replication & StorageReplicationKind.Membership) != 0)
 					{
-						PacketSender.SendToAllClients(new StorageItemPacket
+						var packet = new StorageItemPacket
 						{
 							NetId = itemNetId,
 							StorageNetId = storageIdentity.NetId,
@@ -149,7 +168,9 @@ namespace ONI_Together.Patches.World
 							ElementTemperature = pe?.Temperature ?? 0,
 							ElementDiseaseIdx = pe?.DiseaseIdx ?? byte.MaxValue,
 							ElementDiseaseCount = pe?.DiseaseCount ?? 0
-						});
+						};
+						PacketSender.SendToAllClients(packet);
+						packet.LogHostOutcome();
 					}
 
 					// Carry visuals are additive to authoritative Storage.items membership.

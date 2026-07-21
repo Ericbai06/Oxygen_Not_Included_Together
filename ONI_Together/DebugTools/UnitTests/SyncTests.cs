@@ -13,25 +13,6 @@ namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class SyncTests
 	{
-		[UnitTest(name: "Position staleness uses the local receive clock", category: "Sync")]
-		public static UnitTestResult PositionStalenessUsesLocalClock()
-		{
-			if (!EntityPositionHandler.IsServerStateStale(0, 10f, 10f))
-				return UnitTestResult.Fail("Missing server state must be stale");
-			if (EntityPositionHandler.IsServerStateStale(1, 9f, 10f))
-				return UnitTestResult.Fail("A position received one second ago must be fresh");
-			if (!EntityPositionHandler.IsServerStateStale(1, 7f, 10f))
-				return UnitTestResult.Fail("A position received three seconds ago must be stale");
-			if (!EntityPositionHandler.ShouldRequestServerState(0, false, 10f, 10f))
-				return UnitTestResult.Fail("Initial position must be requested outside the viewport");
-			if (EntityPositionHandler.ShouldRequestServerState(1, false, 7f, 10f))
-				return UnitTestResult.Fail("Received off-screen positions must remain viewport-culled");
-			if (!EntityPositionHandler.ShouldRequestServerState(1, true, 7f, 10f))
-				return UnitTestResult.Fail("Stale visible positions must be repaired");
-
-			return UnitTestResult.Pass("Initial position repair bypasses viewport culling once");
-		}
-
 		[UnitTest(name: "Duplicant positions in sync with host", category: "Sync", liveSafe: true)]
 		public static UnitTestResult DuplicantPositionsInSync()
 		{
@@ -50,18 +31,19 @@ namespace ONI_Together.DebugTools.UnitTests
 				if (prefabId == null || !prefabId.HasTag(GameTags.BaseMinion))
 					continue;
 
-				if (!identity.gameObject.TryGetComponent<EntityPositionHandler>(out var handler))
-					return UnitTestResult.Fail($"Minion '{identity.gameObject.name}' has no EntityPositionHandler");
+				if (!identity.gameObject.TryGetComponent<RemoteMotionPresenter>(out var presenter))
+					return UnitTestResult.Fail($"Minion '{identity.gameObject.name}' has no RemoteMotionPresenter");
 
 				minionsChecked++;
 
 				if (MultiplayerSession.IsHost)
 					continue;
 
-				if (handler.serverTimestamp == 0)
-					return UnitTestResult.Fail($"Minion '{identity.gameObject.name}' has not received a position packet yet");
+				if (presenter.AuthoritativeRevision == 0)
+					return UnitTestResult.Fail($"Minion '{identity.gameObject.name}' has not received motion state yet");
 
-				float delta = Vector3.Distance(identity.gameObject.transform.position, handler.serverPosition);
+				float delta = Vector3.Distance(
+					identity.gameObject.transform.position, presenter.AuthoritativePosition);
 				if (delta > MaxCellDelta)
 					return UnitTestResult.Fail($"Minion '{identity.gameObject.name}' is {delta:F2} cells off server position");
 			}
@@ -152,27 +134,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Invalid workable progress targets are rejected inbound and outbound");
 		}
 
-		[UnitTest(name: "Worker state rejects invalid outbound identities", category: "Sync")]
-		public static UnitTestResult WorkerStateRejectsInvalidOutboundIdentities()
-		{
-			var invalidWorker = WorkerPacket(0, starting: false, 0, null);
-			if (!RejectsSerialize(invalidWorker))
-				return UnitTestResult.Fail("Zero worker NetId was serialized outbound");
-
-			var invalidTarget = WorkerPacket(
-				1, starting: true, 0, typeof(Workable).AssemblyQualifiedName);
-			if (!RejectsSerialize(invalidTarget))
-				return UnitTestResult.Fail("Zero workable NetId was serialized outbound");
-
-			var validStop = WorkerPacket(1, starting: false, 0, null);
-			Roundtrip(validStop, new StandardWorker_WorkingState_Packet());
-			var validStart = WorkerPacket(
-				1, starting: true, 2, typeof(Workable).AssemblyQualifiedName);
-			Roundtrip(validStart, new StandardWorker_WorkingState_Packet());
-
-			return UnitTestResult.Pass("Worker state requires tracked worker and workable identities");
-		}
-
 		[UnitTest(name: "Authoritative state revisions roundtrip and reject stale packets", category: "Sync")]
 		public static UnitTestResult AuthoritativeStateRevisionsRejectStalePackets()
 		{
@@ -223,6 +184,28 @@ namespace ONI_Together.DebugTools.UnitTests
 
 			string state = GameServerHardSync.hardSyncDoneThisCycle ? "completed this cycle" : "idle";
 			return UnitTestResult.Pass($"Hard sync machinery is {state}");
+		}
+
+		[UnitTest(name: "Hard sync abort is not reported as all clients ready", category: "Sync")]
+		public static UnitTestResult HardSyncAbortIsNotCompletion()
+		{
+			bool originalProgress = GameServerHardSync.IsHardSyncInProgress;
+			bool originalDone = GameServerHardSync.hardSyncDoneThisCycle;
+			try
+			{
+				GameServerHardSync.IsHardSyncInProgress = true;
+				GameServerHardSync.hardSyncDoneThisCycle = true;
+				GameServerHardSync.OnSyncBarrierAborted();
+				return !GameServerHardSync.IsHardSyncInProgress
+				       && !GameServerHardSync.hardSyncDoneThisCycle
+					? UnitTestResult.Pass("Abort clears hard sync without consuming completion")
+					: UnitTestResult.Fail("Abort was retained as a successful hard sync");
+			}
+			finally
+			{
+				GameServerHardSync.IsHardSyncInProgress = originalProgress;
+				GameServerHardSync.hardSyncDoneThisCycle = originalDone;
+			}
 		}
 
 		private static T Roundtrip<T>(T source, T target) where T : IPacket
@@ -292,17 +275,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		private static StandardWorker_WorkingState_Packet WorkerPacket(
-			int workerNetId, bool starting, int workableNetId, string workableType)
-		{
-			var packet = new StandardWorker_WorkingState_Packet();
-			SetWorkerField(packet, "WorkerNetId", workerNetId);
-			SetWorkerField(packet, "StartingToWork", starting);
-			SetWorkerField(packet, "WorkableNetId", workableNetId);
-			SetWorkerField(packet, "WorkableType", workableType);
-			return packet;
-		}
-
 		private static bool HasProgressState(
 			WorkableProgressPacket packet,
 			bool show, float percent, float remaining, float total)
@@ -319,9 +291,5 @@ namespace ONI_Together.DebugTools.UnitTests
 			=> (T)typeof(WorkableProgressPacket).GetField(
 				name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(packet);
 
-		private static void SetWorkerField<T>(
-			StandardWorker_WorkingState_Packet packet, string name, T value)
-			=> typeof(StandardWorker_WorkingState_Packet).GetField(
-				name, BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(packet, value);
 	}
 }

@@ -46,12 +46,12 @@ namespace ONI_Together.Networking
 			_awaitingReadyGeneration = snapshotGeneration;
 			EndWorldBaselineWait(ReadyManager.ReconnectToken, snapshotGeneration);
 			SetState(ClientState.AwaitingReadyAck);
+			BeginReadyAcceptanceWait(ReadyManager.ReconnectToken, snapshotGeneration);
 			if (!ReadyManager.SendReadyStatusPacket(ClientReadyState.Ready))
 			{
 				FailWorldBaseline("Could not send Ready after applying the world baseline.");
 				return;
 			}
-			BeginReadyAcceptanceWait(ReadyManager.ReconnectToken, snapshotGeneration);
 			DebugConsole.Log($"[GameClient] World baseline {snapshotGeneration} applied; awaiting host Ready acknowledgement");
 		}
 
@@ -65,6 +65,12 @@ namespace ONI_Together.Networking
 			CancelWorldLoadPhase();
 			SetState(ClientState.InGame);
 			EndWorldLoadReconnect();
+#if DEBUG
+			if (MultiplayerSession.ConnectedPlayers.TryGetValue(
+				    MultiplayerSession.HostUserID, out MultiplayerPlayer host))
+				ReconnectScenarioEvidence.ObserveReadyConnection(
+					host, host.Connection, snapshotGeneration);
+#endif
 			if (IsHardSyncInProgress)
 			{
 				IsHardSyncInProgress = false;

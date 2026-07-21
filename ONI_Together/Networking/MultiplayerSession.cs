@@ -1,5 +1,6 @@
 ﻿using ONI_Together.DebugTools;
 using ONI_Together.Misc;
+using ONI_Together.Networking.Packets.Core;
 using System.Collections.Generic;
 using Shared.Profiling;
 using UnityEngine;
@@ -88,7 +89,6 @@ namespace ONI_Together.Networking
 			HostUserID = Utils.NilUlong();
 			transportConnected = false;
 			retainClientWorldLoad = false;
-			WorkProgressPatch.ClearTracking();
 			RemoteProgressRegistry.ClearAll();
 			DebugConsole.Log("[MultiplayerSession] Session cleared.");
 		}
@@ -188,6 +188,7 @@ namespace ONI_Together.Networking
 
 		public static void RemovePlayerCursor(ulong playerId)
 		{
+			PlayerCursorPacket.ForgetPlayer(playerId);
 			using var _ = Profiler.Scope();
 
 			if (!PlayerCursors.TryGetValue(playerId, out var cursor))

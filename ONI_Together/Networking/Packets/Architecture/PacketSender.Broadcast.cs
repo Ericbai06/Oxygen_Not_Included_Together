@@ -34,6 +34,9 @@ namespace ONI_Together.Networking
 				DebugConsole.LogWarning($"[PacketSender] No connection found for SteamID {steamID}");
 				return false;
 			}
+			bool? handledResult = TryHandleSyncBarrierTarget(steamID, packet, sendType);
+			if (handledResult.HasValue)
+				return handledResult.Value;
 
 			return SendToConnection(player.Connection, packet, sendType);
 		}
@@ -61,26 +64,34 @@ namespace ONI_Together.Networking
 			PacketSendMode sendType,
 			bool inViewport = true)
 		{
+			bool inBarrier = player != null
+			                 && UsesSyncBarrierBroadcastRouteForTests(
+				                 MultiplayerSession.IsHost,
+				                 ReadyManager.IsClientInSyncBarrier(player.PlayerId));
+			if (inBarrier)
+			{
+				if (IsSyncBarrierControl(packet))
+				{
+					if (player.Connection != null && inViewport)
+						TrySendToConnection(player, packet, sendType);
+					return;
+				}
+
+				TryHandleSyncBarrierTarget(player.PlayerId, packet, sendType);
+				return;
+			}
+
 			if (CanBroadcastTo(player))
 			{
 				if (inViewport)
 					TrySendToConnection(player, packet, sendType);
 				return;
 			}
-
-			if (!MultiplayerSession.IsHost || player == null
-			    || !ReadyManager.IsClientInSyncBarrier(player.PlayerId))
-				return;
-
-			SyncBacklogResult result = ReliableSyncBacklog.TryBuffer(player.PlayerId, packet, sendType);
-			if (result != SyncBacklogResult.Overflow)
-				return;
-
-			DebugConsole.LogError(
-				$"[SyncBacklog] Reliable delta limit exceeded for {player.PlayerId}; disconnecting to prevent desync.", false);
-			ReadyManager.PrepareFreshSnapshot(player.PlayerId);
-			NetworkConfig.TransportServer?.KickClient(player.PlayerId);
 		}
+
+		internal static bool UsesSyncBarrierBroadcastRouteForTests(
+			bool isHost, bool clientInBarrier)
+			=> isHost && clientInBarrier;
 
 		public static bool SendToHost(IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
 		{
@@ -118,9 +129,6 @@ namespace ONI_Together.Networking
 				if (SendToConnection(connection, packet, sendType)
 				    || (sendType & PacketSendMode.Reliable) == 0)
 					return;
-				lock (SendGate)
-					if (PageChannel.IsOutgoingTerminated(connection))
-						return;
 
 				DebugConsole.LogError(
 					$"[PacketSender] Reliable broadcast of {packet.GetType().Name} to {player.PlayerId} failed; disconnecting to prevent desync.",
@@ -236,12 +244,31 @@ namespace ONI_Together.Networking
 			if (MultiplayerSession.IsHost)
 				SendToAllClients(packet, sendMode);
 			else
-				SendToHost(
-					CreateHostRelayForClient(packet, MultiplayerSession.LocalUserID), sendMode);
+				SendClientRelay(packet, sendMode);
 		}
 
 		internal static HostBroadcastPacket CreateHostRelayForClient(IPacket packet, ulong localUserId)
 			=> new HostBroadcastPacket(packet, localUserId);
+
+		private static void SendClientRelay(IPacket packet, PacketSendMode sendMode)
+		{
+			bool sent = SendToHost(
+				CreateHostRelayForClient(packet, MultiplayerSession.LocalUserID), sendMode);
+			HandleClientRelaySendResult(
+				sendMode, sent, () => NetworkConfig.TransportClient?.Disconnect());
+		}
+
+		internal static bool HandleClientRelaySendResult(
+			PacketSendMode sendMode, bool sent, System.Action disconnect)
+		{
+			if (sent || (sendMode & PacketSendMode.Reliable) == 0)
+				return sent;
+			DebugConsole.LogError(
+				"[PacketSender] Reliable client relay failed; disconnecting to prevent desync.",
+				false);
+			disconnect?.Invoke();
+			return false;
+		}
 
 		/// <summary>
 		/// Sends a packet to all other players.
@@ -271,8 +298,7 @@ namespace ONI_Together.Networking
 			else if (packet is IBulkablePacket && packet is not IClientRelayable)
 				SendToHost(packet, sendMode);
 			else
-				SendToHost(
-					new HostBroadcastPacket(packet, MultiplayerSession.LocalUserID), sendMode);
+				SendClientRelay(packet, sendMode);
 		}
 	}
 }

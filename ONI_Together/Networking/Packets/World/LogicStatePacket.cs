@@ -15,8 +15,11 @@ namespace ONI_Together.Networking.Packets.World
         internal const int MaxOptionalBlobBytes = 1024 * 1024;
         private const int MaxStringLength = 4096;
         private const int MaxByteArrayBytes = 1024 * 1024;
+        internal const string RevisionDomain = "LogicState";
         public int NetId;
         public int Cell;
+        public ulong LifecycleRevision;
+        public ulong StateRevision;
         public Variant Value;
         public Dictionary<string, Variant> OptionalValues = [];
         public bool IsActive;
@@ -25,8 +28,11 @@ namespace ONI_Together.Networking.Packets.World
         {
             using var _ = Profiler.Scope();
 
+            ValidateRevisions();
             writer.Write(NetId);
             writer.Write(Cell);
+            writer.Write(LifecycleRevision);
+            writer.Write(StateRevision);
             Value.Write(writer);
             writer.Write(IsActive);
 
@@ -48,6 +54,9 @@ namespace ONI_Together.Networking.Packets.World
 
             NetId = reader.ReadInt32();
             Cell = reader.ReadInt32();
+            LifecycleRevision = reader.ReadUInt64();
+            StateRevision = reader.ReadUInt64();
+            ValidateRevisions();
             Value = ReadVariant(reader);
             IsActive = reader.ReadBoolean();
 
@@ -72,6 +81,26 @@ namespace ONI_Together.Networking.Packets.World
             if (optBr.BaseStream.Position != optBr.BaseStream.Length)
                 throw new InvalidDataException("Logic optional value blob contains trailing bytes");
         }
+
+        private void ValidateRevisions()
+        {
+            if (NetId == 0 || LifecycleRevision == 0 || StateRevision == 0)
+                throw new InvalidDataException("Logic state identity and revisions must be non-zero");
+        }
+
+        internal static void ResetClientRevisionState()
+            => NetworkIdentityRegistry.ResetStateRevisionDomain(RevisionDomain);
+
+        internal static bool ShouldApplyState(
+            bool localIsHost, bool senderIsHost, ulong currentLifecycle,
+            bool tombstoned, ulong incomingLifecycle, ulong lastState, ulong incomingState)
+        {
+            return !localIsHost && senderIsHost && !tombstoned
+                && incomingLifecycle != 0 && currentLifecycle == incomingLifecycle
+                && NetworkIdentityRegistry.IsNewerRevision(lastState, incomingState);
+        }
+
+        internal static bool ShouldRefreshLastPacketTime(bool accepted) => accepted;
 
         private static Variant ReadVariant(BinaryReader reader)
         {
@@ -109,7 +138,7 @@ namespace ONI_Together.Networking.Packets.World
 
             if (MultiplayerSession.IsHost) return;
 
-            LogicStateSyncer.Instance?.HandlePacket(this);
+            LogicStateSyncer.Instance?.TryHandlePacket(this);
         }
 
         public static bool VariantValueChanged(Variant a, Variant b, float epsilon = 0.01f)

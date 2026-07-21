@@ -156,7 +156,14 @@ namespace ONI_Together.Networking
 
 		public void RemoveBuildingVisualizer()
 		{
-            buildingVisualiser.UpdateVisualizer(string.Empty, Vector3.zero, Orientation.Neutral, Color.white, false); // Flag visualizer for removal
+			buildingVisualiser.UpdateVisualizer(new PlayerBuildingVisualizer.VisualState
+			{
+				BuildingPrefabId = string.Empty,
+				Position = Vector3.zero,
+				Orientation = Orientation.Neutral,
+				Color = Color.white,
+				AllowedToPlace = false,
+			}); // Flag visualizer for removal
 			utilityVisualizer.ClearPath(); // Also clear utility path preview
         }
 

@@ -100,6 +100,11 @@ namespace ONI_Together.Networking
 			_pendingReadyCommits.Add(player.PlayerId, pending);
 			if (!ReliableSyncBacklog.Replay(
 				    player,
+				    new ReadyReplayProof
+				    {
+					    ReconnectToken = reconnectToken,
+					    SnapshotGeneration = snapshotGeneration,
+				    },
 				    succeeded => CompleteReadyAfterReplay(pending, succeeded)))
 			{
 				if (_pendingReadyCommits.Remove(player.PlayerId))
@@ -147,6 +152,10 @@ namespace ONI_Together.Networking
 			player.CompleteSaveTransfer();
 			player.readyState = States.ClientReadyState.Ready;
 			CompleteSyncBarrier(player.PlayerId);
+#if DEBUG
+			ReconnectScenarioEvidence.ObserveReadyConnection(
+				player, pending.Connection, pending.SnapshotGeneration);
+#endif
 			RefreshScreen();
 			RefreshReadyState();
 		}
@@ -154,11 +163,33 @@ namespace ONI_Together.Networking
 		internal static void CancelPendingReadyCommit(ulong clientId)
 			=> _pendingReadyCommits.Remove(clientId);
 
+		internal static bool IsPendingReadyCommit(
+			MultiplayerPlayer player, ulong reconnectToken, long snapshotGeneration)
+			=> player != null
+			   && _pendingReadyCommits.TryGetValue(player.PlayerId, out PendingReadyCommit pending)
+			   && pending.ReconnectToken == reconnectToken
+			   && pending.SnapshotGeneration == snapshotGeneration
+			   && ReferenceEquals(pending.Connection, player.Connection);
+
 		internal static void CancelAllPendingReadyCommits()
 			=> _pendingReadyCommits.Clear();
 
 		internal static bool HasPendingReadyCommitForTests(ulong clientId)
 			=> _pendingReadyCommits.ContainsKey(clientId);
+
+		internal static bool AcceptReadyReplayApplied(
+			ulong clientId, long connectionGeneration, ReadyReplayProof proof)
+		{
+			if (!_pendingReadyCommits.TryGetValue(
+				    clientId, out PendingReadyCommit pending)
+			    || pending.ReconnectToken != proof.ReconnectToken
+			    || pending.SnapshotGeneration != proof.SnapshotGeneration
+			    || pending.Player.ConnectionGeneration != connectionGeneration
+			    || !ReferenceEquals(pending.Connection, pending.Player.Connection))
+				return false;
+			return ReliableSyncBacklog.AcceptApplied(
+				clientId, connectionGeneration, proof);
+		}
 
 		private static bool SendReadyAccepted(
 			ulong clientId, ulong reconnectToken, long snapshotGeneration)

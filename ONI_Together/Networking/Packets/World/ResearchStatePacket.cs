@@ -1,209 +1,110 @@
-using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
-using System;
+using Shared.Interfaces.Networking;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using Shared.Profiling;
 
 namespace ONI_Together.Networking.Packets.World
 {
-	public class ResearchStatePacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPacket
+	public sealed class ResearchStatePacket : IPacket, IHostOnlyPacket
 	{
-		internal const int MaxTechCount = 4096;
-		private const int MaxTechIdLength = 256;
-		public List<string> UnlockedTechIds = new List<string>();
-		public List<string> QueuedTechIds = new List<string>(); // Full queue from host
-		public string ActiveTechId; // Current research selection
-
-		// Flag to prevent infinite loop: when applying state, don't send new packets
-		public static bool IsApplying = false;
+		internal const int MaxTechCount = ResearchSyncProtocol.MaxTechCount;
+		public long ResearchRevision;
+		public List<string> UnlockedTechIds = new();
+		public List<string> QueuedTechIds = new();
+		public string ActiveTechId = string.Empty;
+		public List<ResearchProgressData> ProgressEntries = new();
 
 		public void Serialize(BinaryWriter writer)
 		{
-			using var _ = Profiler.Scope();
-
-			writer.Write(UnlockedTechIds.Count);
-			foreach (var id in UnlockedTechIds)
-			{
-				writer.Write(id);
-			}
-
-			writer.Write(QueuedTechIds.Count);
-			foreach (var id in QueuedTechIds)
-			{
-				writer.Write(id);
-			}
-
-			writer.Write(ActiveTechId ?? string.Empty);
+			if (!IsWireValid())
+				throw new InvalidDataException("Invalid research state snapshot");
+			writer.Write(ResearchRevision);
+			WriteTechIds(writer, UnlockedTechIds);
+			WriteTechIds(writer, QueuedTechIds);
+			ResearchSyncProtocol.WriteId(
+				writer, ActiveTechId, ResearchSyncProtocol.MaxTechIdLength, allowEmpty: true);
+			writer.Write(ProgressEntries.Count);
+			foreach (ResearchProgressData entry in ProgressEntries)
+				entry.Serialize(writer);
 		}
 
 		public void Deserialize(BinaryReader reader)
 		{
-			using var _ = Profiler.Scope();
-
-			int count = reader.ReadInt32();
-			if (count < 0 || count > MaxTechCount)
-				throw new InvalidDataException($"Invalid unlocked tech count: {count}");
-			UnlockedTechIds = new List<string>(count);
+			ResearchRevision = reader.ReadInt64();
+			UnlockedTechIds = ReadTechIds(reader, "unlocked tech");
+			QueuedTechIds = ReadTechIds(reader, "queued tech");
+			ActiveTechId = ResearchSyncProtocol.ReadId(
+				reader, ResearchSyncProtocol.MaxTechIdLength, allowEmpty: true);
+			int count = ResearchSyncProtocol.ReadCount(
+				reader, ResearchSyncProtocol.MaxProgressTechCount, "progress tech");
+			ProgressEntries = new List<ResearchProgressData>(count);
 			for (int i = 0; i < count; i++)
-			{
-				UnlockedTechIds.Add(ReadTechId(reader));
-			}
-
-			int queueCount = reader.ReadInt32();
-			if (queueCount < 0 || queueCount > MaxTechCount)
-				throw new InvalidDataException($"Invalid queued tech count: {queueCount}");
-			QueuedTechIds = new List<string>(queueCount);
-			for (int i = 0; i < queueCount; i++)
-			{
-				QueuedTechIds.Add(ReadTechId(reader));
-			}
-
-			ActiveTechId = ReadTechId(reader);
-		}
-
-		private static string ReadTechId(BinaryReader reader)
-		{
-			string value = reader.ReadString();
-			if (value.Length > MaxTechIdLength)
-				throw new InvalidDataException("Research tech ID is too long");
-			return value;
+				ProgressEntries.Add(ResearchProgressData.Deserialize(reader));
+			if (!IsWireValid())
+				throw new InvalidDataException("Invalid research state snapshot");
 		}
 
 		public void OnDispatched()
 		{
-			using var _ = Profiler.Scope();
-
-			if (MultiplayerSession.IsHost) return;
-
-			// Set flag to prevent ResearchPatch from sending packets while we apply state
-			IsApplying = true;
-			try
-			{
-				ProcessResearchState(UnlockedTechIds, QueuedTechIds, ActiveTechId);
-			}
-			finally
-			{
-				IsApplying = false;
-			}
+			ResearchSyncCoordinator.ApplyState(this);
 		}
 
-		private void ProcessResearchState(List<string> unlockedIds, List<string> queuedIds, string activeTechId)
+		internal bool IsWireValid()
 		{
-			using var _ = Profiler.Scope();
+			if (ResearchRevision <= 0 || UnlockedTechIds == null || QueuedTechIds == null
+			    || ActiveTechId == null || ActiveTechId.Length > ResearchSyncProtocol.MaxTechIdLength
+			    || ProgressEntries == null
+			    || UnlockedTechIds.Count > MaxTechCount || QueuedTechIds.Count > MaxTechCount
+			    || ProgressEntries.Count > ResearchSyncProtocol.MaxProgressTechCount
+			    || !ResearchSyncProtocol.HasUniqueIds(UnlockedTechIds)
+			    || !ResearchSyncProtocol.HasUniqueIds(QueuedTechIds))
+				return false;
+			return HasValidProgressEntries() && HasConsistentTechRoles();
+		}
 
-			if (Research.Instance == null) return;
-
-			try
+		private bool HasValidProgressEntries()
+		{
+			var techIds = new HashSet<string>(System.StringComparer.Ordinal);
+			int totalPoints = 0;
+			foreach (ResearchProgressData entry in ProgressEntries)
 			{
-				// Get the ResearchScreen for visual updates (use Traverse since field is not public)
-				object researchScreen = null;
-				if (ManagementMenu.Instance != null)
-				{
-					researchScreen = HarmonyLib.Traverse.Create(ManagementMenu.Instance)
-						.Field("researchScreen")
-						.GetValue();
-				}
-
-				// First, explicitly clear the visual state for all queued research
-				try
-				{
-					var queueField = HarmonyLib.AccessTools.Field(typeof(Research), "queuedTech");
-					if (queueField != null)
-					{
-						var localQueue = queueField.GetValue(Research.Instance) as System.Collections.IList;
-						if (localQueue != null && localQueue.Count > 0)
-						{
-							// Log and deselect visually
-							var techNames = new List<string>();
-							foreach (var item in localQueue)
-							{
-								var techInstance = item as TechInstance;
-								if (techInstance?.tech != null)
-								{
-									techNames.Add(techInstance.tech.Id);
-
-									// Deselect visually using ResearchScreen
-									if (researchScreen != null)
-									{
-										try
-										{
-											HarmonyLib.Traverse.Create(researchScreen)
-												.Method("SelectAllEntries", new Type[] { typeof(Tech), typeof(bool) })
-												.GetValue(techInstance.tech, false);
-										}
-										catch (Exception ex) { DebugConsole.LogError($"[ResearchStatePacket] Error deselecting entry: {ex}"); }
-									}
-								}
-							}
-							DebugConsole.Log($"[ResearchLog] Clearing queue of {localQueue.Count} items: {string.Join(", ", techNames)}");
-
-							// Clear the queue
-							localQueue.Clear();
-						}
-					}
-				}
-				catch (Exception ex)
-				{
-					DebugConsole.LogWarning($"[ResearchLog] Failed to clear queue: {ex}");
-				}
-
-				// Now set the host's active research
-				if (!string.IsNullOrEmpty(activeTechId))
-				{
-					var tech = Db.Get().Techs.Get(activeTechId);
-					if (tech != null)
-					{
-						DebugConsole.Log($"[ResearchLog] Setting active research to: {tech.Name}");
-						Research.Instance.SetActiveResearch(tech, true);
-
-						// Select visually using ResearchScreen
-						if (researchScreen != null)
-						{
-							try
-							{
-								HarmonyLib.Traverse.Create(researchScreen)
-									.Method("SelectAllEntries", new Type[] { typeof(Tech), typeof(bool) })
-									.GetValue(tech, true);
-							}
-							catch (Exception ex) { DebugConsole.LogError($"[ResearchStatePacket] Error selecting entry: {ex}"); }
-						}
-					}
-				}
-
-				// Sync unlocked techs
-				int unlockedCount = 0;
-				foreach (var techId in unlockedIds)
-				{
-					var tech = Db.Get().Techs.Get(techId);
-					if (tech == null) continue;
-
-					var techInst = Research.Instance.Get(tech);
-					if (techInst != null && !techInst.IsComplete())
-					{
-						techInst.Purchased();
-
-						// Trigger the game event to notify all listeners (PlanScreen, etc.)
-						try
-						{
-							Game.Instance?.Trigger((int)GameHashes.ResearchComplete, tech);
-						}
-						catch (Exception ex) { DebugConsole.LogError($"[ResearchStatePacket] Error triggering ResearchComplete: {ex}"); }
-
-						unlockedCount++;
-					}
-				}
-
-				if (unlockedCount > 0)
-				{
-					DebugConsole.Log($"[Client] Synced {unlockedCount} unlocked technologies from host.");
-				}
+				if (entry == null || !entry.IsWireValid() || !techIds.Add(entry.TechId))
+					return false;
+				totalPoints += entry.Points.Count;
+				if (totalPoints > ResearchSyncProtocol.MaxTotalResearchPoints)
+					return false;
 			}
-			catch (Exception ex)
-			{
-				DebugConsole.LogError($"[ResearchStatePacket] Failed to process research state: {ex}");
-			}
+			return true;
+		}
+
+		private bool HasConsistentTechRoles()
+		{
+			var unlocked = new HashSet<string>(UnlockedTechIds, System.StringComparer.Ordinal);
+			if (!string.IsNullOrEmpty(ActiveTechId) && unlocked.Contains(ActiveTechId))
+				return false;
+			foreach (string techId in QueuedTechIds)
+				if (unlocked.Contains(techId))
+					return false;
+			foreach (ResearchProgressData progress in ProgressEntries)
+				if (unlocked.Contains(progress.TechId))
+					return false;
+			return true;
+		}
+
+		private static void WriteTechIds(BinaryWriter writer, IReadOnlyCollection<string> ids)
+		{
+			writer.Write(ids.Count);
+			foreach (string id in ids)
+				ResearchSyncProtocol.WriteId(writer, id, ResearchSyncProtocol.MaxTechIdLength);
+		}
+
+		private static List<string> ReadTechIds(BinaryReader reader, string field)
+		{
+			int count = ResearchSyncProtocol.ReadCount(reader, MaxTechCount, field);
+			var ids = new List<string>(count);
+			for (int i = 0; i < count; i++)
+				ids.Add(ResearchSyncProtocol.ReadId(reader, ResearchSyncProtocol.MaxTechIdLength));
+			return ids;
 		}
 	}
 }

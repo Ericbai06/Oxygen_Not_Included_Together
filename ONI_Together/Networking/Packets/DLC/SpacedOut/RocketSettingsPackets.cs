@@ -132,6 +132,15 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 		internal static bool CoordinateWithinBounds(int q, int r)
 			=> q >= -MaxCoordinate && q <= MaxCoordinate &&
 			   r >= -MaxCoordinate && r <= MaxCoordinate;
+
+#if DEBUG
+		internal string CanonicalEvidenceState()
+			=> $"target={(byte)TargetKind},{TargetNetId},{TargetLifecycleRevision}|" +
+				$"destination={HasDestination},{DestinationQ},{DestinationR}|" +
+				$"pad={HasPad},{PadNetId}|repeat={Repeat}|restrict={RestrictWhenGrounded}|" +
+				$"craft={HasCraftState},{CraftLocationQ},{CraftLocationR},{(byte)CraftPhase}," +
+				$"{HasCurrentPad},{CurrentPadNetId}";
+#endif
 	}
 
 	public sealed class RocketSettingsRequestPacket :
@@ -183,7 +192,7 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			=> localIsHost && !context.SenderIsHost && context.IsVerifiedHostBroadcast;
 	}
 
-	public sealed class RocketSettingsStatePacket : IPacket, IHostOnlyPacket
+	public sealed partial class RocketSettingsStatePacket : IPacket, IHostOnlyPacket
 	{
 		private static readonly Dictionary<int, ulong> LastRevisions = new();
 
@@ -200,15 +209,18 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			Revision = revision;
 		}
 
-		internal static RocketSettingsStatePacket CreateAuthoritative(
-			RocketSettingsPacketData data)
-			=> new(data, NetworkIdentityRegistry.NextAuthorityRevision());
+			internal static RocketSettingsStatePacket CreateAuthoritative(
+				RocketSettingsPacketData data)
+				=> new(data, NetworkIdentityRegistry.NextAuthorityRevision());
 
 		public void Serialize(BinaryWriter writer)
 		{
-			if (Revision == 0 || !Data.IsAuthoritativeWireValid())
-				throw new InvalidDataException("Invalid authoritative rocket snapshot");
-			writer.Write(Revision);
+				if (Revision == 0 || !Data.IsAuthoritativeWireValid())
+					throw new InvalidDataException("Invalid authoritative rocket snapshot");
+#if DEBUG
+				RecordHostEvidence();
+#endif
+				writer.Write(Revision);
 			Data.Serialize(writer);
 		}
 
@@ -227,11 +239,28 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			ulong current = LastRevisions.TryGetValue(Data.TargetNetId, out ulong value) ? value : 0;
 			if (!ShouldAcceptRevision(current, Revision))
 				return;
-			if (RocketSettingsSync.TryApply(Data))
-			{
-				LastRevisions[Data.TargetNetId] = Revision;
-				RocketSettingsSync.CompleteRepair(Data.TargetNetId);
-				return;
+				bool applied;
+#if DEBUG
+				BeginClientEvidence();
+				try
+				{
+					applied = RocketSettingsSync.TryApply(Data);
+				}
+				finally
+				{
+					EndClientEvidence();
+				}
+#else
+				applied = RocketSettingsSync.TryApply(Data);
+#endif
+				if (applied)
+				{
+					LastRevisions[Data.TargetNetId] = Revision;
+					RocketSettingsSync.CompleteRepair(Data.TargetNetId);
+#if DEBUG
+					RecordClientAppliedEvidence();
+#endif
+					return;
 			}
 			RocketSettingsSync.RequestRepair(Data);
 		}

@@ -9,6 +9,7 @@ using ONI_Together.Networking.Packets.DLC.Aquatic;
 using ONI_Together.Networking.Packets.DLC.Frosty;
 using ONI_Together.Networking.Packets.DLC.Prehistoric;
 using ONI_Together.Networking.Packets.Social;
+using ONI_Together.Networking.Packets.Tools.Dig;
 using ONI_Together.Networking.Packets.World;
 using ONI_Together.Patches.DLC.Aquatic;
 using ONI_Together.Patches.DLC.Frosty;
@@ -165,6 +166,24 @@ namespace ONI_Together.DebugTools.UnitTests
 				$"All {checkedDefinitions} completed building definitions require existing-object binding");
 		}
 
+		[UnitTest(
+			name: "Dig lifecycle uses native materialization",
+			category: "Sync")]
+		public static UnitTestResult DigLifecycleUsesNativeMaterialization()
+		{
+			MethodInfo reconcile = Method(
+				typeof(WorldStateSyncer), nameof(WorldStateSyncer.OnDiggingStateReceived));
+			MethodInfo nativePlacement = Method(
+				typeof(DiggablePacket), nameof(DiggablePacket.PlaceLocally));
+			MethodInfo digToolPlacement = Method(
+				typeof(DigTool), nameof(DigTool.PlaceDig), typeof(int), typeof(int));
+			if (!Calls(reconcile, nativePlacement) || !Calls(nativePlacement, digToolPlacement))
+				return UnitTestResult.Fail(
+					"Digging reconciliation can bypass DigTool.PlaceDig initialization");
+			return UnitTestResult.Pass(
+				"Digging reconciliation and live packets share native placement");
+		}
+
 		private static bool Ordered(Type owner, string senderName, string captureName,
 			string ensureName, MethodInfo send)
 		{
@@ -239,12 +258,30 @@ namespace ONI_Together.DebugTools.UnitTests
 			byte[] il = caller?.GetMethodBody()?.GetILAsByteArray();
 			if (il == null || callee == null)
 				return -1;
-			byte[] token = BitConverter.GetBytes(callee.MetadataToken);
-			for (int i = 0; i <= il.Length - token.Length; i++)
-				if (il[i] == token[0] && il[i + 1] == token[1] &&
-				    il[i + 2] == token[2] && il[i + 3] == token[3])
-					return i;
+			for (int i = 0; i <= il.Length - sizeof(int); i++)
+			{
+				try
+				{
+					if (SameMethod(caller.Module.ResolveMethod(
+						    BitConverter.ToInt32(il, i)) as MethodInfo, callee))
+						return i;
+				}
+				catch (ArgumentException) { }
+			}
 			return -1;
+		}
+
+		private static bool SameMethod(MethodInfo actual, MethodInfo expected)
+		{
+			if (actual == null || actual.Name != expected.Name
+			    || actual.DeclaringType != expected.DeclaringType)
+				return false;
+			ParameterInfo[] left = actual.GetParameters();
+			ParameterInfo[] right = expected.GetParameters();
+			if (left.Length != right.Length) return false;
+			for (int i = 0; i < left.Length; i++)
+				if (left[i].ParameterType != right[i].ParameterType) return false;
+			return true;
 		}
 
 		private static MethodInfo Method(Type type, string name, params Type[] parameters)

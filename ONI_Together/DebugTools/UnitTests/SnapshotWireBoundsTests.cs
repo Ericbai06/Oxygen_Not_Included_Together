@@ -47,74 +47,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("UDP save chunks and ACK tracking allocations are bounded");
 		}
 
-		[UnitTest(name: "Building snapshot: sender rejects invalid wire state", category: "Networking")]
-		public static UnitTestResult BuildingSenderBounds()
-		{
-			if (!RejectsSerialize(new BuildingStatePacket { Buildings = null }, "count"))
-				return UnitTestResult.Fail("BuildingStatePacket accepted a null collection");
-			var tooMany = new List<BuildingState>(BuildingStatePacket.MaxBuildingCount + 1);
-			for (int i = 0; i <= BuildingStatePacket.MaxBuildingCount; i++)
-				tooMany.Add(default);
-			if (!RejectsSerialize(new BuildingStatePacket { Buildings = tooMany }, "count"))
-				return UnitTestResult.Fail("BuildingStatePacket accepted too many buildings");
-			if (!RejectsSerialize(new BuildingStatePacket
-			{
-				Buildings = [new BuildingState { Cell = Grid.InvalidCell, PrefabName = "WireRefinedBridge" }]
-			}, "cell")) return UnitTestResult.Fail("BuildingStatePacket accepted an invalid cell");
-			if (!RejectsSerialize(new BuildingStatePacket
-			{
-				Buildings = [new BuildingState { Cell = 0, PrefabName = string.Empty }]
-			}, "prefab")) return UnitTestResult.Fail("BuildingStatePacket accepted an empty prefab name");
-			if (!RejectsSerialize(new BuildingStatePacket
-			{
-				Buildings = [new BuildingState { Cell = 0, PrefabName = new string('x', 257) }]
-			}, "prefab")) return UnitTestResult.Fail("BuildingStatePacket accepted an oversized prefab name");
-
-			return UnitTestResult.Pass("Building snapshots validate sender state before writing");
-		}
-
-		[UnitTest(name: "Building snapshot: total wire bytes are bounded before writing", category: "Networking")]
-		public static UnitTestResult BuildingTotalWireBounds()
-		{
-			if (!TryGetValidCell(out int cell))
-				return UnitTestResult.Skip("Building wire limit test requires an initialized world grid");
-			const int entryBytes = sizeof(int) + 2 + BuildingStatePacket.MaxPrefabNameLength;
-			int overflowCount = (BuildingStatePacket.MaxSerializedBodyBytes - sizeof(int)) / entryBytes + 1;
-			var buildings = RepeatedBuildings(overflowCount, cell);
-			using var stream = new MemoryStream();
-			try
-			{
-				using var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true);
-				new BuildingStatePacket { Buildings = buildings }.Serialize(writer);
-				return UnitTestResult.Fail("BuildingStatePacket accepted an oversized wire body");
-			}
-			catch (InvalidDataException)
-			{
-				return stream.Length == 0
-					? UnitTestResult.Pass("Oversized building state is rejected before collection output")
-					: UnitTestResult.Fail("BuildingStatePacket wrote collection bytes before rejecting it");
-			}
-		}
-
-		[UnitTest(name: "Building snapshot: maximum legal wire body roundtrips", category: "Networking")]
-		public static UnitTestResult BuildingMaximumWireRoundTrip()
-		{
-			if (!TryGetValidCell(out int cell))
-				return UnitTestResult.Skip("Building boundary roundtrip requires an initialized world grid");
-			const int entryBytes = sizeof(int) + 2 + BuildingStatePacket.MaxPrefabNameLength;
-			int count = (BuildingStatePacket.MaxSerializedBodyBytes - sizeof(int)) / entryBytes;
-			var packet = new BuildingStatePacket { Buildings = RepeatedBuildings(count, cell) };
-			if (!PacketRegistry.HasRegisteredPacket(typeof(BuildingStatePacket)))
-				PacketRegistry.TryRegister(typeof(BuildingStatePacket));
-			byte[] wire = PacketSender.SerializePacketForSending(packet);
-			if (wire.Length + sizeof(int) * 2 > ReliablePageChannel.MaxQueuedBytes)
-				return UnitTestResult.Fail("Maximum legal building body exceeds page-channel admission");
-			var copy = RoundTrip(packet);
-			return copy.Buildings.Count == count
-				? UnitTestResult.Pass("Maximum legal building wire body roundtrips")
-				: UnitTestResult.Fail("Maximum legal building wire body changed during roundtrip");
-		}
-
 		[UnitTest(name: "Structure snapshot: sender identity and value are bounded", category: "Networking")]
 		public static UnitTestResult StructureSenderIdentityBounds()
 		{
@@ -195,13 +127,6 @@ namespace ONI_Together.DebugTools.UnitTests
 
 			if (!TryGetValidCell(out int cell))
 				return UnitTestResult.Skip("Structure roundtrip requires an initialized world grid");
-			var building = RoundTrip(new BuildingStatePacket
-			{
-				Buildings = [new BuildingState { Cell = cell, PrefabName = "WireRefinedBridge" }]
-			});
-			if (building.Buildings.Count != 1 || building.Buildings[0].Cell != cell)
-				return UnitTestResult.Fail("Legal building state did not roundtrip");
-
 			var structure = ValidStructurePacket(cell);
 			structure.OptionalValues["text"] = (Variant)"value";
 			structure.OptionalValues["bytes"] = (Variant)new byte[] { 1, 2, 3 };
@@ -249,15 +174,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			{
 				return true;
 			}
-		}
-
-		private static List<BuildingState> RepeatedBuildings(int count, int cell)
-		{
-			string prefab = new string('x', BuildingStatePacket.MaxPrefabNameLength);
-			var buildings = new List<BuildingState>(count);
-			for (int i = 0; i < count; i++)
-				buildings.Add(new BuildingState { Cell = cell, PrefabName = prefab });
-			return buildings;
 		}
 
 		private static bool RejectsSerialize(IPacket packet, string expectedMessage)

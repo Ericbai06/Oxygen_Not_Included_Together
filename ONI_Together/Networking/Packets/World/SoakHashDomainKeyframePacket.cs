@@ -171,7 +171,7 @@ namespace ONI_Together.Networking.Packets.World
 			         .OrderBy(identity => identity.NetId).ToArray();
 			foreach (NetworkIdentity identity in identities)
 			{
-					EntityPositionHandler position = identity.GetComponent<EntityPositionHandler>();
+					RemoteMotionPresenter position = identity.GetComponent<RemoteMotionPresenter>();
 					ClusterGridEntity cluster = identity.GetComponent<ClusterGridEntity>();
 					RocketModuleCluster module = identity.GetComponent<RocketModuleCluster>();
 					RocketControlStation station = identity.GetComponent<RocketControlStation>();
@@ -242,16 +242,16 @@ namespace ONI_Together.Networking.Packets.World
 			throw new InvalidDataException("Storage identity membership did not stabilize");
 		}
 
-		private void CapturePosition(EntityPositionHandler handler)
+		private void CapturePosition(RemoteMotionPresenter presenter)
 		{
-			Position = handler.transform.position;
-			FlipX = handler.kbac != null && handler.kbac.FlipX;
-			FlipY = handler.kbac != null && handler.kbac.FlipY;
-			NavType = handler.navigator != null
-			          && handler.navigator.CurrentNavType != NavType.NumNavTypes
-				? handler.navigator.CurrentNavType
+			Position = presenter.transform.position;
+			FlipX = presenter.AnimController != null && presenter.AnimController.FlipX;
+			FlipY = presenter.AnimController != null && presenter.AnimController.FlipY;
+			NavType = presenter.Navigator != null
+			          && presenter.Navigator.CurrentNavType != NavType.NumNavTypes
+				? presenter.Navigator.CurrentNavType
 				: NavType.Floor;
-			PositionSequence = EntityPositionHandler.NextHostSequence();
+			PositionSequence = RemoteMotionPresenter.NextHostSequence();
 		}
 
 		private static byte[] CaptureStorage(Storage storage)
@@ -370,186 +370,6 @@ namespace ONI_Together.Networking.Packets.World
 			return true;
 		}
 
-		private bool TryPrepare(out PreparedKeyframe prepared)
-		{
-			prepared = null;
-			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity)
-			    || identity.IsNullOrDestroyed() || identity.gameObject.IsNullOrDestroyed()
-			    || HasPosition && identity.GetComponent<EntityPositionHandler>() == null
-			    || HasClusterLocation && identity.GetComponent<ClusterGridEntity>() == null
-			    || HasRocketSettings && !RocketSettingsSync.CanApply(RocketSettings))
-				return false;
-			Storage[] storages = identity.GetComponents<Storage>();
-			if (storages.Length != StorageSnapshots.Count
-			    || storages.Length == 0 && StorageRevision != 0)
-				return false;
-			prepared = new PreparedKeyframe
-			{
-				Packet = this,
-				Identity = identity,
-				Storages = storages,
-			};
-			return true;
-		}
-
-		private string DescribePrepareFailure()
-		{
-			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
-				return "identity missing";
-			if (identity.IsNullOrDestroyed() || identity.gameObject.IsNullOrDestroyed())
-				return "identity destroyed";
-			if (HasPosition && identity.GetComponent<EntityPositionHandler>() == null)
-				return "position component missing";
-			if (HasClusterLocation && identity.GetComponent<ClusterGridEntity>() == null)
-				return "cluster component missing";
-			if (HasRocketSettings && !RocketSettingsSync.CanApply(RocketSettings))
-				return "rocket settings target unavailable";
-			Storage[] storages = identity.GetComponents<Storage>();
-			if (storages.Length != StorageSnapshots.Count)
-				return $"storage count {storages.Length}!={StorageSnapshots.Count}";
-			return storages.Length == 0 && StorageRevision != 0
-				? "storage revision without storage"
-				: "unknown";
-		}
-
-		private bool TryApplyNonPosition(NetworkIdentity identity)
-		{
-			if (HasClusterLocation)
-			{
-				ClusterGridEntity cluster = identity.GetComponent<ClusterGridEntity>();
-				AxialI target = AxialCoordinateSync.FromQr(ClusterQ, ClusterR);
-				cluster.Location = target;
-				if (cluster.Location != target)
-					return false;
-			}
-			return !HasRocketSettings || RocketSettingsSync.TryApply(RocketSettings);
-		}
-
-		private bool TryApplyWorldTransform(NetworkIdentity identity)
-		{
-			bool applied;
-			if (HasPosition)
-				applied = TryApplyPosition(identity);
-			else
-			{
-				identity.transform.SetPosition(Position);
-				applied = identity.transform.position == Position;
-			}
-			return applied && identity.gameObject.GetMyWorldId() == WorldId;
-		}
-
-		private bool TryApplyPosition(NetworkIdentity identity)
-		{
-			EntityPositionHandler handler = identity.GetComponent<EntityPositionHandler>();
-			if (handler == null)
-				return false;
-			if (handler.serverTimestamp > PositionSequence)
-				return false;
-			if (handler.serverTimestamp < PositionSequence)
-			{
-				handler.serverPosition = Position;
-				handler.serverTimestamp = PositionSequence;
-				handler.serverFlipX = FlipX;
-				handler.serverFlipY = FlipY;
-				handler.serverNavType = NavType;
-				handler.MarkServerUpdateReceived();
-			}
-			handler.transform.SetPosition(Position);
-			if (handler.kbac != null)
-			{
-				handler.kbac.FlipX = FlipX;
-				handler.kbac.FlipY = FlipY;
-			}
-			if (handler.navigator != null)
-				handler.navigator.SetCurrentNavType(NavType);
-			return PositionMatches(handler);
-		}
-
-		private bool PositionMatches(EntityPositionHandler handler)
-		{
-			bool renderMatches = handler.transform.position == Position
-			                     && (handler.kbac == null
-			                         || handler.kbac.FlipX == FlipX && handler.kbac.FlipY == FlipY)
-			                     && (handler.navigator == null
-			                         || handler.navigator.CurrentNavType == NavType);
-			return renderMatches && handler.serverPosition == Position
-			       && handler.serverFlipX == FlipX && handler.serverFlipY == FlipY
-			       && handler.serverNavType == NavType;
-		}
-
-		private static List<StorageSnapshotSync.SnapshotRequest> BuildStorageRequests(
-			IReadOnlyList<PreparedKeyframe> keyframes)
-		{
-			var requests = new List<StorageSnapshotSync.SnapshotRequest>();
-			foreach (PreparedKeyframe keyframe in keyframes)
-			{
-				for (int index = 0; index < keyframe.Storages.Length; index++)
-				{
-					requests.Add(new StorageSnapshotSync.SnapshotRequest
-					{
-						Storage = keyframe.Storages[index],
-						Payload = keyframe.Packet.StorageSnapshots[index],
-						SnapshotRevision = keyframe.Packet.StorageRevision,
-						ApplyChanges = false,
-					});
-				}
-			}
-			return requests;
-		}
-
-		private static KeyframeStorageRevisionCommit SetStorageApplyDecisions(
-			IReadOnlyList<PreparedKeyframe> keyframes,
-			IReadOnlyList<StorageSnapshotSync.SnapshotRequest> requests)
-		{
-			int requestIndex = 0;
-			var commit = new Dictionary<int, ulong>();
-			foreach (PreparedKeyframe keyframe in keyframes)
-			{
-				bool apply = keyframe.Storages.Length > 0
-				             && NetworkIdentityRegistry.ShouldAcceptStorageSnapshotRevision(
-					             keyframe.Packet.NetId, keyframe.Packet.StorageRevision);
-				if (apply)
-					commit.Add(keyframe.Packet.NetId, keyframe.Packet.StorageRevision);
-				for (int index = 0; index < keyframe.Storages.Length; index++)
-					requests[requestIndex++].ApplyChanges = apply;
-			}
-			return new KeyframeStorageRevisionCommit(commit);
-		}
-
-		private void Validate()
-		{
-			SoakHashWire.ValidateMarker(RunId, SampleId, 0f);
-			if (EntryIndex < 0 || EntryIndex >= SoakHashDomainKeyframeBeginPacket.MaxEntries
-			    || NetId == 0 || LifecycleSnapshot == null
-			    || LifecycleSnapshot.NetId != NetId || LifecycleSnapshot.Hash == 0
-			    || LifecycleSnapshot.Revision == 0
-			    || LifecycleSnapshot.WorldId != WorldId
-			    || LifecycleSnapshot.Position != Position
-			    || !Finite(Position.x) || !Finite(Position.y) || !Finite(Position.z)
-			    || HasPosition && (PositionSequence <= 0 || NavType >= NavType.NumNavTypes)
-			    || HasClusterLocation && !RocketSettingsPacketData.CoordinateWithinBounds(
-				    ClusterQ, ClusterR)
-			    || HasRocketSettings && (RocketSettings == null || !RocketSettings.IsWireValid())
-			    || StorageSnapshots.Count > MaxStorageCount
-			    || (StorageSnapshots.Count == 0) != (StorageRevision == 0))
-				throw new InvalidDataException("Invalid soak hash-domain keyframe metadata");
-			int totalBytes = 0;
-			foreach (byte[] snapshot in StorageSnapshots)
-			{
-				ValidateSnapshotLength(snapshot?.Length ?? -1, totalBytes);
-				totalBytes += snapshot.Length;
-			}
-		}
-
-		private static bool Finite(float value)
-			=> !float.IsNaN(value) && !float.IsInfinity(value);
-
-		private static void ValidateSnapshotLength(int length, int previousBytes)
-		{
-			if (length <= 0 || length > MaxStorageSnapshotBytes
-			    || previousBytes > MaxTotalSnapshotBytes - length)
-				throw new InvalidDataException("Invalid soak storage keyframe length");
-		}
 	}
 }
 #endif

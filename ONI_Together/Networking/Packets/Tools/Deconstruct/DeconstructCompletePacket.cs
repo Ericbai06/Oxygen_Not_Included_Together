@@ -1,48 +1,72 @@
-﻿using ONI_Together.DebugTools;
+﻿using System.IO;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
-using System.IO;
-using Shared.Profiling;
+using ONI_Together.Networking.Packets.World;
 using Shared.Interfaces.Networking;
-using UnityEngine;
+using Shared.Profiling;
 
 namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 {
-	public class DeconstructCompletePacket : IPacket, IHostOnlyPacket
+	public sealed class DeconstructCompletePacket : IPacket, IHostOnlyPacket
 	{
-		public int Cell, ObjectLayer;
+		public int NetId;
+		public ulong Revision;
+
+		public DeconstructCompletePacket()
+		{
+		}
+
+		public DeconstructCompletePacket(int netId)
+		{
+			NetId = netId;
+			Revision = NetworkIdentityRegistry.EndLifecycle(netId);
+		}
 
 		public void Serialize(BinaryWriter writer)
 		{
 			using var _ = Profiler.Scope();
-
-			writer.Write(Cell);
-			writer.Write(ObjectLayer);
+			ValidateWire();
+			writer.Write(NetId);
+			writer.Write(Revision);
 		}
 
 		public void Deserialize(BinaryReader reader)
 		{
 			using var _ = Profiler.Scope();
-
-			Cell = reader.ReadInt32();
-			ObjectLayer = reader.ReadInt32();
+			NetId = reader.ReadInt32();
+			Revision = reader.ReadUInt64();
+			ValidateWire();
 		}
 
 		public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
-
-			if (!Grid.IsValidCell(Cell))
+			ulong current = NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
+			bool senderAccepted = !MultiplayerSession.IsHost
+			                      && PacketHandler.CurrentContext.SenderIsHost;
+			if (!ShouldApply(senderAccepted, current, Revision)
+			    || !NetworkIdentityRegistry.TryAcceptLifecycleRevision(
+				    NetId, Revision, tombstone: true))
 				return;
-
-			GameObject go = Grid.Objects[Cell, ObjectLayer];
-			if (go == null)
+			StorageItemPacket.CancelPending(NetId);
+			GroundItemPickedUpPacket.CancelPending(NetId);
+			SpawnPrefabPacket.CancelPendingBinding(NetId);
+			if (!NetworkIdentityRegistry.TryGetComponent(
+				    NetId, out Deconstructable deconstructable))
 				return;
-
-			if (go.TryGetComponent<Deconstructable>(out var deconstructable) && !deconstructable.HasBeenDestroyed)
-			{
-				DebugConsole.Log($"[DeconstructCompletePacket] Forcing deconstruct at cell {Cell} on objectlayer {ObjectLayer} on client.");
+			if (!deconstructable.HasBeenDestroyed)
 				deconstructable.ForceDestroyAndGetMaterials();
-			}
+			DebugConsole.Log($"[DeconstructCompletePacket] Applied NetId={NetId}");
+		}
+
+		internal static bool ShouldApply(
+			bool senderAccepted, ulong current, ulong incoming)
+			=> senderAccepted && NetworkIdentityRegistry.IsNewerRevision(current, incoming);
+
+		private void ValidateWire()
+		{
+			if (NetId == 0 || Revision == 0)
+				throw new InvalidDataException("Invalid deconstruct lifecycle metadata");
 		}
 	}
 }

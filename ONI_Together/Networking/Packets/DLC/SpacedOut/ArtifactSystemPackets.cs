@@ -112,7 +112,6 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 
 		public int StationNetId;
 		public int Revision;
-		public int WorkerNetId;
 		public float WorkTimeRemaining;
 		public int ArtifactNetId;
 		public string ArtifactId = "";
@@ -126,7 +125,6 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 				throw new InvalidDataException("Invalid artifact analysis state");
 			writer.Write(StationNetId);
 			writer.Write(Revision);
-			writer.Write(WorkerNetId);
 			writer.Write(WorkTimeRemaining);
 			writer.Write(ArtifactNetId);
 			writer.Write(ArtifactId ?? "");
@@ -139,7 +137,6 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 		{
 			StationNetId = reader.ReadInt32();
 			Revision = reader.ReadInt32();
-			WorkerNetId = reader.ReadInt32();
 			WorkTimeRemaining = reader.ReadSingle();
 			ArtifactNetId = reader.ReadInt32();
 			ArtifactId = reader.ReadString();
@@ -162,8 +159,6 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			    !ArtifactPacketValidation.IsFinite(WorkTimeRemaining) ||
 			    WorkTimeRemaining < 0f || WorkTimeRemaining > MaxWorkTime ||
 			    Selector?.IsWireValid() != true)
-				return false;
-			if (WorkerNetId != 0 && (ArtifactNetId == 0 || !ArtifactCharmed))
 				return false;
 			if (ArtifactNetId == 0)
 				return string.IsNullOrEmpty(ArtifactId) && !ArtifactCharmed && !TerrestrialArtifact;

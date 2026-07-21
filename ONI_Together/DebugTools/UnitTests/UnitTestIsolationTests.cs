@@ -28,6 +28,15 @@ public static class UnitTestIsolationTests
 		return UnitTestResult.Pass("Active sessions skip unsafe tests and execute live-safe tests");
 	}
 
+	[UnitTest(name: "Unit tests: full suite requires a fresh non-multiplayer process", category: "Debug")]
+	public static UnitTestResult FullSuiteRejectsActiveMultiplayerSession()
+	{
+		return DebugMenu.CanRunFullUnitTestsForTests(false)
+		       && !DebugMenu.CanRunFullUnitTestsForTests(true)
+			? UnitTestResult.Pass()
+			: UnitTestResult.Fail("Full unit-test isolation boundary was not enforced");
+	}
+
 	private static UnitTestResult CountInvocation()
 	{
 		_invocationCount++;

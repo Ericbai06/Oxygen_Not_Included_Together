@@ -36,6 +36,9 @@ namespace ONI_Together.Networking.Components
             public Variant lastValue;
             public bool lastActive;
             public Dictionary<string, Variant> lastOptional;
+            public ulong lifecycleRevision;
+            public ulong stateRevision;
+            public ulong broadcastStateRevision;
         }
 
         public override void OnSpawn()
@@ -82,8 +85,7 @@ namespace ONI_Together.Networking.Components
 
             foreach (var kvp in _tracked)
             {
-                int netId = kvp.Key;
-                var entry = kvp.Value;
+                var (netId, entry) = (kvp.Key, kvp.Value);
 
                 if (entry.go.IsNullOrDestroyed())
                 {
@@ -91,30 +93,10 @@ namespace ONI_Together.Networking.Components
                     continue;
                 }
 
-                if (!SampleBuilding(entry.go, out var value, out var active, out var optional))
+                if (!TryCaptureState(netId, entry, requireBroadcast: true, out var packet))
                     continue;
 
-                bool changed = LogicStatePacket.VariantValueChanged(value, entry.lastValue)
-                    || active != entry.lastActive
-                    || LogicStatePacket.OptionalValuesChanged(optional, entry.lastOptional);
-
-                if (!changed)
-                    continue;
-
-                entry.lastValue = value;
-                entry.lastActive = active;
-                entry.lastOptional = optional;
-
-                int cell = Grid.PosToCell(entry.go);
-
-                var packet = new LogicStatePacket
-                {
-                    NetId = netId,
-                    Cell = cell,
-                    Value = value,
-                    IsActive = active,
-                    OptionalValues = optional,
-                };
+                int cell = packet.Cell;
 
                 if (WorldStateSyncer.Instance != null)
                 {
@@ -126,6 +108,7 @@ namespace ONI_Together.Networking.Components
                 {
                     PacketSender.SendToAllClients(packet, PacketSendMode.Unreliable);
                 }
+                entry.broadcastStateRevision = entry.stateRevision;
             }
 
             foreach (int netId in toRemove)
@@ -166,19 +149,32 @@ namespace ONI_Together.Networking.Components
             }
         }
 
-        public void HandlePacket(LogicStatePacket packet)
+        public void TryHandlePacket(LogicStatePacket packet)
         {
             if (!Grid.IsValidCell(packet.Cell)) return;
-
-            _lastPacketTime[packet.NetId] = Time.unscaledTime;
-
             if (!_tracked.TryGetValue(packet.NetId, out var entry))
                 return;
-
             if (entry.go.IsNullOrDestroyed())
                 return;
-
+            if (!NetworkIdentityRegistry.TryGet(packet.NetId, out var identity))
+                return;
+            if (identity == null || identity.gameObject != entry.go)
+                return;
+            ulong lifecycle = NetworkIdentityRegistry.GetLastLifecycleRevision(packet.NetId);
+            ulong lastState = NetworkIdentityRegistry.GetLastStateRevision(
+                packet.NetId, LogicStatePacket.RevisionDomain);
+            bool accepted = LogicStatePacket.ShouldApplyState(
+                MultiplayerSession.IsHost, true, lifecycle,
+                NetworkIdentityRegistry.IsLifecycleTombstoned(packet.NetId),
+                packet.LifecycleRevision, lastState, packet.StateRevision);
+            if (!accepted)
+                return;
+            if (!NetworkIdentityRegistry.TryAcceptStateRevision(
+                    packet.NetId, LogicStatePacket.RevisionDomain, packet.StateRevision))
+                return;
             ApplyBuildingState(entry.go, packet);
+            if (LogicStatePacket.ShouldRefreshLastPacketTime(accepted))
+                _lastPacketTime[packet.NetId] = Time.unscaledTime;
         }
 
         public void SendStateToClient(ulong playerId, int netId)
@@ -189,19 +185,46 @@ namespace ONI_Together.Networking.Components
             if (entry.go.IsNullOrDestroyed())
                 return;
 
-            if (!SampleBuilding(entry.go, out var value, out var active, out var optional))
+            if (!TryCaptureState(netId, entry, requireBroadcast: false, out var packet))
                 return;
 
-            int cell = Grid.PosToCell(entry.go);
+            PacketSender.SendToPlayer(playerId, packet, PacketSendMode.ReliableImmediate);
+        }
 
-            PacketSender.SendToPlayer(playerId, new LogicStatePacket
+        private bool TryCaptureState(
+            int netId, BuildingEntry entry, bool requireBroadcast, out LogicStatePacket packet)
+        {
+            packet = null;
+            if (!NetworkIdentityRegistry.TryGet(netId, out var identity)
+                || identity == null || identity.gameObject != entry.go)
+                return false;
+            ulong lifecycle = NetworkIdentityRegistry.GetLastLifecycleRevision(netId);
+            if (lifecycle == 0 || NetworkIdentityRegistry.IsLifecycleTombstoned(netId))
+                return false;
+            if (!SampleBuilding(entry.go, out var value, out var active, out var optional))
+                return false;
+            bool changed = lifecycle != entry.lifecycleRevision || entry.stateRevision == 0
+                || LogicStatePacket.VariantValueChanged(value, entry.lastValue)
+                || active != entry.lastActive
+                || LogicStatePacket.OptionalValuesChanged(optional, entry.lastOptional);
+            if (changed)
             {
-                NetId = netId,
-                Cell = cell,
-                Value = value,
-                IsActive = active,
-                OptionalValues = optional,
-            }, PacketSendMode.ReliableImmediate);
+                entry.lastValue = value;
+                entry.lastActive = active;
+                entry.lastOptional = optional;
+                entry.lifecycleRevision = lifecycle;
+                entry.stateRevision = NetworkIdentityRegistry.NextAuthorityRevision();
+            }
+            if (requireBroadcast && entry.broadcastStateRevision == entry.stateRevision)
+                return false;
+            packet = new LogicStatePacket
+            {
+                NetId = netId, Cell = Grid.PosToCell(entry.go),
+                LifecycleRevision = lifecycle, StateRevision = entry.stateRevision,
+                Value = entry.lastValue, IsActive = entry.lastActive,
+                OptionalValues = entry.lastOptional,
+            };
+            return true;
         }
 
         public void Register(GameObject go)
@@ -221,6 +244,9 @@ namespace ONI_Together.Networking.Components
                 lastValue = default,
                 lastActive = false,
                 lastOptional = null,
+                lifecycleRevision = 0,
+                stateRevision = 0,
+                broadcastStateRevision = 0,
             };
         }
 
@@ -233,6 +259,27 @@ namespace ONI_Together.Networking.Components
 
             _tracked.Remove(identity.NetId);
             _lastPacketTime.Remove(identity.NetId);
+        }
+
+        internal static void ResetSessionState()
+        {
+            LogicStatePacket.ResetClientRevisionState();
+            Instance?.ResetRuntimeState();
+        }
+
+        private void ResetRuntimeState()
+        {
+            _timer = 0f;
+            _initialized = false;
+            _clientRequestTimer = 0f;
+            _lastPacketTime.Clear();
+            foreach (BuildingEntry entry in _tracked.Values)
+            {
+                entry.lastOptional = null;
+                entry.lifecycleRevision = 0;
+                entry.stateRevision = 0;
+                entry.broadcastStateRevision = 0;
+            }
         }
 
         private bool SampleBuilding(GameObject go, out Variant value, out bool active, out Dictionary<string, Variant> optional)

@@ -222,14 +222,17 @@ namespace ONI_Together.DebugTools.UnitTests
 			var packet = new ToggleEffectPacket
 			{
 				MinionNetId = -81,
+				Revision = 41,
 				EffectId = MosquitoHungerMonitor.MosquitoFedEffectName,
+				EffectHash = new HashedString(MosquitoHungerMonitor.MosquitoFedEffectName).hash,
 				IsAdding = true,
 				ShouldSave = true,
 				TimeRemaining = 321.5f
 			};
 			if (!packet.IsWireValid() || !ToggleEffectPacket.ShouldApply(false, true) ||
 			    ToggleEffectPacket.ShouldApply(true, true) ||
-			    ToggleEffectPacket.ShouldApply(false, false) || packet is not IHostOnlyPacket)
+			    ToggleEffectPacket.ShouldApply(false, false) || packet is not IHostOnlyPacket ||
+			    packet is IBulkablePacket)
 				return UnitTestResult.Fail("Entity effect packet authority is incorrect");
 
 			var output = new ToggleEffectPacket();
@@ -240,22 +243,113 @@ namespace ONI_Together.DebugTools.UnitTests
 				stream.Position = 0;
 				using var reader = new BinaryReader(stream);
 				output.Deserialize(reader);
-				if (output.TimeRemaining != 321.5f || stream.Position != stream.Length)
-					return UnitTestResult.Fail("Entity effect duration did not roundtrip");
+				if (output.EffectHash != packet.EffectHash || output.EffectId != packet.EffectId ||
+				    output.Revision != 41 ||
+				    output.TimeRemaining != 321.5f || stream.Position != stream.Length)
+					return UnitTestResult.Fail("Entity effect state did not roundtrip");
 			}
 
-			packet.TimeRemaining = float.NaN;
-			if (packet.IsWireValid())
+			ToggleEffectPacket.ResetSessionState();
+			bool revisionGate = ToggleEffectPacket.AcceptRevisionForTests(-81, packet.EffectHash, 41)
+			                    && !ToggleEffectPacket.AcceptRevisionForTests(-81, packet.EffectHash, 41)
+			                    && !ToggleEffectPacket.AcceptRevisionForTests(-81, packet.EffectHash, 40);
+			ToggleEffectPacket.ResetSessionState();
+			if (!revisionGate || !ToggleEffectPacket.AcceptRevisionForTests(-81, packet.EffectHash, 1))
+				return UnitTestResult.Fail("Client effect revision gate is incorrect");
+			return UnitTestResult.Pass("Entity effects use bounded latest-only host snapshots");
+		}
+
+		[UnitTest(name: "Entity effect remove preserves raw hash", category: "Sync")]
+		public static UnitTestResult EntityEffectRawHashRoundtrip()
+		{
+			int rawHash = new HashedString("HexLookingEffect_8BADF00D").hash;
+			var input = new ToggleEffectPacket
+			{
+				MinionNetId = -82,
+				Revision = 1,
+				EffectHash = rawHash
+			};
+			var output = new ToggleEffectPacket();
+			using var stream = new MemoryStream();
+			using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
+				input.Serialize(writer);
+			stream.Position = 0;
+			using var reader = new BinaryReader(stream);
+			output.Deserialize(reader);
+
+			if (output.IsAdding || output.EffectHash != rawHash ||
+			    !string.IsNullOrEmpty(output.EffectId) || stream.Position != stream.Length)
+				return UnitTestResult.Fail("Remove converted the raw hash through string formatting");
+
+			input.IsAdding = true;
+			input.EffectId = MosquitoHungerMonitor.MosquitoFedEffectName;
+			input.EffectHash = new HashedString(input.EffectId).hash + 1;
+			if (input.IsWireValid())
+				return UnitTestResult.Fail("Effect ID/hash mismatch was accepted");
+			input.EffectHash--;
+			input.TimeRemaining = float.NaN;
+			if (input.IsWireValid())
 				return UnitTestResult.Fail("NaN effect duration was accepted");
-			packet.TimeRemaining = 0f;
-			packet.EffectId = string.Empty;
-			if (packet.IsWireValid())
-				return UnitTestResult.Fail("Empty effect ID was accepted");
-			if (!EffectsPatch.ShouldPredictLocally(true, false, false, true) ||
-			    EffectsPatch.ShouldPredictLocally(true, true, false, true) ||
-			    EffectsPatch.ShouldPredictLocally(false, false, false, true))
-				return UnitTestResult.Fail("Client effect prediction gate is incorrect");
-			return UnitTestResult.Pass("Entity effects use bounded host snapshots with safe client prediction");
+			return UnitTestResult.Pass("Remove carries the raw HashedString value without ToString conversion");
+		}
+
+		[UnitTest(name: "Entity effect dirty states collapse to final frame state", category: "Sync")]
+		public static UnitTestResult EntityEffectFinalFrameState()
+		{
+			const int netId = -83;
+			string effectId = MosquitoHungerMonitor.MosquitoFedEffectName;
+			int effectHash = new HashedString(effectId).hash;
+			EffectsPatch.ResetSessionState();
+
+			// Add -> refresh -> Remove -> Add: only the queried final Add may leave the frame.
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			ToggleEffectPacket[] addPackets = EffectsPatch.DrainDirtyEffectsForTests((id, hash) =>
+				new ToggleEffectPacket
+				{
+					MinionNetId = id,
+					EffectHash = hash,
+					EffectId = effectId,
+					IsAdding = true,
+					TimeRemaining = 10f
+				});
+			if (addPackets.Length != 1 || !addPackets[0].IsAdding)
+				return UnitTestResult.Fail("Repeated mutations emitted more than one final Add");
+
+			// Add -> Remove: the final resolver sees absence and emits one raw-hash Remove.
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			EffectsPatch.MarkDirtyForTests(netId, effectHash);
+			ToggleEffectPacket[] removePackets = EffectsPatch.DrainDirtyEffectsForTests((id, hash) =>
+				new ToggleEffectPacket { MinionNetId = id, EffectHash = hash });
+			return removePackets.Length == 1 && !removePackets[0].IsAdding &&
+			       removePackets[0].EffectHash == effectHash
+				? UnitTestResult.Pass("Same-frame mutations collapse to one queried final state")
+				: UnitTestResult.Fail("Add/remove did not collapse to one final Remove");
+		}
+
+		[UnitTest(name: "Entity effect dirty keys stay independent and reset", category: "Sync")]
+		public static UnitTestResult EntityEffectDirtyKeyIsolation()
+		{
+			EffectsPatch.ResetSessionState();
+			EffectsPatch.MarkDirtyForTests(-84, 101);
+			EffectsPatch.MarkDirtyForTests(-84, 102);
+			EffectsPatch.MarkDirtyForTests(-85, 101);
+			ToggleEffectPacket[] packets = EffectsPatch.DrainDirtyEffectsForTests((id, hash) =>
+				new ToggleEffectPacket { MinionNetId = id, EffectHash = hash });
+			if (packets.Length != 3)
+				return UnitTestResult.Fail("Distinct entity/effect keys were merged");
+			if (!EffectsPatch.IsCurrentDirtyOwner(true, 7, 7) ||
+			    EffectsPatch.IsCurrentDirtyOwner(false, 7, 7) ||
+			    EffectsPatch.IsCurrentDirtyOwner(true, 7, 8))
+				return UnitTestResult.Fail("A stale identity lifecycle could flush dirty state");
+
+			EffectsPatch.MarkDirtyForTests(-84, 101);
+			EffectsPatch.ResetSessionState();
+			return EffectsPatch.DrainDirtyEffectsForTests((id, hash) => null).Length == 0
+				? UnitTestResult.Pass("Dirty keys are independent and cleared on session reset")
+				: UnitTestResult.Fail("Dirty effect state survived session reset");
 		}
 
 		private static bool Matches(Type type, string name, Type returnType, params Type[] parameters)

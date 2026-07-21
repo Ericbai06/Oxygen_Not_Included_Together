@@ -1,7 +1,9 @@
 using ONI_Together.Misc.World;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
+using ONI_Together.Networking.Packets.Animation;
 using ONI_Together.Networking.Packets.Core;
+using ONI_Together.Networking.Packets.Tools.Build;
 using ONI_Together.Networking.Packets.DLC;
 using ONI_Together.Networking.Packets.DLC.Aquatic;
 using ONI_Together.Networking.Packets.DLC.Frosty;
@@ -17,11 +19,34 @@ using ONI_Together.Patches.DLC.Frosty;
 using ONI_Together.Patches.DLC.Prehistoric;
 using ONI_Together.Patches.DLC.SpacedOut;
 using ONI_Together.Patches.Duplicant;
+using ONI_Together.UI;
 
 namespace ONI_Together.Networking
 {
 	public static class SessionStateReset
 	{
+		internal static bool ResetPresentationForBaseline(long hostTick, long generation)
+		{
+			if (!PresentationTickClock.ResetCorrectionForBaseline(hostTick, generation))
+				return false;
+			AnimSyncCoordinator.ResetSessionState();
+			AnimSyncBatchPacket.ResetSessionState();
+			DuplicantStateSender.ResetSessionState();
+			DuplicantPresentationBatchPacket.ResetSessionState();
+			CursorManager.ResetSessionState();
+			PlayerCursorPacket.ResetSessionState();
+			RemoteMotionPresenter.ResetSessionState();
+			ToggleEffectPacket.ResetSessionState();
+			ConduitContentsPacket.ResetClientRevisionState();
+			LogicStatePacket.ResetClientRevisionState();
+			ResearchSyncCoordinator.ResetClientForBaseline(generation);
+			BuildingConfigPacket.ResetClientRevisionState();
+			WorldCyclePacket.ClearState();
+			PlayAnimPacket.ClearState();
+			NetworkingComponent.ResetPresentationFlushGate();
+			return true;
+		}
+
 		public static void Reset()
 		{
 			ResetCore();
@@ -36,6 +61,12 @@ namespace ONI_Together.Networking
 
 		private static void ResetCore()
 		{
+			ChatScreen.ResetSessionState();
+			BuildCompletePacket.ClearPending();
+			GroundItemPickedUpPacket.ClearPending();
+			StorageItemPacket.ClearPending();
+			PresentationTickClock.ResetSessionState();
+			NetworkingComponent.ResetPresentationFlushGate();
 			WorldStateSyncer.SetAuthoritativeRepairSuppressed(false);
 			WorldStateSyncer.SetWorldScanPaused(false);
 #if DEBUG
@@ -44,23 +75,37 @@ namespace ONI_Together.Networking
 #endif
 				ReadyManager.ResetSessionState();
 				WorldDataRequestPacket.ResetSessionState();
-				PacketHandler.ResetSessionState();
+			PacketHandler.ResetSessionState();
+			AnimSyncCoordinator.ResetSessionState();
+			AnimSyncBatchPacket.ResetSessionState();
+			DuplicantStateSender.ResetSessionState();
+			DuplicantPresentationBatchPacket.ResetSessionState();
+			CursorManager.ResetSessionState();
+			PlayerCursorPacket.ResetSessionState();
 			HostBroadcastPacket.ResetSessionState();
-			ChunkedPacket.ResetSessionState();
+			ONI_Together.Networking.Transport.Lan.RiptideFrameCodec.ResetSessionState();
 			PacketSender.ResetSessionState();
-			NetworkConfig.TransportPacketSender?.ResetSessionState();
+			ONI_Together.DebugTools.SyncStats.ResetNativeTransport();
+			ProtocolRejectionBarrier.Reset();
 			GameServerHardSync.ResetSessionState();
 			InstantiationBatcher.ResetSessionState();
 			WorldUpdateBatcher.ResetSessionState();
+			ColonyDiagnostic_Patches.ResetSessionState();
 			SaveChunkAssembler.ResetSessionState();
 			SaveFileTransferManager.ResetSessionState();
 			TcpTransferStartPacket.CancelActiveDownload();
 			SyncProgressPacket.ResetSessionState();
 			BuildingConfigPacket.ResetSessionState();
+			ConduitFlowSyncer.ResetSessionState();
+			LogicStateSyncer.ResetSessionState();
+			ResearchSyncCoordinator.ResetSessionState();
 			DuplicantChoreBroadcaster.ResetSessionState();
-				StatusBroadcaster.ResetSessionState();
-				EntityPositionHandler.ResetSessionState();
-				SkillResumeSync.ResetSessionState();
+			StatusBroadcaster.ResetSessionState();
+			RemoteMotionPresenter.ResetSessionState();
+			SkillResumeSync.ResetSessionState();
+			EffectsPatch.ResetSessionState();
+			ToggleEffectPacket.ResetSessionState();
+			PrioritizeStatePacket.ResetSessionState();
 			DuplicantPriorityPacket.ResetSessionState();
 			NetworkIdentity.ResetSessionState();
 			PlantGrowthSyncer.ResetSessionState();

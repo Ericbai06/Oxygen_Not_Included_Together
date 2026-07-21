@@ -1,9 +1,9 @@
 using System.IO;
-using System.Linq;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.World;
 using Shared.Interfaces.Networking;
+using UnityEngine;
 
 namespace ONI_Together.DebugTools.UnitTests
 {
@@ -12,7 +12,7 @@ namespace ONI_Together.DebugTools.UnitTests
 		[UnitTest(name: "GroundItemPickedUpPacket: serialization roundtrip", category: "GroundItems")]
 		public static UnitTestResult PacketRoundtrip()
 		{
-			var original = new GroundItemPickedUpPacket { NetId = 999888777 };
+			var original = new GroundItemPickedUpPacket { NetId = 999888777, Revision = 77 };
 			using var ms = new MemoryStream();
 			using var writer = new BinaryWriter(ms);
 			original.Serialize(writer);
@@ -20,8 +20,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			using var reader = new BinaryReader(ms);
 			var copy = new GroundItemPickedUpPacket();
 			copy.Deserialize(reader);
-			if (copy.NetId != original.NetId)
-				return UnitTestResult.Fail($"NetId mismatch: {copy.NetId} != {original.NetId}");
+			if (999888777 != copy.NetId || 77UL != copy.Revision || ms.Position != ms.Length)
+				return UnitTestResult.Fail("Ground pickup lost NetId/revision or left unread bytes");
 			return UnitTestResult.Pass("GroundItemPickedUpPacket roundtrip OK");
 		}
 
@@ -34,18 +34,15 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("GroundItemPickedUpPacket dispatches immediately and stays independent of bulk flush timing");
 		}
 
-		[UnitTest(name: "World damage late spawn respects lifecycle tombstone", category: "GroundItems")]
-		public static UnitTestResult LateWorldDamageSpawnRespectsTombstone()
+		[UnitTest(name: "Ground pickup resolved target requires a newer tombstone", category: "GroundItems")]
+		public static UnitTestResult ResolvedRemovalRequiresNewerRevision()
 		{
-			bool normalSpawn = WorldDamageSpawnResourcePacket.ShouldApply(
-				localIsHost: false, senderIsHost: true,
-				entityExists: false, lifecycleTombstoned: false);
-			bool lateSpawn = WorldDamageSpawnResourcePacket.ShouldApply(
-				localIsHost: false, senderIsHost: true,
-				entityExists: false, lifecycleTombstoned: true);
-			return normalSpawn && !lateSpawn
-				? UnitTestResult.Pass("Lifecycle tombstone rejects a late world-damage resource spawn")
-				: UnitTestResult.Fail("Lifecycle tombstone allowed a late world-damage resource spawn");
+			if (GroundItemPickedUpPacket.ShouldRemoveResolved(0, 11)
+			    || GroundItemPickedUpPacket.ShouldRemoveResolved(10, 9)
+			    || GroundItemPickedUpPacket.ShouldRemoveResolved(10, 10)
+			    || !GroundItemPickedUpPacket.ShouldRemoveResolved(10, 11))
+				return UnitTestResult.Fail("Ground pickup removed a zero/stale/same lifecycle or rejected a newer tombstone");
+			return UnitTestResult.Pass("Resolved ground items are removed only by a newer tombstone");
 		}
 
 		[UnitTest(name: "GroundItems: NetworkIdentityRegistry accessible", category: "GroundItems")]
@@ -68,41 +65,82 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("ClearTool.Instance accessible");
 		}
 
-		[UnitTest(name: "GroundItemPickedUpPacket: pending removal queue", category: "GroundItems")]
-		public static UnitTestResult PendingRemovalQueue()
+		[UnitTest(name: "Ground pickup pending rejects old and same spawn", category: "GroundItems")]
+		public static UnitTestResult PendingRevisionPolicy()
 		{
-			const int testNetId = -424242;
-			NetworkIdentityRegistry.LifecycleRevisionSnapshotEntry[] original =
-				NetworkIdentityRegistry.GetLifecycleRevisionSnapshot().ToArray();
+			const int netId = -424242;
+			float now = Time.realtimeSinceStartup;
 			try
 			{
 				GroundItemPickedUpPacket.ClearPending();
-				ulong originalRevision = NetworkIdentityRegistry.GetLastLifecycleRevision(testNetId);
-				new GroundItemPickedUpPacket { NetId = testNetId }.OnDispatched();
-				if (NetworkIdentityRegistry.GetLastLifecycleRevision(testNetId) != originalRevision)
-					return UnitTestResult.Fail("Invalid zero-revision pickup mutated lifecycle state");
-				if (GroundItemPickedUpPacket.TryConsumePending(testNetId))
-					return UnitTestResult.Fail("Invalid zero-revision pickup queued a removal");
-
-				var packet = new GroundItemPickedUpPacket
-				{
-					NetId = testNetId,
-					Revision = originalRevision + 1
-				};
-				packet.OnDispatched();
-
-				if (!GroundItemPickedUpPacket.TryConsumePending(testNetId))
-					return UnitTestResult.Fail("Expected pending pickup removal to be queued for unresolved NetId");
-				if (GroundItemPickedUpPacket.TryConsumePending(testNetId))
-					return UnitTestResult.Fail("Pending pickup removal should be consumed only once");
-
-				return UnitTestResult.Pass("Pending pickup removals queue and consume correctly");
+				GroundItemPickedUpPacket.StorePendingForTests(netId, 10, now);
+				if (!GroundItemPickedUpPacket.TryConsumePending(netId, 9)
+				    || 1 != GroundItemPickedUpPacket.PendingCountForTests)
+					return UnitTestResult.Fail("Old spawn escaped its pending tombstone");
+				if (!GroundItemPickedUpPacket.TryConsumePending(netId, 10)
+				    || 0 != GroundItemPickedUpPacket.PendingCountForTests)
+					return UnitTestResult.Fail("Same-revision spawn escaped or retained its tombstone");
+				GroundItemPickedUpPacket.StorePendingForTests(netId, 10, now);
+				if (GroundItemPickedUpPacket.TryConsumePending(netId, 11)
+				    || 0 != GroundItemPickedUpPacket.PendingCountForTests)
+					return UnitTestResult.Fail("Higher lifecycle spawn was removed by an old tombstone");
+				return UnitTestResult.Pass("Old/same spawn is removed; higher revision survives and clears pending state");
 			}
 			finally
 			{
 				GroundItemPickedUpPacket.ClearPending();
-				NetworkIdentityRegistry.TryReplaceLifecycleRevisionBaseline(original);
 			}
+		}
+
+		[UnitTest(name: "Ground pickup pending capacity is bounded", category: "GroundItems")]
+		public static UnitTestResult PendingCapacity()
+		{
+			float now = Time.realtimeSinceStartup;
+			try
+			{
+				GroundItemPickedUpPacket.ClearPending();
+				for (int index = 0; index <= GroundItemPickedUpPacket.MaxPendingPickups; index++)
+					GroundItemPickedUpPacket.StorePendingForTests(
+						-500000 - index, (ulong)index + 1, now + index * 0.001f);
+				if (GroundItemPickedUpPacket.MaxPendingPickups
+				    != GroundItemPickedUpPacket.PendingCountForTests)
+					return UnitTestResult.Fail("Pending ground pickup cache exceeded or undershot its exact bound");
+				return UnitTestResult.Pass("Pending ground pickup cache evicts at its exact capacity");
+			}
+			finally { GroundItemPickedUpPacket.ClearPending(); }
+		}
+
+		[UnitTest(name: "Ground pickup pending TTL expires deterministically", category: "GroundItems")]
+		public static UnitTestResult PendingTimeout()
+		{
+			const float storedAt = 100f;
+			try
+			{
+				GroundItemPickedUpPacket.ClearPending();
+				GroundItemPickedUpPacket.StorePendingForTests(-700001, 3, storedAt);
+				GroundItemPickedUpPacket.PrunePendingForTests(
+					storedAt + GroundItemPickedUpPacket.PendingPickupLifetimeSeconds - 0.001f);
+				if (1 != GroundItemPickedUpPacket.PendingCountForTests)
+					return UnitTestResult.Fail("Pending ground pickup expired before its TTL");
+				GroundItemPickedUpPacket.PrunePendingForTests(
+					storedAt + GroundItemPickedUpPacket.PendingPickupLifetimeSeconds);
+				return 0 == GroundItemPickedUpPacket.PendingCountForTests
+					? UnitTestResult.Pass("Pending ground pickup expires exactly at TTL")
+					: UnitTestResult.Fail("Expired ground pickup survived its TTL");
+			}
+			finally { GroundItemPickedUpPacket.ClearPending(); }
+		}
+
+		[UnitTest(name: "Ground pickup pending state resets with session", category: "GroundItems")]
+		public static UnitTestResult PendingSessionReset()
+		{
+			GroundItemPickedUpPacket.ClearPending();
+			GroundItemPickedUpPacket.StorePendingForTests(
+				-800001, 4, Time.realtimeSinceStartup);
+			SessionStateReset.Reset();
+			return 0 == GroundItemPickedUpPacket.PendingCountForTests
+				? UnitTestResult.Pass("Session reset clears pending ground pickup tombstones")
+				: UnitTestResult.Fail("Pending ground pickup tombstone leaked across sessions");
 		}
 	}
 }

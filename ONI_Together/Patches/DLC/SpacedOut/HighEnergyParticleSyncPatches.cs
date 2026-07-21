@@ -356,7 +356,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 		{
 			NetworkIdentity identity = __instance.gameObject.AddOrGet<NetworkIdentity>();
 			identity.RegisterIdentity();
-			__instance.gameObject.AddOrGet<EntityPositionHandler>();
+			__instance.gameObject.AddOrGet<RemoteMotionPresenter>();
 			__instance.gameObject.AddOrGet<HighEnergyParticleSyncMarker>();
 			if (HighEnergyParticleSync.ShouldDestroyUnassignedSpawn(
 				    MultiplayerSession.InSession,

@@ -103,6 +103,44 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Steam join accepts only a valid lobby-code command");
 		}
 
+		[UnitTest(name: "Debug command: network build parsing", category: "Debug")]
+		public static UnitTestResult NetworkBuildParsingIsStrict()
+		{
+			bool valid = DebugMenu.TryParseNetworkBuildCommand(
+				"build:Tile:95028:SandStone", out string prefab, out int cell, out string material);
+			bool malformed = DebugMenu.TryParseNetworkBuildCommand(
+				"build:Tile:95028", out _, out _, out _);
+			bool invalidCell = DebugMenu.TryParseNetworkBuildCommand(
+				"build:Tile:-1:SandStone", out _, out _, out _);
+			bool unsafeId = DebugMenu.TryParseNetworkBuildCommand(
+				"build:../Tile:95028:SandStone", out _, out _, out _);
+			if (!valid || prefab != "Tile" || cell != 95028 || material != "SandStone"
+			    || malformed || invalidCell || unsafeId)
+				return UnitTestResult.Fail(
+					$"valid={valid}; prefab={prefab}; cell={cell}; material={material}; " +
+					$"malformed={malformed}; invalidCell={invalidCell}; unsafeId={unsafeId}");
+			return UnitTestResult.Pass("Build automation accepts only one bounded native request");
+		}
+
+		[UnitTest(name: "Debug command: Ready replay load parsing", category: "Debug")]
+		public static UnitTestResult ReadyReplayLoadParsingIsBounded()
+		{
+			bool valid = DebugMenu.TryParseReadyReplayLoadCommand(
+				"replay-load:512:4096", out int frames, out int payloadBytes);
+			bool tooMany = DebugMenu.TryParseReadyReplayLoadCommand(
+				"replay-load:513:4096", out _, out _);
+			bool tooLarge = DebugMenu.TryParseReadyReplayLoadCommand(
+				"replay-load:512:4097", out _, out _);
+			bool malformed = DebugMenu.TryParseReadyReplayLoadCommand(
+				"replay-load:512", out _, out _);
+			if (!valid || frames != 512 || payloadBytes != 4096
+			    || tooMany || tooLarge || malformed)
+				return UnitTestResult.Fail(
+					$"valid={valid}; frames={frames}; payload={payloadBytes}; " +
+					$"tooMany={tooMany}; tooLarge={tooLarge}; malformed={malformed}");
+			return UnitTestResult.Pass("Replay load command is bounded to a two MiB DEBUG probe");
+		}
+
 		[UnitTest(name: "Unit tests: discovery exception fails summary", category: "Debug")]
 		public static UnitTestResult DiscoveryExceptionFailsSummary()
 		{

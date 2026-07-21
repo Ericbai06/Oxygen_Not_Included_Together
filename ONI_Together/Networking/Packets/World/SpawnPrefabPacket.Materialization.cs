@@ -16,7 +16,7 @@ namespace ONI_Together.Networking.Packets.World
 					prevent_merge: ShouldPreventElementMerge(NetId));
 			}
 			GameObject prefab = Assets.GetPrefab(new Tag(Hash));
-			if (prefab == null)
+			if (prefab == null || RequiresNativeMaterialization(prefab))
 				return null;
 			GameObject created = Util.KInstantiate(prefab, Position);
 			created.SetActive(ShouldActivateForInitialization(IsActive));
@@ -63,14 +63,17 @@ namespace ONI_Together.Networking.Packets.World
 		{
 			if (!CompleteMaterialization(gameObject))
 				return false;
-			ConsumePendingPickup(gameObject);
-			DuplicantDeathStatePacket.TryApplyPending(NetId, gameObject);
-			return true;
+				ConsumePendingPickup(gameObject);
+				DuplicantDeathStatePacket.TryApplyPending(NetId, gameObject);
+#if DEBUG
+				RecordClientLifecycleEvidence();
+#endif
+				return true;
 		}
 
 		private void ConsumePendingPickup(GameObject gameObject)
 		{
-			if (GroundItemPickedUpPacket.TryConsumePending(NetId))
+			if (GroundItemPickedUpPacket.TryConsumePending(NetId, Revision))
 			{
 				Util.KDestroyGameObject(gameObject);
 				return;

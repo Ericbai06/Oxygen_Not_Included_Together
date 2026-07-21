@@ -50,8 +50,8 @@ public class MultiplayerPlayer
 	{
 		if (Equals(Connection, connection))
 			return ConnectionGeneration;
-		OrderedReliableChannel.DropIncoming(PlayerId);
-		PacketSender.DropIncoming(PlayerId);
+		if (MultiplayerSession.IsHost && ConnectionGeneration > 0)
+			HostBroadcastPacket.DropConnectionState(PlayerId, ConnectionGeneration);
 		WorldUpdateBatcher.DropRepairClient(PlayerId);
 		DropConnectionQueues(Connection);
 		Connection = connection;
@@ -69,9 +69,9 @@ public class MultiplayerPlayer
 	{
 		if (!IsCurrentConnection(connection, generation))
 			return false;
+		if (MultiplayerSession.IsHost)
+			HostBroadcastPacket.DropConnectionState(PlayerId, generation);
 		DropConnectionQueues(Connection);
-		OrderedReliableChannel.DropIncoming(PlayerId);
-		PacketSender.DropIncoming(PlayerId);
 		WorldUpdateBatcher.DropRepairClient(PlayerId);
 		Connection = null;
 		ConnectionGeneration++;
@@ -84,7 +84,6 @@ public class MultiplayerPlayer
 		if (connection == null)
 			return;
 		PacketSender.DropConnection(connection);
-		NetworkConfig.TransportPacketSender?.DropConnection(connection);
 	}
 
 	public bool TryBeginSaveTransfer(out long generation)

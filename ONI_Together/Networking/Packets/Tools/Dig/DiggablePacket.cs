@@ -56,19 +56,24 @@ namespace ONI_Together.Networking.Packets.Tools.Dig
         {
             using var _ = Profiler.Scope();
 
-            GameObject game_object;
-            ProcessingIncoming = true;
-            try
-            {
-                game_object = DigTool.PlaceDig(Cell, AnimationDelay);
-            }
-            finally
-            {
-                ProcessingIncoming = false;
-            }
+            GameObject game_object = PlaceLocally(Cell, AnimationDelay);
 
             Prioritizable prioritizable = game_object?.GetComponent<Prioritizable>();
             prioritizable?.SetMasterPriority(Priority);
+        }
+
+        internal static GameObject PlaceLocally(int cell, int animationDelay)
+        {
+            bool wasProcessingIncoming = ProcessingIncoming;
+            ProcessingIncoming = true;
+            try
+            {
+                return DigTool.PlaceDig(cell, animationDelay);
+            }
+            finally
+            {
+                ProcessingIncoming = wasProcessingIncoming;
+            }
         }
     }
 }

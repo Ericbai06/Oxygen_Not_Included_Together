@@ -307,15 +307,16 @@ namespace ONI_Together.DebugTools
 			foreach (NetworkIdentity identity in identities)
 			{
 				UnityEngine.Vector3 position = identity.transform.position;
-				EntityPositionHandler positionHandler =
-					identity.GetComponent<EntityPositionHandler>();
+				RemoteMotionPresenter motionPresenter =
+					identity.GetComponent<RemoteMotionPresenter>();
 				bool authoritative = MultiplayerSession.IsClient
-				                     && positionHandler?.serverTimestamp > 0;
-				if (positionHandler != null)
+				                     && motionPresenter?.AuthoritativeRevision > 0;
+				if (motionPresenter != null)
 				{
-					position = EntityPositionHandler.SelectHashPosition(
+					position = RemoteMotionPresenter.SelectHashPosition(
 						MultiplayerSession.IsClient, position,
-						positionHandler.serverTimestamp, positionHandler.serverPosition);
+						(motionPresenter.AuthoritativeRevision,
+						 motionPresenter.AuthoritativePosition));
 				}
 				states.Add(new SoakWorldMembershipState
 				{
@@ -325,26 +326,26 @@ namespace ONI_Together.DebugTools
 					PositionX = NormalizeFloatBits(position.x),
 					PositionY = NormalizeFloatBits(position.y),
 					PositionZ = NormalizeFloatBits(position.z),
-					HasPositionHandler = positionHandler != null,
+					HasPositionHandler = motionPresenter != null,
 					FlipX = authoritative
-						? positionHandler.serverFlipX
-						: positionHandler?.kbac != null && positionHandler.kbac.FlipX,
+						? motionPresenter.AuthoritativeFlipX
+						: motionPresenter?.AnimController != null && motionPresenter.AnimController.FlipX,
 					FlipY = authoritative
-						? positionHandler.serverFlipY
-						: positionHandler?.kbac != null && positionHandler.kbac.FlipY,
+						? motionPresenter.AuthoritativeFlipY
+						: motionPresenter?.AnimController != null && motionPresenter.AnimController.FlipY,
 					NavType = authoritative
-						? positionHandler.serverNavType
-						: CurrentNavType(positionHandler),
+						? motionPresenter.AuthoritativeNavType
+						: CurrentNavType(motionPresenter),
 				});
 			}
 			return states;
 		}
 
-		private static NavType CurrentNavType(EntityPositionHandler handler)
+		private static NavType CurrentNavType(RemoteMotionPresenter presenter)
 		{
-			return handler?.navigator != null
-			       && handler.navigator.CurrentNavType != NavType.NumNavTypes
-				? handler.navigator.CurrentNavType
+			return presenter?.Navigator != null
+			       && presenter.Navigator.CurrentNavType != NavType.NumNavTypes
+				? presenter.Navigator.CurrentNavType
 				: NavType.Floor;
 		}
 

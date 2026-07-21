@@ -10,31 +10,39 @@ using ONI_Together.Networking.Packets.Core;
 using ONI_Together.Networking.Packets.DuplicantActions;
 using ONI_Together.Networking.Packets.Social;
 using ONI_Together.Networking.Packets.World;
+using ONI_Together.Networking.States;
 
 namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class PacketBoundsTests
 	{
-		[UnitTest(name: "Cursor relay drops oversized utility paths atomically", category: "Networking")]
-		public static UnitTestResult DropsOversizedCursorPathAtomically()
+		[UnitTest(name: "Cursor relay trims utility paths to the actual datagram wire budget", category: "Networking")]
+		public static UnitTestResult TrimsCursorPathToWireBudget()
 		{
 			var oversized = new PlayerCursorPacket
 			{
 				PlayerID = 1,
-				BuildingPrefabId = string.Empty,
+				SenderConnectionGeneration = 1,
+				Revision = 1,
+				BuildingPrefabId = new string('x', 240),
 				HasUtilityPath = true,
 				UtilityPathData = new uint[500],
 			};
 			if (!HostBroadcastPacket.TryFitUnreliableRelay(oversized)
-			    || oversized.HasUtilityPath || oversized.UtilityPathData != null
+			    || !oversized.HasUtilityPath || oversized.UtilityPathData == null
+			    || oversized.UtilityPathData.Length >= 500
 			    || HostBroadcastPacket.GetRelayWireSize(oversized)
-			        > PacketSender.MAX_PACKET_SIZE_UNRELIABLE)
+			        >= PacketSender.MAX_PACKET_SIZE_UNRELIABLE
+			    || PacketSender.SerializePacketForSending(new HostBroadcastPacket(oversized, 1)).Length
+			        >= PacketSender.MAX_PACKET_SIZE_UNRELIABLE)
 				return UnitTestResult.Fail(
-					"Oversized cursor path was fragmented, truncated, or left above the datagram budget");
+					"Oversized cursor path was dropped or left at/above the datagram budget");
 
 			var small = new PlayerCursorPacket
 			{
 				PlayerID = 1,
+				SenderConnectionGeneration = 1,
+				Revision = 1,
 				BuildingPrefabId = string.Empty,
 				HasUtilityPath = true,
 				UtilityPathData = new uint[] { 1, 2 },
@@ -43,7 +51,39 @@ namespace ONI_Together.DebugTools.UnitTests
 			    || !small.HasUtilityPath || small.UtilityPathData?.Length != 2)
 				return UnitTestResult.Fail("A cursor path that fits the datagram budget was removed");
 			return UnitTestResult.Pass(
-				"Utility paths are preserved whole or cleared whole before unreliable relay");
+				"Utility paths preserve the cursor-side prefix below the actual unreliable relay wire budget");
+		}
+
+		[UnitTest(name: "Cursor wire rejects invalid geometry and enums before relay", category: "Networking")]
+		public static UnitTestResult CursorWireValidationRejectsInvalidState()
+		{
+			var validUnbound = ValidCursor();
+			validUnbound.SenderConnectionGeneration = 0;
+			if (RejectsCursorSerialize(validUnbound))
+				return UnitTestResult.Fail("Cursor rejected the client generation before host relay binding");
+
+			PlayerCursorPacket[] invalid =
+			{
+				With(ValidCursor(), packet => packet.PlayerID = 0),
+				With(ValidCursor(), packet => packet.Position = new UnityEngine.Vector3(float.NaN, 0f, 0f)),
+				With(ValidCursor(), packet => packet.Color = new UnityEngine.Color(0f, float.PositiveInfinity, 0f, 1f)),
+				With(ValidCursor(), packet => packet.AreaDownPos = new UnityEngine.Vector3(0f, 0f, float.NaN)),
+				With(ValidCursor(), packet => packet.LengthLimit = new UnityEngine.Vector2(float.NegativeInfinity, 0f)),
+				With(ValidCursor(), packet => packet.CursorState = (CursorState)31),
+				With(ValidCursor(), packet => packet.BuildingOrientation = (Orientation)7),
+				With(ValidCursor(), packet => packet.DragMode = (DragTool.Mode)7),
+				With(ValidCursor(), packet => { packet.ViewMinX = 2; packet.ViewMaxX = 1; }),
+				With(ValidCursor(), packet => packet.BuildingPrefabId = new string('x', 257)),
+			};
+			if (Array.Exists(invalid, packet => !RejectsCursorSerialize(packet)))
+				return UnitTestResult.Fail("Cursor serialized invalid geometry, enum, viewport, ID or player state");
+
+			if (!Rejects(new PlayerCursorPacket(), writer => WriteCursorWire(writer, float.NaN, 0))
+			    || !Rejects(new PlayerCursorPacket(), writer => WriteCursorWire(writer, 0f, 31))
+			    || !Rejects(new PlayerCursorPacket(), writer => WriteCursorWire(writer, 0f, (ushort)(7 << 5)))
+			    || !Rejects(new PlayerCursorPacket(), writer => WriteCursorWire(writer, 0f, (ushort)(7 << 8))))
+				return UnitTestResult.Fail("Cursor deserialized invalid geometry or enum state");
+			return UnitTestResult.Pass("Cursor permits unbound client relay wire and rejects malformed presentation state");
 		}
 
 		[UnitTest(name: "Packet collections reject oversized counts", category: "Networking")]
@@ -58,6 +98,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			if (!Rejects(new PlayerCursorPacket(), writer =>
 			{
 				writer.Write(1UL);
+				writer.Write(1L);
+				writer.Write(1UL);
 				for (int i = 0; i < 3 + 4; i++) writer.Write(0f);
 				writer.Write((ushort)(1 << 13)); writer.Write(0U); writer.Write(0U); writer.Write(string.Empty);
 				writer.Write(PlayerCursorPacket.MaxUtilityPathCount + 1);
@@ -68,7 +110,11 @@ namespace ONI_Together.DebugTools.UnitTests
 				writer.Write(0); writer.Write((byte)0); writer.Write(0); writer.Write(VitalStatsPacket.MaxVitalCount + 1);
 			})) return UnitTestResult.Fail("VitalStatsPacket accepted an oversized count");
 
-			if (!Rejects(new ChatHistorySyncPacket(), writer => writer.Write(ChatHistorySyncPacket.MaxMessageCount + 1)))
+			if (!Rejects(new ChatHistorySyncPacket(), writer =>
+			{
+				writer.Write(0UL);
+				writer.Write(ChatHistorySyncPacket.MaxMessageCount + 1);
+			}))
 				return UnitTestResult.Fail("ChatHistorySyncPacket accepted an oversized count");
 
 			if (!Rejects(new DreamBubblePacket(), writer =>
@@ -83,8 +129,6 @@ namespace ONI_Together.DebugTools.UnitTests
 				writer.Write(TrailPointsPacket.MaxPointCount + 1);
 			})) return UnitTestResult.Fail("TrailPointsPacket accepted an oversized count");
 
-			if (!Rejects(new BuildingStatePacket(), writer => writer.Write(BuildingStatePacket.MaxBuildingCount + 1)))
-				return UnitTestResult.Fail("BuildingStatePacket accepted an oversized count");
 			if (!Rejects(new ChoreStatePacket(), writer => writer.Write(ChoreStatePacket.MaxChoreCount + 1)))
 				return UnitTestResult.Fail("ChoreStatePacket accepted an oversized count");
 			if (!Rejects(new ConduitContentsPacket(), writer => writer.Write(ConduitContentsPacket.MaxUpdateCount + 1)))
@@ -99,9 +143,18 @@ namespace ONI_Together.DebugTools.UnitTests
 				writer.Write(PlantGrowthStatePacket.MaxPlantCount + 1);
 			}))
 				return UnitTestResult.Fail("PlantGrowthStatePacket accepted an oversized count");
-			if (!Rejects(new PrioritizeStatePacket(), writer => writer.Write(PrioritizeStatePacket.MaxPriorityCount + 1)))
+			if (!Rejects(new PrioritizeStatePacket(), writer =>
+			{
+				writer.Write(0UL);
+				writer.Write(0UL);
+				writer.Write(PrioritizeStatePacket.MaxPriorityCount + 1);
+			}))
 				return UnitTestResult.Fail("PrioritizeStatePacket accepted an oversized count");
-			if (!Rejects(new ResearchStatePacket(), writer => writer.Write(ResearchStatePacket.MaxTechCount + 1)))
+			if (!Rejects(new ResearchStatePacket(), writer =>
+			{
+				writer.Write(1L);
+				writer.Write(ResearchStatePacket.MaxTechCount + 1);
+			}))
 				return UnitTestResult.Fail("ResearchStatePacket accepted an oversized count");
 
 			return UnitTestResult.Pass("Collection counts are rejected before allocation");
@@ -160,29 +213,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Declared blob lengths require exact reads");
 		}
 
-		[UnitTest(name: "Compressed packets reject expansion bombs", category: "Networking")]
-		public static UnitTestResult RejectsExpansionBomb()
-		{
-			byte[] bomb;
-			using (var compressed = new MemoryStream())
-			{
-				using (var gzip = new GZipStream(compressed, CompressionLevel.Fastest, true))
-				{
-					byte[] zeros = new byte[NavigatorPathPacket.MaxDecompressedBytes + 1];
-					gzip.Write(zeros, 0, zeros.Length);
-				}
-				bomb = compressed.ToArray();
-			}
-
-			if (!Rejects(new NavigatorPathPacket(), writer =>
-			{
-				writer.Write(bomb.Length);
-				writer.Write(bomb);
-			})) return UnitTestResult.Fail("NavigatorPathPacket accepted an expansion bomb");
-
-			return UnitTestResult.Pass("Compressed output is bounded during decompression");
-		}
-
 		[UnitTest(name: "World data validates chunk sizes before allocation", category: "Networking")]
 		public static UnitTestResult ValidatesWorldChunkBeforeAllocation()
 		{
@@ -208,17 +238,6 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			if (!SnapshotWireBoundsTests.TryGetValidCell(out int cell))
 				return UnitTestResult.Skip("Structure roundtrip requires an initialized world grid");
-
-			var path = RoundTrip(new NavigatorPathPacket
-			{
-				NetId = 7,
-				Steps =
-				[
-					new NavigatorPathPacket.PathStep { Cell = 42, NavType = default, TransitionId = 3 }
-				]
-			});
-			if (path.NetId != 7 || path.Steps.Count != 1 || path.Steps[0].Cell != 42)
-				return UnitTestResult.Fail("NavigatorPathPacket roundtrip changed valid data");
 
 			var instantiations = RoundTrip(new InstantiationsPacket
 			{
@@ -269,6 +288,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			var logic = RoundTrip(new LogicStatePacket
 			{
 				NetId = 9,
+				Cell = cell,
+				LifecycleRevision = 1,
+				StateRevision = 1,
 				Value = (Variant)"logic",
 				OptionalValues = new System.Collections.Generic.Dictionary<string, Variant>()
 			});
@@ -280,8 +302,10 @@ namespace ONI_Together.DebugTools.UnitTests
 
 		private static void WriteLogicStatePrefix(BinaryWriter writer)
 		{
+			writer.Write(1);
 			writer.Write(0);
-			writer.Write(0);
+			writer.Write(1UL);
+			writer.Write(1UL);
 			WriteVariantAndActivePrefix(writer);
 		}
 
@@ -325,6 +349,58 @@ namespace ONI_Together.DebugTools.UnitTests
 			{
 				return true;
 			}
+		}
+
+		private static PlayerCursorPacket ValidCursor() => new()
+		{
+			PlayerID = 1,
+			SenderConnectionGeneration = 1,
+			Revision = 1,
+			BuildingPrefabId = string.Empty,
+			ViewMinX = 0,
+			ViewMinY = 0,
+			ViewMaxX = 1,
+			ViewMaxY = 1,
+		};
+
+		private static PlayerCursorPacket With(
+			PlayerCursorPacket packet, Action<PlayerCursorPacket> mutate)
+		{
+			mutate(packet);
+			return packet;
+		}
+
+		private static bool RejectsCursorSerialize(PlayerCursorPacket packet)
+		{
+			try
+			{
+				using var stream = new MemoryStream();
+				using var writer = new BinaryWriter(stream);
+				packet.Serialize(writer);
+				return false;
+			}
+			catch (InvalidDataException)
+			{
+				return true;
+			}
+		}
+
+		private static void WriteCursorWire(BinaryWriter writer, float positionX, ushort flags)
+		{
+			writer.Write(1UL);
+			writer.Write(0L);
+			writer.Write(1UL);
+			writer.Write(positionX);
+			writer.Write(0f);
+			writer.Write(0f);
+			writer.Write(0f);
+			writer.Write(0f);
+			writer.Write(0f);
+			writer.Write(1f);
+			writer.Write(flags);
+			writer.Write(0U);
+			writer.Write(0U);
+			writer.Write(string.Empty);
 		}
 
 		private static bool ThrowsEndOfStream(IPacket packet, Action<BinaryWriter> write)

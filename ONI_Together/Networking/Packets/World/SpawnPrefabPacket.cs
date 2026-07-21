@@ -100,6 +100,9 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
         if (Revision == 0)
             Revision = NetworkIdentityRegistry.BeginLifecycle(NetId);
 		ValidateForWire();
+#if DEBUG
+		RecordHostLifecycleEvidence();
+#endif
         writer.Write(NetId);
         writer.Write(Revision);
         writer.Write(Hash);
@@ -153,7 +156,7 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 		        entityExists, lastRevision, Revision,
 		        NetworkIdentityRegistry.IsLifecycleTombstoned(NetId)))
             return;
-		GroundItemPickedUpPacket.CancelPending(NetId);
+		GroundItemPickedUpPacket.ReleaseForNewLifecycle(NetId, Revision);
 		if (TryReconcileOccupied(out NetworkIdentityRegistry.IdentityClaim displaced))
 			return;
 		if (TryFinishClaimedRuntimeObject(displaced))

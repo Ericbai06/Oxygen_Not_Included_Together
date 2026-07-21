@@ -4,12 +4,23 @@ using ONI_Together.Networking.Packets.World.Handlers;
 using ONI_Together.DebugTools;
 using System.IO;
 using UnityEngine;
-using HarmonyLib;
 using Shared.Profiling;
-using ONI_Together.Misc;
+using Shared.Interfaces.Networking;
 
 namespace ONI_Together.Networking.Packets.World
 {
+	internal struct BuildingConfigMetadata
+	{
+		internal int NetId;
+		internal int Cell;
+		internal int DeterministicId;
+		internal BuildingConfigType ConfigType;
+		internal int SliderIndex;
+		internal int ReferenceNetId;
+		internal float Value;
+		internal string StringValue;
+	}
+
 	public enum BuildingConfigType : byte
 	{
 		Float = 0,      // Standard float value (valve flow, thresholds)
@@ -19,14 +30,18 @@ namespace ONI_Together.Networking.Packets.World
 		String = 4       // String value (tag names, text fields)
 	}
 
-	public class BuildingConfigPacket : IPacket
+	public partial class BuildingConfigPacket : IPacket, IViewportCullable
 	{
 		private const int MaxCell = 16 * 1024 * 1024;
 		private const int MaxSliderIndex = 1024;
 		private const int MaxStringLength = 1024;
 
-		private ulong Sender; // Who triggered this
+		private ulong Sender;
 		public int NetId;
+		public ulong TargetLifecycleRevision;
+		public ulong StateRevision;
+		public ulong ClientRequestId;
+		public ulong BaseStateRevision;
 		public int Cell; // Deterministic location-based identification
 		public int DeterministicBuildingId;
 		public int ConfigHash; // Hash of the property name (e.g. "Threshold", "Logic")
@@ -38,7 +53,25 @@ namespace ONI_Together.Networking.Packets.World
 		public string SecondaryStringValue = ""; // Paired string payloads that must apply atomically
 
 		private static int _applyDepth;
-		public static bool IsApplyingPacket => _applyDepth > 0;
+#if DEBUG
+		private static BuildingConfigPacket _applyingEvidencePacket;
+		private static bool _originalBlockObserved;
+#endif
+		public static bool IsApplyingPacket
+		{
+			get
+			{
+#if DEBUG
+				if (_applyDepth > 0 && MultiplayerSession.IsClient
+				    && !_originalBlockObserved && _applyingEvidencePacket != null)
+				{
+					_originalBlockObserved = true;
+					_applyingEvidencePacket.LogOriginalBlockedEvidence();
+				}
+#endif
+				return _applyDepth > 0;
+			}
+		}
         
 		// Delay refreshing because things like storage lockers cause lag
 		private static float _lastRefreshTime = -999f;
@@ -48,15 +81,18 @@ namespace ONI_Together.Networking.Packets.World
 		{
 			using var _ = Profiler.Scope();
 
-			BindAuthoritativeIdentity();
-			if (!IsValidMetadata(NetId, Cell, DeterministicBuildingId, ConfigType,
-				SliderIndex, ReferenceNetId, Value, StringValue)
-			    || (SecondaryStringValue?.Length ?? 0) > MaxStringLength)
+			PrepareForSerialize();
+			if (!IsValidMetadata(GetMetadata())
+			    || (SecondaryStringValue?.Length ?? 0) > MaxStringLength
+			    || !HasValidAuthorityFields())
 				throw new InvalidDataException("Invalid building config metadata");
 
-			Sender = NetworkConfig.GetLocalID();
 			writer.Write(Sender);
 			writer.Write(NetId);
+			writer.Write(TargetLifecycleRevision);
+			writer.Write(StateRevision);
+			writer.Write(ClientRequestId);
+			writer.Write(BaseStateRevision);
 			writer.Write(Cell);
 			writer.Write(DeterministicBuildingId);
 			writer.Write(ConfigHash);
@@ -74,6 +110,10 @@ namespace ONI_Together.Networking.Packets.World
 
 			Sender = reader.ReadUInt64();
 			NetId = reader.ReadInt32();
+			TargetLifecycleRevision = reader.ReadUInt64();
+			StateRevision = reader.ReadUInt64();
+			ClientRequestId = reader.ReadUInt64();
+			BaseStateRevision = reader.ReadUInt64();
 			Cell = reader.ReadInt32();
 			DeterministicBuildingId = reader.ReadInt32();
 			ConfigHash = reader.ReadInt32();
@@ -83,56 +123,16 @@ namespace ONI_Together.Networking.Packets.World
 			ReferenceNetId = reader.ReadInt32();
 			StringValue = reader.ReadString();
 			SecondaryStringValue = reader.ReadString();
-			if (!IsValidMetadata(NetId, Cell, DeterministicBuildingId, ConfigType,
-				SliderIndex, ReferenceNetId, Value, StringValue)
-			    || SecondaryStringValue.Length > MaxStringLength)
+			if (!IsValidMetadata(GetMetadata())
+			    || SecondaryStringValue.Length > MaxStringLength
+			    || !HasValidAuthorityFields())
 				throw new InvalidDataException("Invalid building config metadata");
 		}
 
 		public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
-			DispatchContext context = PacketHandler.CurrentContext;
-			bool clientRequest = MultiplayerSession.IsHost && !context.SenderIsHost;
-			bool hostOutcome = MultiplayerSession.IsClient && context.SenderIsHost;
-			if (Sender != context.SenderId || (!clientRequest && !hostOutcome))
-			{
-				DebugConsole.LogWarning($"[BuildingConfigPacket] Rejected sender {Sender} from transport {context.SenderId}");
-				return;
-			}
-			if (clientRequest)
-			{
-				var player = MultiplayerSession.GetPlayer(context.SenderId);
-				if (player == null || !player.ProtocolVerified || !SyncBarrier.IsExactReady(player.readyState))
-					return;
-			}
-
-			NetworkIdentity identity = ResolveIdentity(clientRequest, hostOutcome);
-
-			if (identity != null)
-			{
-				BeginApplyingPacket();
-				try
-				{
-					bool applied = ApplyConfig(identity.gameObject);
-					if (!applied)
-						return;
-					RefreshSideScreenIfOpen(identity.gameObject);
-				}
-				finally
-				{
-					EndApplyingPacket();
-				}
-
-				if (clientRequest)
-				{
-					PacketSender.SendToAllClients(this);
-				}
-			}
-			else
-			{
-				DebugConsole.LogWarning($"[BuildingConfigPacket] FAILED to resolve entity for NetId {NetId} at Cell {Cell}");
-			}
+			DispatchWithAuthority(PacketHandler.CurrentContext);
 		}
 
 		private void BindAuthoritativeIdentity()
@@ -145,46 +145,26 @@ namespace ONI_Together.Networking.Packets.World
 			DeterministicBuildingId = NetIdHelper.GetDeterministicBuildingId(identity.gameObject);
 		}
 
-		private NetworkIdentity ResolveIdentity(bool localIsHost, bool senderIsHost)
+		private BuildingConfigMetadata GetMetadata() => new()
 		{
-			if (NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity)
-			    && IdentityMatches(NetId, Cell, DeterministicBuildingId, identity.NetId,
-				    Grid.PosToCell(identity.gameObject), NetIdHelper.GetDeterministicBuildingId(identity.gameObject)))
-				return identity;
+			NetId = NetId,
+			Cell = Cell,
+			DeterministicId = DeterministicBuildingId,
+			ConfigType = ConfigType,
+			SliderIndex = SliderIndex,
+			ReferenceNetId = ReferenceNetId,
+			Value = Value,
+			StringValue = StringValue
+		};
 
-			if (!AllowsCellResolution(localIsHost, senderIsHost) || !Grid.IsValidCell(Cell))
-				return null;
-
-			GameObject building = Grid.Objects[Cell, (int)ObjectLayer.Building];
-			if (building == null || NetIdHelper.GetDeterministicBuildingId(building) != DeterministicBuildingId)
-				return null;
-
-			identity = building.AddOrGet<NetworkIdentity>();
-			identity.RegisterIdentity();
-			return IdentityMatches(NetId, Cell, DeterministicBuildingId, identity.NetId,
-				Grid.PosToCell(building), NetIdHelper.GetDeterministicBuildingId(building))
-				? identity
-				: null;
-		}
-
-		internal static bool AllowsCellResolution(bool localIsHost, bool senderIsHost)
-			=> !localIsHost && senderIsHost;
-
-		internal static bool IdentityMatches(
-			int expectedNetId, int expectedCell, int expectedDeterministicId,
-			int actualNetId, int actualCell, int actualDeterministicId)
-			=> expectedNetId != 0 && expectedDeterministicId != 0
-			   && expectedNetId == actualNetId && expectedCell == actualCell
-			   && expectedDeterministicId == actualDeterministicId;
-
-		internal static bool IsValidMetadata(
-			int netId, int cell, int deterministicId, BuildingConfigType configType,
-			int sliderIndex, int referenceNetId, float value, string stringValue)
-			=> netId != 0 && deterministicId != 0 && cell >= 0 && cell < MaxCell
-			   && configType >= BuildingConfigType.Float && configType <= BuildingConfigType.String
-			   && sliderIndex >= 0 && sliderIndex <= MaxSliderIndex
-			   && !float.IsNaN(value) && !float.IsInfinity(value)
-			   && (stringValue?.Length ?? 0) <= MaxStringLength;
+		internal static bool IsValidMetadata(BuildingConfigMetadata metadata)
+			=> metadata.NetId != 0 && metadata.DeterministicId != 0
+			   && metadata.Cell >= 0 && metadata.Cell < MaxCell
+			   && metadata.ConfigType >= BuildingConfigType.Float
+			   && metadata.ConfigType <= BuildingConfigType.String
+			   && metadata.SliderIndex >= 0 && metadata.SliderIndex <= MaxSliderIndex
+			   && !float.IsNaN(metadata.Value) && !float.IsInfinity(metadata.Value)
+			   && (metadata.StringValue?.Length ?? 0) <= MaxStringLength;
 
 		internal static bool IsBooleanValue(float value) => value == 0f || value == 1f;
 
@@ -208,7 +188,21 @@ namespace ONI_Together.Networking.Packets.World
 		internal static void ResetSessionState()
 		{
 			_applyDepth = 0;
+#if DEBUG
+			_applyingEvidencePacket = null;
+			_originalBlockObserved = false;
+#endif
 			_lastRefreshTime = -999f;
+			ResetAuthorityState();
+		}
+
+		public int GetViewportCell()
+		{
+			if (MultiplayerSession.IsHost && MultiplayerSession.InSession)
+				PrepareForSerialize();
+			else
+				BindAuthoritativeIdentity();
+			return Cell;
 		}
 
 		internal static void ResetApplyingPacketForTests() => ResetSessionState();

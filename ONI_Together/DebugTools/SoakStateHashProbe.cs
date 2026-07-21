@@ -21,10 +21,10 @@ namespace ONI_Together.DebugTools
 		private const float NetworkDrainTimeoutSeconds = 15f;
 		private const float AckTimeoutSeconds = 10f;
 		private const float TickBarrierTimeoutSeconds = 300f;
+		internal const float RepairBaselineTimeoutSeconds = TickBarrierTimeoutSeconds;
 		private const float GridReconcileTimeoutSeconds = 300f;
 		private const float GridChunkSendIntervalSeconds = 0.03f;
 		private const float ReportTimeoutSeconds = 15f;
-		private const float TransportDrainTimeoutSeconds = 60f;
 		private static SoakStateHashProbe _instance;
 		private static int _nextRunId;
 		private static bool _firstHostDivergenceRecorded;
@@ -53,8 +53,6 @@ namespace ONI_Together.DebugTools
 		private bool _authoritativeRepairSuppressed;
 		private bool _repairBaselineWarmup;
 		private bool _worldScanPaused;
-		private bool _fenceDeliveryCompleted;
-		private int _fenceDeliveryToken;
 		private int _firstRawMismatchSample;
 		private int _firstPostMismatchSample;
 		private int _firstKeyframeApplyFailureSample;
@@ -284,7 +282,7 @@ namespace ONI_Together.DebugTools
 				CompletedTicks = _completedTicks,
 				RepairSequenceCut = _fenceRepairSequenceCut,
 			};
-			if (!SendFenceWithCompletion(
+			if (!SendFence(
 				    rawFence, ProbeState.WaitingForRawFenceAcks))
 				return false;
 			DebugConsole.Log($"[SoakHash][RAW_FENCE_SENT] sample={_sampleId} ticks={_completedTicks} " +
@@ -312,7 +310,7 @@ namespace ONI_Together.DebugTools
 				CompletedTicks = _completedTicks,
 				RepairSequenceCut = _fenceRepairSequenceCut,
 			};
-			if (!SendFenceWithCompletion(
+			if (!SendFence(
 				    postFence, ProbeState.WaitingForFenceAcks))
 				return;
 			DebugConsole.Log($"[SoakHash][POST_KEYFRAME_FENCE_SENT] sample={_sampleId} " +
@@ -371,7 +369,7 @@ namespace ONI_Together.DebugTools
 			ResumeAuthoritativeRepair();
 			ResumeWorldScan();
 			WorldUpdateBatcher.ResumeRepairDispatch();
-			EntityPositionHandler.SetCheckpointFrozen(false);
+			RemoteMotionPresenter.SetCheckpointFrozen(false);
 			if (_completedTicks != TargetTickCount || _comparedSamples.Count != SegmentCount
 				|| _rawComparedSamples.Count != SegmentCount
 				|| GameClock.Instance.GetTime() - _startTotal < RequiredGameSeconds)
@@ -451,7 +449,7 @@ namespace ONI_Together.DebugTools
 			ResumeAuthoritativeRepair();
 			ResumeWorldScan();
 			WorldUpdateBatcher.ResumeRepairDispatch();
-			EntityPositionHandler.SetCheckpointFrozen(false);
+			RemoteMotionPresenter.SetCheckpointFrozen(false);
 			if (_runId > 0 && MultiplayerSession.IsHost)
 				SendCancelToConnectedClients();
 			SoakTickBarrier.Cancel(_runId);

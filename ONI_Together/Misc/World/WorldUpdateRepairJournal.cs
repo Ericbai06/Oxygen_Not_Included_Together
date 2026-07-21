@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.World;
 
@@ -15,7 +17,6 @@ namespace ONI_Together.Misc.World
 		{
 			internal WorldUpdatePacket Packet;
 			internal readonly SortedSet<ulong> PendingClients = new();
-			internal readonly Dictionary<ulong, float> LastReplayAt = new();
 		}
 
 		private readonly object _gate = new();
@@ -24,9 +25,9 @@ namespace ONI_Together.Misc.World
 		private readonly float _replayIntervalSeconds;
 		private readonly SortedDictionary<long, Entry> _entries = new();
 		private readonly Dictionary<ulong, long> _appliedThrough = new();
+		private readonly Dictionary<ulong, float> _lastReplayAt = new();
 		private int _pendingUpdates;
 		private long _retransmitCount;
-		private long _replayCursorSequence;
 		private ulong _replayCursorClient;
 		private bool _backpressured;
 
@@ -67,7 +68,8 @@ namespace ONI_Together.Misc.World
 					    && applied >= packet.RepairSequence)
 						continue;
 					entry.PendingClients.Add(clientId);
-					entry.LastReplayAt[clientId] = now;
+					if (!_lastReplayAt.ContainsKey(clientId))
+						_lastReplayAt.Add(clientId, now);
 				}
 				if (entry.PendingClients.Count != 0)
 				{
@@ -111,11 +113,11 @@ namespace ONI_Together.Misc.World
 			lock (_gate)
 			{
 				_appliedThrough.Remove(clientId);
+				_lastReplayAt.Remove(clientId);
 				var completed = new List<long>();
 				foreach (var pair in _entries)
 				{
 					pair.Value.PendingClients.Remove(clientId);
-					pair.Value.LastReplayAt.Remove(clientId);
 					if (pair.Value.PendingClients.Count == 0)
 						completed.Add(pair.Key);
 				}
@@ -167,9 +169,9 @@ namespace ONI_Together.Misc.World
 			{
 				_entries.Clear();
 				_appliedThrough.Clear();
+				_lastReplayAt.Clear();
 				_pendingUpdates = 0;
 				_retransmitCount = 0;
-				_replayCursorSequence = 0;
 				_replayCursorClient = 0;
 				_backpressured = false;
 			}
@@ -215,25 +217,41 @@ namespace ONI_Together.Misc.World
 			float now, bool afterCursor,
 			out ulong clientId, out WorldUpdatePacket packet)
 		{
-			foreach (var pair in _entries)
+			foreach (ulong pendingClient in PendingClientsLocked())
 			{
-				foreach (ulong pendingClient in pair.Value.PendingClients)
-				{
-					bool isAfter = pair.Key > _replayCursorSequence
-					               || pair.Key == _replayCursorSequence
-					               && pendingClient > _replayCursorClient;
-					if (isAfter != afterCursor
-					    || now - pair.Value.LastReplayAt[pendingClient] < _replayIntervalSeconds)
-						continue;
-					pair.Value.LastReplayAt[pendingClient] = now;
-					_replayCursorSequence = pair.Key;
-					_replayCursorClient = pendingClient;
-					clientId = pendingClient;
-					packet = pair.Value.Packet;
-					return true;
-				}
+				bool isAfter = pendingClient > _replayCursorClient;
+				_lastReplayAt.TryGetValue(pendingClient, out float lastReplayAt);
+				if (isAfter != afterCursor
+				    || now - lastReplayAt < _replayIntervalSeconds
+				    || !TryGetOldestPendingLocked(pendingClient, out packet))
+					continue;
+				_lastReplayAt[pendingClient] = now;
+				_replayCursorClient = pendingClient;
+				clientId = pendingClient;
+				return true;
 			}
 			clientId = 0;
+			packet = null;
+			return false;
+		}
+
+		private SortedSet<ulong> PendingClientsLocked()
+		{
+			var clients = new SortedSet<ulong>();
+			foreach (Entry entry in _entries.Values)
+				clients.UnionWith(entry.PendingClients);
+			return clients;
+		}
+
+		private bool TryGetOldestPendingLocked(
+			ulong clientId, out WorldUpdatePacket packet)
+		{
+			foreach (Entry entry in _entries.Values)
+				if (entry.PendingClients.Contains(clientId))
+				{
+					packet = entry.Packet;
+					return true;
+				}
 			packet = null;
 			return false;
 		}
@@ -265,8 +283,7 @@ namespace ONI_Together.Misc.World
 	{
 		private sealed class Observation
 		{
-			internal long Revision;
-			internal List<WorldUpdatePacket.CellUpdate> Updates;
+			internal int UpdateCount;
 		}
 
 		internal const int MaxPendingPackets = 128;
@@ -299,8 +316,7 @@ namespace ONI_Together.Misc.World
 					return false;
 				Pending.Add(packet.RepairSequence, new Observation
 				{
-					Revision = packet.Revision,
-					Updates = accepted,
+					UpdateCount = accepted.Count,
 				});
 				_pendingUpdates += accepted.Count;
 			}
@@ -308,36 +324,12 @@ namespace ONI_Together.Misc.World
 			return true;
 		}
 
-		internal static int ObserveForTests(
-			Func<WorldUpdatePacket.CellUpdate, bool> matches,
-			Func<int, long> currentCellRevision)
+		internal static int CompleteApplyBarrierForTests()
 		{
-			if (matches == null || currentCellRevision == null)
-				throw new ArgumentNullException();
-			var complete = new List<long>();
+			List<long> complete;
 			lock (Gate)
-			{
-				foreach (var pair in Pending)
-				{
-					bool observed = true;
-					foreach (WorldUpdatePacket.CellUpdate update in pair.Value.Updates)
-					{
-						if (currentCellRevision(update.Cell) > pair.Value.Revision || matches(update))
-							continue;
-						observed = false;
-						break;
-					}
-					if (observed)
-						complete.Add(pair.Key);
-				}
-				foreach (long sequence in complete)
-				{
-					_pendingUpdates -= Pending[sequence].Updates.Count;
-					Pending.Remove(sequence);
-				}
-			}
-			foreach (long sequence in complete)
-				WorldUpdatePacket.ResolveRepairSequence(sequence);
+				complete = TakePendingLocked();
+			ResolveCompleted(complete);
 			return complete.Count;
 		}
 
@@ -354,7 +346,7 @@ namespace ONI_Together.Misc.World
 				}
 				foreach (long sequence in completed)
 				{
-					_pendingUpdates -= Pending[sequence].Updates.Count;
+					_pendingUpdates -= Pending[sequence].UpdateCount;
 					Pending.Remove(sequence);
 				}
 				_ackTarget = Math.Max(_ackTarget, appliedThrough);
@@ -394,10 +386,20 @@ namespace ONI_Together.Misc.World
 			get { lock (Gate) return Pending.Count; }
 		}
 
+		internal static long AckTarget
+		{
+			get { lock (Gate) return _ackTarget; }
+		}
+
+		internal static long LastAckSent
+		{
+			get { lock (Gate) return _lastAckSent; }
+		}
+
 		private static void EnsureWorkScheduled()
 		{
-			GameScheduler scheduler = GameScheduler.Instance;
-			if (scheduler == null)
+			Game game = Game.Instance;
+			if (game == null)
 				return;
 			long epoch;
 			lock (Gate)
@@ -407,19 +409,34 @@ namespace ONI_Together.Misc.World
 				_workScheduled = true;
 				epoch = _epoch;
 			}
-			scheduler.ScheduleNextFrame("ONI Together world repair observation",
-				_ => RunScheduled(epoch));
+			game.StartCoroutine(RunNextUnityFrame(epoch));
+		}
+
+		private static IEnumerator RunNextUnityFrame(long epoch)
+		{
+			yield return null;
+			RunScheduled(epoch);
+		}
+
+		internal static IEnumerator RunNextUnityFrameForTests(long epoch)
+			=> RunNextUnityFrame(epoch);
+
+		internal static long EpochForTests
+		{
+			get { lock (Gate) return _epoch; }
 		}
 
 		private static void RunScheduled(long epoch)
 		{
+			List<long> complete;
 			lock (Gate)
 			{
 				if (epoch != _epoch)
 					return;
 				_workScheduled = false;
+				complete = TakePendingLocked();
 			}
-			ObserveForTests(GridMatches, WorldUpdatePacket.GetClientCellRevision);
+			ResolveCompleted(complete);
 			TrySendAck();
 			bool hasPending;
 			lock (Gate)
@@ -427,6 +444,23 @@ namespace ONI_Together.Misc.World
 				             || MultiplayerSession.IsClient && _ackTarget > _lastAckSent;
 			if (hasPending)
 				EnsureWorkScheduled();
+		}
+
+		private static List<long> TakePendingLocked()
+		{
+			var complete = new List<long>(Pending.Keys);
+			foreach (long sequence in complete)
+				_pendingUpdates -= Pending[sequence].UpdateCount;
+			Pending.Clear();
+			return complete;
+		}
+
+		private static void ResolveCompleted(IEnumerable<long> complete)
+		{
+			// The ACK proves ModifyCell crossed a client frame; the paused hash fence
+			// separately proves whether the resulting Grid state matches the host.
+			foreach (long sequence in complete)
+				WorldUpdatePacket.ResolveRepairSequence(sequence);
 		}
 
 		private static void TrySendAck()
@@ -441,23 +475,20 @@ namespace ONI_Together.Misc.World
 				if (target <= _lastAckSent)
 					return;
 			}
-			if (!PacketSender.SendToHost(
+			bool sent = PacketSender.SendToHost(
 				    new WorldRepairAckPacket { AppliedThrough = target },
-				    PacketSendMode.ReliableImmediate))
+				    PacketSendMode.ReliableImmediate);
+			if (ShouldLogAck(target))
+				DebugConsole.Log(
+					$"[WorldRepairAck][SEND] target={target};sent={(sent ? 1 : 0)}");
+			if (!sent)
 				return;
 			lock (Gate)
 				_lastAckSent = Math.Max(_lastAckSent, target);
 		}
 
-		private static bool GridMatches(WorldUpdatePacket.CellUpdate update)
-		{
-			if (!Grid.IsValidCell(update.Cell)
-			    || Grid.ElementIdx[update.Cell] != update.ElementIdx
-			    || !Grid.Mass[update.Cell].Equals(update.Mass)
-			    || Grid.DiseaseIdx[update.Cell] != update.DiseaseIdx
-			    || Grid.DiseaseCount[update.Cell] != update.DiseaseCount)
-				return false;
-			return update.Mass == 0f || Grid.Temperature[update.Cell].Equals(update.Temperature);
-		}
+		private static bool ShouldLogAck(long sequence)
+			=> sequence == 1 || sequence % 32 == 0;
+
 	}
 }

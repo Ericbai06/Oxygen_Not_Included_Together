@@ -8,11 +8,11 @@ namespace ONI_Together.Networking
 	{
 		private sealed class ClientState
 		{
-			public System.DateTime BarrierStartedAtUtc;
+			public System.DateTime StartedAtUtc;
+			public System.DateTime LastProgressAtUtc;
 			public long SnapshotGeneration;
 			public ulong ReconnectToken;
 			public bool LoadingAccepted;
-			public System.DateTime LoadingAcceptedAtUtc;
 			public bool WorldBaselineStarted;
 			public long WorldBaselineConnectionGeneration;
 		}
@@ -39,9 +39,11 @@ namespace ONI_Together.Networking
 
 			if (_pendingClients.ContainsKey(clientId))
 				return false;
+			System.DateTime started = startedAtUtc ?? System.DateTime.UtcNow;
 			_pendingClients.Add(clientId, new ClientState
 			{
-				BarrierStartedAtUtc = startedAtUtc ?? System.DateTime.UtcNow
+				StartedAtUtc = started,
+				LastProgressAtUtc = started
 			});
 			return true;
 		}
@@ -60,7 +62,7 @@ namespace ONI_Together.Networking
 
 			ClientState state = _pendingClients[oldClientId];
 			_pendingClients.Remove(oldClientId);
-			state.LoadingAcceptedAtUtc = System.DateTime.UtcNow;
+			state.LastProgressAtUtc = System.DateTime.UtcNow;
 			_pendingClients.Add(newClientId, state);
 			return true;
 		}
@@ -90,6 +92,15 @@ namespace ONI_Together.Networking
 
 		public bool Prune(
 			Func<ulong, bool> isConnected,
+			TimeSpan maximumIdle,
+			System.DateTime utcNow,
+			ICollection<ulong> expiredClients)
+			=> Prune(
+				isConnected, maximumIdle, TimeSpan.MaxValue, utcNow, expiredClients);
+
+		public bool Prune(
+			Func<ulong, bool> isConnected,
+			TimeSpan maximumIdle,
 			TimeSpan maximumLifetime,
 			System.DateTime utcNow,
 			ICollection<ulong> expiredClients)
@@ -98,8 +109,10 @@ namespace ONI_Together.Networking
 			foreach (ulong id in new List<ulong>(_pendingClients.Keys))
 			{
 				ClientState state = _pendingClients[id];
-				bool expired = state.BarrierStartedAtUtc != default
-				               && utcNow - state.BarrierStartedAtUtc > maximumLifetime;
+				bool expired = state.LastProgressAtUtc != default
+				               && utcNow - state.LastProgressAtUtc > maximumIdle
+				               || state.StartedAtUtc != default
+				               && utcNow - state.StartedAtUtc > maximumLifetime;
 				if (isConnected(id) && !expired)
 					continue;
 				_pendingClients.Remove(id);
@@ -117,9 +130,9 @@ namespace ONI_Together.Networking
 			state.SnapshotGeneration = snapshotGeneration;
 			state.ReconnectToken = 0;
 			state.LoadingAccepted = false;
-			state.LoadingAcceptedAtUtc = default;
 			state.WorldBaselineStarted = false;
 			state.WorldBaselineConnectionGeneration = 0;
+			state.LastProgressAtUtc = System.DateTime.UtcNow;
 			return true;
 		}
 
@@ -140,6 +153,7 @@ namespace ONI_Together.Networking
 				    clientId, out MultiplayerPlayer player))
 				connectionGeneration = player.ConnectionGeneration;
 			state.WorldBaselineConnectionGeneration = connectionGeneration;
+			state.LastProgressAtUtc = System.DateTime.UtcNow;
 			return true;
 		}
 
@@ -158,9 +172,21 @@ namespace ONI_Together.Networking
 			    || snapshotGeneration <= 0 || state.SnapshotGeneration != snapshotGeneration
 			    || state.ReconnectToken != 0 && state.ReconnectToken != reconnectToken)
 				return false;
+			bool firstAcceptance = !state.LoadingAccepted;
 			state.ReconnectToken = reconnectToken;
 			state.LoadingAccepted = true;
-			state.LoadingAcceptedAtUtc = System.DateTime.UtcNow;
+			if (firstAcceptance)
+				state.LastProgressAtUtc = System.DateTime.UtcNow;
+			return true;
+		}
+
+		public bool RecordWorldBaselineProgress(
+			ulong clientId, System.DateTime utcNow)
+		{
+			if (!_pendingClients.TryGetValue(clientId, out ClientState state)
+			    || !state.WorldBaselineStarted || utcNow <= state.LastProgressAtUtc)
+				return false;
+			state.LastProgressAtUtc = utcNow;
 			return true;
 		}
 
@@ -183,8 +209,8 @@ namespace ONI_Together.Networking
 
 		public bool IsLoading(ulong clientId, TimeSpan maximumAge)
 			=> _pendingClients.TryGetValue(clientId, out ClientState state)
-			   && state.LoadingAccepted && state.LoadingAcceptedAtUtc != default
-			   && System.DateTime.UtcNow - state.LoadingAcceptedAtUtc <= maximumAge;
+			   && state.LoadingAccepted && state.LastProgressAtUtc != default
+			   && System.DateTime.UtcNow - state.LastProgressAtUtc <= maximumAge;
 
 		public bool HasReconnectProof(ulong clientId, ulong reconnectToken)
 			=> reconnectToken != 0 && _pendingClients.TryGetValue(clientId, out ClientState state)

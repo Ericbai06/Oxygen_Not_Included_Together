@@ -53,7 +53,10 @@ namespace ONI_Together.Networking.Components
 
 			AnimSyncCoordinator.Unregister(this);
 			if (networkIdentity != null && networkIdentity.NetId != 0)
+			{
 				PlayAnimPacket.ForgetNetId(networkIdentity.NetId);
+				AnimSyncBatchPacket.ForgetNetId(networkIdentity.NetId);
+			}
 			base.OnCleanUp();
 		}
 
@@ -91,7 +94,10 @@ namespace ONI_Together.Networking.Components
 					AnimHash = animHash,
 					Mode = mode,
 					Speed = speed,
-					ElapsedTime = elapsedTime
+					ElapsedTime = elapsedTime,
+					StartTick = PresentationTickClock.CurrentTick,
+					DurationTicks = PresentationTickClock.DurationTicks(
+						animController.CurrentAnim.totalTime),
 				};
 
 				activityKey = BuildActivityKey(animHash, mode, speed);

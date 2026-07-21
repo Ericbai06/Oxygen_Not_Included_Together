@@ -25,9 +25,10 @@ namespace ONI_Together.DebugTools.UnitTests
 				while (nextEntry < entryCount && batch.TryAppend(typicalEntry))
 					nextEntry++;
 				if (nextEntry == firstEntry
-				    || batch.GetOuterReliablePageCount() > 2
-				    || batch.GetOrderedReliableWireBytes()
-				    > SoakHashDomainKeyframeBatchPacket.MaxOrderedWireBytes)
+				    || batch.GetRiptideFragmentCount()
+				    > SoakHashDomainKeyframePagePacket.MaxRiptideFragmentsPerPage
+				    || batch.GetReliableWireBytes()
+				    > SoakHashDomainKeyframeBatchPacket.MaxReliableWireBytes)
 					return UnitTestResult.Fail("A small-entry batch made no bounded progress");
 				acknowledgements++;
 			}
@@ -155,13 +156,11 @@ namespace ONI_Together.DebugTools.UnitTests
 			int pageCount = SoakHashDomainKeyframePagePacket.PageCountFor(entry.Length);
 			SoakHashDomainKeyframePagePacket page =
 				SoakHashDomainKeyframePagePacket.Create(8, 2, 0, 0, entry);
-			int fragments = (page.GetOrderedReliableWireBytes()
-			                 + SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes - 1)
-			                / SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes;
+			int fragments = page.GetRiptideFragmentCount();
 			return pageCount > 700
 			       && page.Payload.Length <= SoakHashDomainKeyframePagePacket.MaxPayloadBytes
-			       && page.GetOrderedReliableWireBytes()
-			       <= SoakHashDomainKeyframePagePacket.MaxOrderedWireBytes
+			       && page.GetReliableWireBytes()
+			       <= SoakHashDomainKeyframePagePacket.MaxReliableWireBytes
 			       && fragments <= SoakHashDomainKeyframePagePacket.MaxRiptideFragmentsPerPage
 			       && fragments < 16
 				? UnitTestResult.Pass("A 12 MiB entry is emitted as bounded application pages")

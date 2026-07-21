@@ -2,6 +2,7 @@
 using ONI_Together.DebugTools;
 using ONI_Together.Misc;
 using ONI_Together.Networking.Packets.World;
+using ONI_Together.Networking.Packets.Tools.Deconstruct;
 using ONI_Together.Networking.States;
 using System.IO;
 using System.Collections;
@@ -359,9 +360,12 @@ namespace ONI_Together.Networking.Components
 			SpawnPrefabPacket.RecordCleanupDiagnostic(this, System.Environment.StackTrace);
 #endif
 			bool isRegistered = NetworkIdentityRegistry.IsRegistered(this, NetId);
+			bool constructionTransition = IsManagedConstructionTransition(
+				IsManagedSpawnSuppressed, GetComponent<Constructable>() != null);
 			if (!lifecycleTerminal && MultiplayerSession.IsHost
-			    && MultiplayerSession.InSession && isRegistered)
-				PacketSender.SendToAllClients(new DespawnEntityPacket(NetId));
+			    && MultiplayerSession.InSession && isRegistered
+			    && !constructionTransition)
+				SendAuthoritativeCleanup();
 			else if (!lifecycleTerminal && ShouldEndLifecycleLocally(
 				         MultiplayerSession.InSession, MultiplayerSession.IsHost, isRegistered))
 				NetworkIdentityRegistry.EndLifecycle(NetId);
@@ -377,6 +381,25 @@ namespace ONI_Together.Networking.Components
 			ExpectedAuthorityNetId = 0;
 			//DebugConsole.Log($"[NetworkIdentity] Unregistered NetId {NetId} for {gameObject.name}");
 			base.OnCleanUp();
+		}
+
+		internal static bool IsManagedConstructionTransition(
+			bool managedSpawnSuppressed, bool hasConstructable)
+			=> managedSpawnSuppressed && hasConstructable;
+
+		private void SendAuthoritativeCleanup()
+		{
+			if (TryGetComponent<Pickupable>(out _))
+				return;
+			if (TryGetComponent(out Deconstructable deconstructable)
+			    && deconstructable.HasBeenDestroyed)
+			{
+				PacketSender.SendToAllClients(
+					new DeconstructCompletePacket(NetId),
+					PacketSendMode.ReliableImmediate);
+				return;
+			}
+			PacketSender.SendToAllClients(new DespawnEntityPacket(NetId));
 		}
 	}
 }

@@ -22,9 +22,7 @@ namespace ONI_Together.Networking.Packets.Architecture
 	internal enum EnvelopeProvenance
 	{
 		DirectTransport,
-		ChunkReassembled,
-		OrderedInner,
-		ReliablePageInner,
+		DedicatedRelayInner,
 	}
 
 	public readonly struct DispatchContext
@@ -76,19 +74,12 @@ namespace ONI_Together.Networking.Packets.Architecture
 				SenderId, SenderIsHost, ConnectionGeneration, SessionEpoch,
 				RelayProvenance.VerifiedHostBroadcast, Envelope);
 
-		internal DispatchContext AsChunkReassembled()
-			=> WithEnvelope(EnvelopeProvenance.ChunkReassembled);
-
-		internal DispatchContext AsOrderedInner()
-			=> WithEnvelope(EnvelopeProvenance.OrderedInner);
-
-		internal DispatchContext AsReliablePageInner()
-			=> WithEnvelope(EnvelopeProvenance.ReliablePageInner);
-
-		private DispatchContext WithEnvelope(EnvelopeProvenance envelope)
+		internal DispatchContext AsDedicatedRelayInner(
+			ulong senderId, bool senderIsHost, long connectionGeneration)
 			=> new DispatchContext(
-				SenderId, SenderIsHost, ConnectionGeneration, SessionEpoch,
-				Provenance, envelope);
+				senderId, senderIsHost, connectionGeneration, SessionEpoch,
+				RelayProvenance.DirectTransport, EnvelopeProvenance.DedicatedRelayInner);
+
 	}
 
 	public static class PacketHandler
@@ -133,15 +124,6 @@ namespace ONI_Together.Networking.Packets.Architecture
 			=> TryHandleIncoming(data, context);
 
 		internal static bool TryHandleIncoming(byte[] data, DispatchContext context)
-			=> TryHandleIncoming(data, context, discardStaleClientRuntime: false);
-
-		internal static bool TryHandleIncomingReliableFrame(byte[] data, DispatchContext context)
-			=> TryHandleIncoming(data, context, discardStaleClientRuntime: true);
-
-		private static bool TryHandleIncoming(
-			byte[] data,
-			DispatchContext context,
-			bool discardStaleClientRuntime)
 		{
 			using var _ = Profiler.Scope();
 			if (data == null || data.Length < sizeof(int) || data.Length > MaxPacketSize)
@@ -161,13 +143,11 @@ namespace ONI_Together.Networking.Packets.Architecture
 #endif
 				    !CanProcessNow())
 					return false;
-				return ProcessIncoming(data, context, discardStaleClientRuntime);
+				return ProcessIncoming(data, context);
 			}
 			catch (Exception ex)
 			{
 				DebugConsole.LogWarning($"[PacketHandler] Rejected malformed packet from {context.SenderId}: {ex}");
-				if (IsOrderedEnvelopeData(data))
-					OrderedReliableChannel.RejectMalformed(context);
 				return false;
 			}
 			finally
@@ -192,10 +172,7 @@ namespace ONI_Together.Networking.Packets.Architecture
 			return true;
 		}
 
-		private static bool ProcessIncoming(
-			byte[] data,
-			DispatchContext context,
-			bool discardStaleClientRuntime)
+		private static bool ProcessIncoming(byte[] data, DispatchContext context)
 		{
 			using var ms = new MemoryStream(data);
 			using var reader = new BinaryReader(ms);
@@ -209,15 +186,9 @@ namespace ONI_Together.Networking.Packets.Architecture
 			using var scope = Profiler.Scope();
 			IPacket packet = PacketRegistry.Create(type);
 			if (!CanDispatchEnvelope(packet, context.Envelope))
-			{
-				if (IsTransportEnvelope(packet))
-					PacketSender.TerminateIncomingReliableStream(context);
 				return false;
-			}
 			bool canDispatch = CanDispatchPacket(packet, context, MultiplayerSession.IsHost);
-			bool discard = !canDispatch && discardStaleClientRuntime
-				&& ShouldDiscardStaleClientRuntime(packet, context, MultiplayerSession.IsHost);
-			if (!canDispatch && !discard)
+			if (!canDispatch)
 			{
 				DebugConsole.LogWarning(
 					$"[PacketHandler] Rejected packet origin for {packet.GetType().Name} from {context.SenderId}");
@@ -228,12 +199,8 @@ namespace ONI_Together.Networking.Packets.Architecture
 			{
 				DebugConsole.LogWarning(
 					$"[PacketHandler] Rejected trailing payload for {packet.GetType().Name} from {context.SenderId}");
-				if (packet is OrderedReliablePacket)
-					OrderedReliableChannel.RejectMalformed(context);
 				return false;
 			}
-			if (discard)
-				return true;
 			Dispatch(packet);
 			scope.End(packet.GetType().Name, data.Length);
 			if (ShouldTrackIncoming(packet)
@@ -246,13 +213,23 @@ namespace ONI_Together.Networking.Packets.Architecture
 		}
 
 		internal static bool ShouldTrackIncoming(IPacket packet)
-			=> packet is not (OrderedReliablePacket or ReliablePagePacket
-				or ReliablePageAckPacket or ChunkedPacket);
+			=> packet is not DedicatedServerMessagePacket;
 
-		private static bool IsOrderedEnvelopeData(byte[] data)
-			=> data != null && data.Length >= sizeof(int)
-			   && BitConverter.ToInt32(data, 0)
-			   == API_Helper.GetHashCode(typeof(OrderedReliablePacket));
+		internal static bool IsForbiddenReadyReplayFrame(byte[] frame)
+		{
+			if (frame == null || frame.Length < sizeof(int))
+				return true;
+			int packetId = BitConverter.ToInt32(frame, 0);
+			return packetId == API_Helper.GetHashCode(typeof(DedicatedServerMessagePacket))
+			       || packetId == API_Helper.GetHashCode(typeof(DeferredReliableBatchPacket))
+			       || packetId == API_Helper.GetHashCode(typeof(ReadyReplayCommitPacket))
+			       || packetId == API_Helper.GetHashCode(typeof(ReadyReplayAppliedPacket));
+		}
+
+		internal static bool IsForbiddenDedicatedFrame(byte[] frame)
+			=> frame == null || frame.Length < sizeof(int)
+			   || BitConverter.ToInt32(frame, 0)
+			   == API_Helper.GetHashCode(typeof(DedicatedServerMessagePacket));
 
 		internal static bool DispatchNested(IPacket packet, DispatchContext context)
 		{
@@ -305,31 +282,31 @@ namespace ONI_Together.Networking.Packets.Architecture
 			return IsVerifiedClientRelay(context, protocolVerified: true);
 		}
 
-		private static bool ShouldDiscardStaleClientRuntime(
-			IPacket packet,
-			DispatchContext context,
-			bool localIsHost)
-		{
-			if (!localIsHost || context.SenderIsHost || packet is IHostOnlyPacket)
-				return false;
-			if (!IsCurrentConnectionContext(context, localIsHost, out MultiplayerPlayer player))
-				return false;
-			player ??= MultiplayerSession.GetPlayer(context.SenderId);
-			if (player?.ProtocolVerified != true
-			    || SyncBarrier.IsExactReady(player.readyState)
-			    || CanDispatchClientPacket(packet, true, player.readyState)
-			    || !CanDispatchClientPacket(packet, true, ClientReadyState.Ready))
-				return false;
-			if (packet is IModApiPacket
-			    && !PacketRegistry.CanClientDispatchModApi(packet, context.IsVerifiedHostBroadcast))
-				return false;
-			return packet is not IClientRelayable
-			       || IsVerifiedClientRelay(context, protocolVerified: true);
-		}
-
 		internal static bool IsCurrentDispatchContext(DispatchContext context)
 			=> IsCurrentConnectionContext(
 				context, MultiplayerSession.IsHost, out _);
+
+		internal static DispatchContext? TryCreateDedicatedRelayContext(
+			DispatchContext transportContext,
+			ulong senderId,
+			bool senderIsHost)
+		{
+			if (transportContext.Envelope != EnvelopeProvenance.DirectTransport
+			    || transportContext.Provenance != RelayProvenance.DirectTransport
+			    || !transportContext.SenderIsHost || senderId == 0
+			    || senderIsHost != (senderId == MultiplayerSession.HostUserID)
+			    || senderIsHost == MultiplayerSession.IsHost)
+				return null;
+			MultiplayerPlayer player = MultiplayerSession.GetPlayer(senderId);
+			if (player == null || player.ConnectionGeneration <= 0)
+				return null;
+			DispatchContext relayContext = transportContext.AsDedicatedRelayInner(
+				senderId, senderIsHost, player.ConnectionGeneration);
+			return IsCurrentConnectionContext(
+				relayContext, MultiplayerSession.IsHost, out _)
+				? relayContext
+				: null;
+		}
 
 		private static bool IsCurrentConnectionContext(
 			DispatchContext context,
@@ -354,27 +331,17 @@ namespace ONI_Together.Networking.Packets.Architecture
 
 		private static bool CanDispatchEnvelope(IPacket packet, EnvelopeProvenance envelope)
 		{
-			if (packet is ChunkedPacket)
+			if (packet is DedicatedServerMessagePacket)
 				return envelope == EnvelopeProvenance.DirectTransport;
-			if (packet is OrderedReliablePacket)
-				return envelope is EnvelopeProvenance.DirectTransport
-					or EnvelopeProvenance.ChunkReassembled;
-			if (packet is ReliablePagePacket or ReliablePageAckPacket)
-				return envelope == EnvelopeProvenance.OrderedInner;
 			return true;
 		}
-
-		private static bool IsTransportEnvelope(IPacket packet)
-			=> packet is ChunkedPacket or OrderedReliablePacket
-				or ReliablePagePacket or ReliablePageAckPacket;
 
 		internal static bool CanDispatchClientPacket(
 			IPacket packet,
 			bool protocolVerified,
 			ClientReadyState readyState)
 		{
-			if (packet is GameStateRequestPacket or OrderedReliablePacket or ChunkedPacket
-			    or ReliablePagePacket or ReliablePageAckPacket)
+			if (packet is GameStateRequestPacket or ProtocolRejectedAckPacket)
 				return true;
 			if (!protocolVerified)
 				return false;
@@ -391,13 +358,15 @@ namespace ONI_Together.Networking.Packets.Architecture
 		private static bool IsPreReadyControl(IPacket packet)
 		{
 				return packet is SaveFileRequestPacket
+				    or ProtocolRejectedAckPacket
 				    or WorldDataRequestPacket
 				    or WorldDataProgressAckPacket
-				    or TcpFallbackRequestPacket
+			    or WorldRepairAckPacket
+			    or TcpFallbackRequestPacket
 			    or ClientReadyStatusPacket
+			    or ReadyReplayAppliedPacket
 			    or SyncProgressPacket
-			    or ChunkAckPacket
-			    or OrderedReliablePacket;
+			    or ChunkAckPacket;
 		}
 
 		internal static bool IsVerifiedClientRelay(DispatchContext context, bool protocolVerified)

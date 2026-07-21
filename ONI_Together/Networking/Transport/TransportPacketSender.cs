@@ -1,87 +1,32 @@
-﻿using System.Collections.Generic;
+using System;
 using ONI_Together.Networking.Packets.Architecture;
-using UnityEngine;
 
 namespace ONI_Together.Networking.Transport
 {
-    public abstract class TransportPacketSender
-    {
-        private readonly Dictionary<object, Queue<(IPacket packet, PacketSendMode sendMode)>> _pendingQueues = new Dictionary<object, Queue<(IPacket packet, PacketSendMode sendMode)>>();
-        private readonly List<object> _emptyConnections = new List<object>();
+	public readonly struct SerializedPacket
+	{
+		public IPacket Packet { get; }
+		public byte[] Bytes { get; }
+		public string PacketType => Packet.GetType().Name;
 
-        public bool SendToConnection(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
-        {
-            // This does work but if it queues up the client will see what the host saw but will be behind and plays catchup
-            if (!Configuration.Instance.EnablePacketQueue)
-                return SendPacket(conn, packet, sendType);
-            // queue it
-            if (!_pendingQueues.TryGetValue(conn, out var queue))
-                _pendingQueues[conn] = queue = new();
-
-            // Given the nature of the game and the sync. I'm not sure this is a good idea for late game colonies
-            //int MAX_QUEUE_DEPTH = 1000; // After 1000 packets. Discard oldest
-            //if (queue.Count >= MAX_QUEUE_DEPTH)
-            //    queue.Dequeue();
-
-            queue.Enqueue((packet, sendType));
-            return true;
-        }
-
-        public void Flush()
-        {
-            if (!Configuration.Instance.EnablePacketQueue)
-                return;
-
-            int maxThisTick = (int)(Configuration.Instance.MaxPacketsPerSecond * Time.unscaledDeltaTime);
-            //maxThisTick = Mathf.Clamp(maxThisTick, 1, 60); // never more than 60 per frame
-            if (maxThisTick < 1) maxThisTick = 1;
-
-            _emptyConnections.Clear();
-            foreach (var kvp in _pendingQueues)
-            {
-                int sent = 0;
-                while (kvp.Value.Count > 0 && sent < maxThisTick)
-                {
-					var (packet, sendType) = kvp.Value.Peek();
-					bool accepted = SendPacket(kvp.Key, packet, sendType);
-					if (!ShouldDequeueAfterSend(accepted, sendType))
-						break;
-					kvp.Value.Dequeue();
-                    sent++;
-                }
-                if (kvp.Value.Count == 0)
-                    _emptyConnections.Add(kvp.Key);
-            }
-
-            foreach (var key in _emptyConnections)
-                _pendingQueues.Remove(key);
-        }
-
-		public void ResetSessionState()
+		public SerializedPacket(IPacket packet, byte[] bytes)
 		{
-			_pendingQueues.Clear();
-			_emptyConnections.Clear();
+			Packet = packet ?? throw new ArgumentNullException(nameof(packet));
+			Bytes = bytes ?? throw new ArgumentNullException(nameof(bytes));
 		}
+	}
 
-		public void DropConnection(object connection)
-		{
-			if (connection == null)
-				return;
-			_pendingQueues.Remove(connection);
-			_emptyConnections.Remove(connection);
-		}
+	public abstract class TransportPacketSender
+	{
+		public bool SendToConnection(
+			object connection,
+			SerializedPacket packet,
+			PacketSendMode sendMode = PacketSendMode.ReliableImmediate)
+			=> SendPacket(connection, packet, sendMode);
 
-		internal int PendingCount(object connection)
-			=> connection != null && _pendingQueues.TryGetValue(connection, out var queue)
-				? queue.Count
-				: 0;
-
-		internal int PendingCountForTests(object connection) => PendingCount(connection);
-
-		internal static bool ShouldDequeueAfterSend(bool accepted, PacketSendMode sendType)
-			=> accepted || (sendType & PacketSendMode.Reliable) == 0;
-
-        public abstract bool SendPacket(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate);
-
-    }
+		public abstract bool SendPacket(
+			object connection,
+			SerializedPacket packet,
+			PacketSendMode sendMode = PacketSendMode.ReliableImmediate);
+	}
 }

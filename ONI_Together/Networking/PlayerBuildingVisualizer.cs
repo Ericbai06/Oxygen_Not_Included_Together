@@ -17,6 +17,15 @@ namespace ONI_Together.Networking
 	/// </summary>
 	public class PlayerBuildingVisualizer
 	{
+		public struct VisualState
+		{
+			public string BuildingPrefabId;
+			public Vector3 Position;
+			public Orientation Orientation;
+			public Color Color;
+			public bool AllowedToPlace;
+		}
+
 		public enum VisualizerType
 		{
 			BUILDING,
@@ -196,27 +205,25 @@ namespace ONI_Together.Networking
 			RemoveTileVisual();
 		}
 
-		public void UpdateVisualizer(string buildingPrefabId, Vector3 position, Orientation orientation, Color visualColor, bool allowedToPlaceVis)
+		public void UpdateVisualizer(VisualState state)
 		{
-			if (visualColor != Color)
-			{
-				Color = visualColor;
-			}
-			this.CurrentOrientation = orientation;
-			this._allowedToPlaceVis = allowedToPlaceVis;
+			if (state.Color != Color)
+				Color = state.Color;
+			CurrentOrientation = state.Orientation;
+			_allowedToPlaceVis = state.AllowedToPlace;
 			UpdateVisualColor();
 
-			if (lastPrefabId.Equals(buildingPrefabId) && !_visualizer.IsNullOrDestroyed())
+			if (lastPrefabId.Equals(state.BuildingPrefabId) && !_visualizer.IsNullOrDestroyed())
 			{
-				UpdatePosition(position); // Instead of updating the visualizer object update its position
+				UpdatePosition(state.Position); // Instead of updating the visualizer object update its position
 				return;
 			}
 			//determine new vis type
-			var newVisType = DermineBuildingType(buildingPrefabId);
+			var newVisType = DermineBuildingType(state.BuildingPrefabId);
 			DestroyVisualizer();
 			Cell = Grid.InvalidCell;
 
-			if (string.IsNullOrEmpty(buildingPrefabId))
+			if (string.IsNullOrEmpty(state.BuildingPrefabId))
 			{
 				CurrentDef = null;
 				lastPrefabId = string.Empty;
@@ -228,18 +235,18 @@ namespace ONI_Together.Networking
 			if (newVisType == VisualizerType.INVALID)
 				return;
 
-			BuildingDef def = Assets.GetBuildingDef(buildingPrefabId);
+			BuildingDef def = Assets.GetBuildingDef(state.BuildingPrefabId);
 			//if (def == CurrentDef) // Same def somehow leaked through
 			//	return;
 			CurrentDef = def;
-			lastPrefabId = buildingPrefabId;
+			lastPrefabId = state.BuildingPrefabId;
 			if (newVisType == VisualizerType.TILE)
 			{
 				SetTileRenderer();
-				UpdateTileVisual(Grid.PosToCell(position));
+				UpdateTileVisual(Grid.PosToCell(state.Position));
 			}
 			else
-				InstantiateNewVisualizer(position);
+				InstantiateNewVisualizer(state.Position);
 		}
 
 		private void UpdateBuildingVisual(int cell)

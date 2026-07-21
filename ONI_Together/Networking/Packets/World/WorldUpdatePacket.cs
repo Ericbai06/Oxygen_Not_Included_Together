@@ -136,29 +136,43 @@ namespace ONI_Together.Networking.Packets.World
 			}
 			if (IsBackgroundRepair)
 			{
-				if (ShouldDeferRepair(ForegroundCut))
-				{
-					if (!DeferRepair(this))
-						DebugConsole.LogWarning(
-							$"[WorldUpdatePacket] Deferred repair capacity rejected {RepairSequence}; awaiting replay.");
-				}
-				else
-					ApplyRepairAndTrack();
+				DispatchBackgroundRepair();
 				return;
 			}
-			ForegroundSequenceResult sequenceResult = AcceptForegroundSequence(Sequence);
-			if (sequenceResult == ForegroundSequenceResult.Superseded)
-				return;
-			if (sequenceResult == ForegroundSequenceResult.Gap)
+			DispatchForeground();
+		}
+
+		private void DispatchBackgroundRepair()
+		{
+			if (ShouldDeferRepair(ForegroundCut))
 			{
-				DebugConsole.LogError(
-					$"[WorldUpdatePacket] Foreground sequence gap after {CurrentClientForegroundSequence}: {Sequence}; disconnecting.",
-					false);
-				NetworkConfig.TransportClient?.Disconnect();
+				if (!DeferRepair(this))
+					DebugConsole.LogWarning(
+						$"[WorldUpdatePacket] Deferred repair capacity rejected {RepairSequence}; awaiting replay.");
+			}
+			else
+				ApplyRepairAndTrack();
+		}
+
+		private void DispatchForeground()
+		{
+			float receivedAt = UnityEngine.Time.realtimeSinceStartup;
+			ForegroundReorderResult result = QueueForeground(
+				receivedAt, PacketHandler.CurrentContext,
+				out WorldUpdatePacket ready);
+			if (result is ForegroundReorderResult.CapacityExceeded
+			    or ForegroundReorderResult.SessionMismatch
+			    or ForegroundReorderResult.Failed)
+			{
+				FailForegroundReorder(result.ToString());
 				return;
 			}
-			ApplyUpdates(backgroundRepair: false);
-			DrainReadyRepairs();
+			while (ready != null)
+			{
+				ready.ApplyUpdates(backgroundRepair: false);
+				DrainReadyRepairs();
+				ready = TakeNextPendingForeground(receivedAt);
+			}
 		}
 
 		private void ApplyRepairAndTrack()

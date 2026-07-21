@@ -127,7 +127,7 @@ namespace ONI_Together.Networking.Packets.World
 				ElementDiseaseIdx = reader.ReadByte();
 				ElementDiseaseCount = reader.ReadInt32();
 			}
-			if (StorageNetId == 0 || Revision == 0
+			if (StorageNetId == 0 || Revision == 0 || Revision > long.MaxValue
                 || (FxPrefix != FXPrefix.Delivered && FxPrefix != FXPrefix.PickedUp)
 				|| !FiniteNonNegative(ConsumedAmount)
 				|| HasElementState && (!FiniteNonNegative(ElementMass)
@@ -152,8 +152,19 @@ namespace ONI_Together.Networking.Packets.World
                 return;
             }
 
+			ulong current = CurrentRevisionBaseline();
+			if (!ShouldApplyRevision(
+				    NetworkIdentityRegistry.GetLastStorageSnapshotRevision(StorageNetId),
+				    NetworkIdentityRegistry.GetLastStorageItemRevision(NetId),
+				    NetworkIdentityRegistry.GetLastLifecycleRevision(NetId),
+				    NetworkIdentityRegistry.GetLastLifecycleRevision(StorageNetId), Revision))
+			{
+				LogRevisionOutcome(current, applied: false);
+				return;
+			}
 			if (!NetworkIdentityRegistry.TryAcceptStorageTransferRevision(StorageNetId, NetId, Revision))
 				return;
+			LogRevisionOutcome(current, applied: true);
 
             if (!NetworkIdentityRegistry.TryGetComponent<Pickupable>(NetId, out var pickupable))
             {
@@ -202,7 +213,43 @@ namespace ONI_Together.Networking.Packets.World
 			}
 
 			DisplayFX(item, storage);
+#if DEBUG
+			string state = CanonicalState();
+			IntegrationScenarioEvidenceCore.Log("storage", "client-apply", (long)Revision, true, state);
+			IntegrationScenarioEvidenceCore.Log("storage", "final-state", (long)Revision, true, state);
+#endif
 		}
+
+		private ulong CurrentRevisionBaseline()
+			=> Math.Max(
+				Math.Max(NetworkIdentityRegistry.GetLastStorageSnapshotRevision(StorageNetId),
+					NetworkIdentityRegistry.GetLastStorageItemRevision(NetId)),
+				Math.Max(NetworkIdentityRegistry.GetLastLifecycleRevision(NetId),
+					NetworkIdentityRegistry.GetLastLifecycleRevision(StorageNetId)));
+
+		private void LogRevisionOutcome(ulong current, bool applied)
+		{
+#if DEBUG
+			string phase = Revision > current ? "revision-accepted"
+				: Revision == current ? "revision-duplicate" : "revision-out-of-order";
+			IntegrationScenarioEvidenceCore.Log(
+				"storage", phase, (long)Revision, applied, CanonicalState());
+#endif
+		}
+
+		internal void LogHostOutcome()
+		{
+#if DEBUG
+			string state = CanonicalState();
+			IntegrationScenarioEvidenceCore.Log("storage", "host-submit", (long)Revision, true, state);
+			IntegrationScenarioEvidenceCore.Log("storage", "final-state", (long)Revision, true, state);
+#endif
+		}
+
+		internal string CanonicalState()
+			=> StorageNetId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":"
+			   + NetId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":present="
+			   + (FxPrefix == FXPrefix.Delivered ? "1" : "0");
 
 		private bool TryStoreDeliveredItem(
 			GameObject item, Storage storage, Pickupable pickupable,

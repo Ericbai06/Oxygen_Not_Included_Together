@@ -27,7 +27,7 @@ public static class DuplicantPatch
 			DebugConsole.Log("[NetworkIdentity] Injected into Duplicant");
 		}
 
-		__result.AddOrGet<EntityPositionHandler>();
+		__result.AddOrGet<RemoteMotionPresenter>();
 		__result.AddOrGet<VitalStatsSyncer>();
 	}
 

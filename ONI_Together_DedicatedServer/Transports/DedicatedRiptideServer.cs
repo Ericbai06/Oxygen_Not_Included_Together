@@ -83,9 +83,12 @@ namespace ONI_Together_DedicatedServer.Transports
 
             if (ConnectedPlayers.TryGetValue(clientId, out ONI.Player player))
             {
-                int packetType = 0;
-                if (rawData.Length >= 4)
-                    packetType = BitConverter.ToInt32(rawData, 0);
+                if (rawData.Length < sizeof(int))
+                {
+                    Console.WriteLine($"Rejected truncated packet from client {clientId}");
+                    return;
+                }
+                int packetType = BitConverter.ToInt32(rawData, 0);
 
                 if (packetType == Utils.DEDICATED_SERVER_PACKET_ID)
                 {
@@ -101,43 +104,44 @@ namespace ONI_Together_DedicatedServer.Transports
                 MessageSendMode sendMode = e.Message.SendMode == MessageSendMode.Reliable
                     ? MessageSendMode.Reliable
                     : MessageSendMode.Unreliable;
-                // Wrap this as a DedicatedServerMessagePacket
-                byte[] relayedPacketData = Utils.SerializePacketForSending(Utils.DEDICATED_SERVER_PACKET_ID, (writer) =>
-                {
-                    writer.Write(packetType); // PacketID
-                    writer.Write((int)sendMode); // Send Type
-                    writer.Write(clientId); // Original sender
-                    writer.Write(player.IsMaster); // Original sender role
-                    writer.Write(rawData.Length);
-                    writer.Write(rawData); // PacketData
-                });
+                byte[] relayedPacketData = CreateRelayEnvelope(
+                    clientId, player.IsMaster, rawData);
 
-                // Check if player.IsMaster
-                // If we're not the master, send this to the master
-                // If we're the master, send it to everyone else and not the master
-                if (player.IsMaster)
-                {
-                    //_server.SendToAll(msg);
-                    Console.WriteLine("Broadcasting master packet to clients");
-                    var slaves = ConnectedPlayers.Values.Where(p => !p.IsMaster);
-                    if (slaves.Any())
-                    {
-                        foreach (ONI.Player client in slaves)
-                        {
-                            SendRelay(client.Connection, relayedPacketData, sendMode);
-                        }
-                    }
-                }
-                else
-                {
-                    Console.WriteLine("Recieved packet from client, sending to master!");
-                    ONI.Player master = ConnectedPlayers.Values.Where(p => p.IsMaster).FirstOrDefault();
-                    if (master != null)
-                    {
-                        SendRelay(master.Connection, relayedPacketData, sendMode);
-                    }
-                }
+                ForwardRelay(player, relayedPacketData, sendMode);
             }
+        }
+
+        private void ForwardRelay(
+            ONI.Player sender, byte[] relayEnvelope, MessageSendMode sendMode)
+        {
+            if (sender.IsMaster)
+            {
+                Console.WriteLine("Broadcasting master packet to clients");
+                foreach (ONI.Player client in ConnectedPlayers.Values.Where(player => !player.IsMaster))
+                    SendRelay(client.Connection, relayEnvelope, sendMode);
+                return;
+            }
+
+            Console.WriteLine("Received packet from client, sending to master!");
+            ONI.Player master = ConnectedPlayers.Values.FirstOrDefault(player => player.IsMaster);
+            if (master != null)
+                SendRelay(master.Connection, relayEnvelope, sendMode);
+        }
+
+        private static byte[] CreateRelayEnvelope(
+            ulong senderId,
+            bool senderIsHost,
+            byte[] rawTransportFrame)
+        {
+            int packetType = BitConverter.ToInt32(rawTransportFrame, 0);
+            return Utils.SerializePacketForSending(Utils.DEDICATED_SERVER_PACKET_ID, writer =>
+            {
+                writer.Write(packetType);
+                writer.Write(senderId);
+                writer.Write(senderIsHost);
+                writer.Write(rawTransportFrame.Length);
+                writer.Write(rawTransportFrame);
+            });
         }
 
         private static void SendRelay(Connection connection, byte[] data, MessageSendMode sendMode)

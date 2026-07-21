@@ -10,11 +10,22 @@ namespace ONI_Together.Networking.Components
 {
 	public class CursorManager : MonoBehaviour
 	{
+		internal struct CursorViewport
+		{
+			public int CursorCell;
+			public int Width;
+			public int MinX;
+			public int MinY;
+			public int MaxX;
+			public int MaxY;
+		}
+
 		public static CursorManager Instance { get; private set; }
 
 		public static float SendInterval = 0.1f;
 
 		private float timeSinceLastSend = 0f;
+		private static ulong _nextRevision;
 
 		public Color color;
 
@@ -139,7 +150,18 @@ namespace ONI_Together.Networking.Components
 					buildToolPrefabId = utilityBuildTool.def.PrefabID;
 					allowedToPlaceBuilding = utilityBuildTool.CheckValidPathPiece(Grid.PosToCell(cursorWorldPos));
 
-					utilityPathData = BuildingUtils.EncodeUtilityPath(utilityBuildTool.path);
+					var viewport = new CursorViewport
+					{
+						CursorCell = Grid.PosToCell(cursorWorldPos),
+						Width = Grid.WidthInCells,
+						MinX = minX,
+						MinY = minY,
+						MaxX = maxX,
+						MaxY = maxY,
+					};
+					List<BaseUtilityBuildTool.PathNode> viewportPath =
+						SelectViewportPath(utilityBuildTool.path, viewport);
+					utilityPathData = BuildingUtils.EncodeUtilityPath(viewportPath);
 					if (utilityPathData != null && utilityPathData.Length > 0)
 						hasUtilityPath = true;
 				}
@@ -176,6 +198,8 @@ namespace ONI_Together.Networking.Components
 			var packet = new PlayerCursorPacket
 			{
 				PlayerID = MultiplayerSession.LocalUserID,
+				SenderConnectionGeneration = MultiplayerSession.IsHost ? 1 : 0,
+				Revision = NextRevision(),
 				Position = cursorWorldPos,
 				Color = color,
 				CursorState = cursorState,
@@ -199,6 +223,79 @@ namespace ONI_Together.Networking.Components
 
 			// Host fans out directly; clients use the validated HostBroadcast relay.
 			PacketSender.SendToAllOtherPeers(packet);
+		}
+
+		internal static void ResetSessionState() => _nextRevision = 0;
+
+		internal static List<BaseUtilityBuildTool.PathNode> SelectViewportPath(
+			List<BaseUtilityBuildTool.PathNode> path, CursorViewport viewport)
+		{
+			var selected = new List<BaseUtilityBuildTool.PathNode>();
+			if (!CanSelectPath(path, viewport))
+				return selected;
+
+			int cursorIndex = FindNearestPathIndex(path, viewport);
+			int direction = cursorIndex <= (path.Count - 1) / 2 ? 1 : -1;
+			for (int index = cursorIndex; index >= 0 && index < path.Count; index += direction)
+			{
+				int cell = path[index].cell;
+				if (!ContainsCell(viewport, cell)
+				    || !ContinuesPath(selected, cell, viewport.Width))
+					break;
+				selected.Add(path[index]);
+			}
+			return selected;
+		}
+
+		private static bool CanSelectPath(
+			List<BaseUtilityBuildTool.PathNode> path, CursorViewport viewport)
+			=> path != null && path.Count > 0
+			   && viewport.CursorCell >= 0 && viewport.Width > 0;
+
+		private static int FindNearestPathIndex(
+			List<BaseUtilityBuildTool.PathNode> path, CursorViewport viewport)
+		{
+			int cursorX = viewport.CursorCell % viewport.Width;
+			int cursorY = viewport.CursorCell / viewport.Width;
+			int nearestIndex = 0;
+			int nearestDistance = int.MaxValue;
+			for (int index = 0; index < path.Count; index++)
+			{
+				int cell = path[index].cell;
+				int distance = System.Math.Abs(cell % viewport.Width - cursorX)
+				               + System.Math.Abs(cell / viewport.Width - cursorY);
+				if (distance >= nearestDistance)
+					continue;
+				nearestDistance = distance;
+				nearestIndex = index;
+			}
+			return nearestIndex;
+		}
+
+		private static bool ContainsCell(CursorViewport viewport, int cell)
+		{
+			int x = cell % viewport.Width;
+			int y = cell / viewport.Width;
+			return x >= viewport.MinX && x <= viewport.MaxX
+			       && y >= viewport.MinY && y <= viewport.MaxY;
+		}
+
+		private static bool ContinuesPath(
+			List<BaseUtilityBuildTool.PathNode> selected, int cell, int width)
+		{
+			if (selected.Count == 0)
+				return true;
+			int previous = selected[selected.Count - 1].cell;
+			return System.Math.Abs(previous % width - cell % width)
+			       + System.Math.Abs(previous / width - cell / width) == 1;
+		}
+
+		private static ulong NextRevision()
+		{
+			_nextRevision++;
+			if (_nextRevision == 0)
+				_nextRevision = 1;
+			return _nextRevision;
 		}
 
 		

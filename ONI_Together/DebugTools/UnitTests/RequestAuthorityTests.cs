@@ -16,7 +16,6 @@ namespace ONI_Together.DebugTools.UnitTests
 				(nameof(TcpFallbackRequestPacket), TcpFallbackRequestPacket.ShouldAccept),
 				(nameof(ChunkAckPacket), ChunkAckPacket.ShouldAccept),
 				(nameof(AnimResyncRequestPacket), AnimResyncRequestPacket.ShouldAccept),
-				(nameof(EntityPositionRequestPacket), EntityPositionRequestPacket.ShouldAccept),
 				(nameof(StructureStateRequestPacket), StructureStateRequestPacket.ShouldAccept),
 				(nameof(SyncProgressPacket), SyncProgressPacket.ShouldAccept),
 				(nameof(WorldDataRequestPacket), WorldDataRequestPacket.ShouldAccept),

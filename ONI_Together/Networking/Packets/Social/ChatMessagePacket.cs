@@ -1,6 +1,8 @@
-﻿using ONI_Together.Misc;
+﻿using ONI_Together.DebugTools;
+using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
+using ONI_Together.Networking.Packets.Core;
 using ONI_Together.UI;
 using Steamworks;
 using System;
@@ -13,7 +15,8 @@ using UnityEngine;
 
 namespace ONI_Together.Networking.Packets.Social
 {
-	public class ChatMessagePacket : IPacket, IClientRelayable, ISenderBoundRelay
+	public sealed class ChatMessagePacket : IPacket, IClientRelayable, ISenderBoundRelay,
+		IHostAuthoritativeRelay
 	{
 		internal const int MaxSenderNameUtf8Bytes = 128;
 		internal const int MaxMessageUtf8Bytes = 1024;
@@ -23,6 +26,7 @@ namespace ONI_Together.Networking.Packets.Social
 
 		public ulong SenderId;
 		ulong ISenderBoundRelay.RelaySenderId => SenderId;
+		public ulong Sequence;
 		public string Message;
 		public Color PlayerColor;
 		public long Timestamp;
@@ -49,6 +53,7 @@ namespace ONI_Together.Networking.Packets.Social
 			Validate();
 
 			writer.Write(SenderId);
+			writer.Write(Sequence);
 			WriteUtf8String(writer, SenderName);
 			WriteUtf8String(writer, Message);
 			writer.Write(PlayerColor.r);
@@ -63,6 +68,7 @@ namespace ONI_Together.Networking.Packets.Social
 			using var _ = Profiler.Scope();
 
 			SenderId = reader.ReadUInt64();
+			Sequence = reader.ReadUInt64();
 			SenderName = ReadUtf8String(reader, MaxSenderNameUtf8Bytes, "sender name");
 			Message = ReadUtf8String(reader, MaxMessageUtf8Bytes, "message");
 			float r = reader.ReadSingle();
@@ -78,9 +84,44 @@ namespace ONI_Together.Networking.Packets.Social
 		{
 			using var _ = Profiler.Scope();
 			Validate();
-
-			if (SenderId == MultiplayerSession.LocalUserID)
+			DispatchContext context = PacketHandler.CurrentContext;
+			if (MultiplayerSession.IsHost)
+			{
+				if (!context.IsVerifiedHostBroadcast || context.SenderIsHost || Sequence != 0)
+					throw new InvalidDataException("Client chat lacks verified zero-sequence authority");
+				Sequence = ChatScreen.NextHostSequence();
+				if (!Display())
+					return;
+#if DEBUG
+				LogHostEvidence();
+#endif
+				PacketSender.SendToAllClients(this, PacketSendMode.ReliableImmediate);
 				return;
+			}
+			if (!context.SenderIsHost || Sequence == 0)
+				throw new InvalidDataException("Client received non-authoritative chat");
+			if (!Display())
+				return;
+#if DEBUG
+			LogClientEvidence();
+#endif
+		}
+
+		internal void PublishHostLocal()
+		{
+			if (!MultiplayerSession.IsHost || Sequence != 0)
+				throw new InvalidOperationException("Only the host can publish local chat");
+			Sequence = ChatScreen.NextHostSequence();
+			if (!Display())
+				return;
+#if DEBUG
+			LogHostEvidence();
+#endif
+			PacketSender.SendToAllClients(this, PacketSendMode.ReliableImmediate);
+		}
+
+		private bool Display()
+		{
 
             string senderName = SenderName;
             if (NetworkConfig.IsSteamConfig() && SteamFriends.HasFriend(SenderId.AsCSteamID(), EFriendFlags.k_EFriendFlagImmediate))
@@ -90,11 +131,54 @@ namespace ONI_Together.Networking.Packets.Social
             }
 			ChatScreen.PendingMessage message = new ChatScreen.PendingMessage()
 			{
+				sequence = Sequence,
 				timestamp = Timestamp,
 				message = FormatDisplayMessage(senderName, PlayerColor, Message)
 			};
-			ChatScreen.QueueMessage(message);
+			return ChatScreen.ApplyAuthoritativeLive(message);
 		}
+
+#if DEBUG
+		private void LogHostEvidence()
+		{
+			string state = EvidenceState();
+			long revision = (long)Sequence;
+			IntegrationScenarioEvidenceCore.Log("chat", "host-submit", revision, true, state);
+			IntegrationScenarioEvidenceCore.Log("chat", "final-state", revision, true, state);
+		}
+
+		private void LogClientEvidence()
+		{
+			string state = EvidenceState();
+			long revision = (long)Sequence;
+			IntegrationScenarioEvidenceCore.Log("chat", "client-apply", revision, true, state);
+			IntegrationScenarioEvidenceCore.Log("chat", "revision-accepted", revision, true, state);
+			ChatScreen.PendingMessage duplicate = EvidenceMessage(Sequence);
+			IntegrationScenarioEvidenceCore.Log(
+				"chat", "revision-duplicate", revision,
+				ChatScreen.ApplyAuthoritativeLive(duplicate), state);
+			ulong olderSequence = Sequence - 1;
+			IntegrationScenarioEvidenceCore.Log(
+				"chat", "revision-out-of-order", (long)olderSequence,
+				ChatScreen.ApplyAuthoritativeLive(EvidenceMessage(olderSequence)), state);
+			if (SenderId == MultiplayerSession.LocalUserID)
+				IntegrationScenarioEvidenceCore.Log(
+					"chat", "client-original-blocked", revision, false, state);
+			IntegrationScenarioEvidenceCore.Log("chat", "final-state", revision, true, state);
+		}
+
+		private ChatScreen.PendingMessage EvidenceMessage(ulong sequence)
+			=> new ChatScreen.PendingMessage
+			{
+				sequence = sequence,
+				timestamp = Timestamp,
+				message = string.Empty,
+			};
+
+		private string EvidenceState()
+			=> $"sender={SenderId},sequence={Sequence},timestamp={Timestamp}," +
+			   $"name={Uri.EscapeDataString(SenderName)},message={Uri.EscapeDataString(Message)}";
+#endif
 
 		internal static string FormatDisplayMessage(string senderName, Color color, string message)
 		{
@@ -140,7 +224,9 @@ namespace ONI_Together.Networking.Packets.Social
 				throw new InvalidDataException("Chat color must be finite and between zero and one");
 			if (Timestamp < 0 || Timestamp > MaxUnixTimestampMilliseconds)
 				throw new InvalidDataException("Chat timestamp is outside the Unix millisecond range");
-			int bytes = sizeof(ulong) + Utf8StringWireBytes(SenderName) + Utf8StringWireBytes(Message)
+			if (Sequence > long.MaxValue)
+				throw new InvalidDataException("Chat sequence exceeds the supported range");
+			int bytes = sizeof(ulong) * 2 + Utf8StringWireBytes(SenderName) + Utf8StringWireBytes(Message)
 			            + sizeof(float) * 4 + sizeof(long);
 			if (bytes > MaxSerializedBytes)
 				throw new InvalidDataException($"Chat message exceeds {MaxSerializedBytes} wire bytes");

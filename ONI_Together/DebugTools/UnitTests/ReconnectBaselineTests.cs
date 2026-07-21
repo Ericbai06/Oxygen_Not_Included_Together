@@ -33,11 +33,11 @@ namespace ONI_Together.DebugTools.UnitTests
 			internal readonly List<IPacket> Packets = new();
 
 			public override bool SendPacket(
-				object conn, IPacket packet,
+				object conn, SerializedPacket packet,
 				PacketSendMode sendType = PacketSendMode.ReliableImmediate)
 			{
 				SendCount++;
-				Packets.Add(packet);
+				Packets.Add(packet.Packet);
 				return true;
 			}
 		}
@@ -139,7 +139,7 @@ namespace ONI_Together.DebugTools.UnitTests
 					return UnitTestResult.Fail("Could not arrange stale loading epoch");
 				server.MarkClientLoading(2, 99);
 				ReliableSyncBacklog.TryBuffer(
-					2, new DeferredReliablePacket(System.Array.Empty<byte>()), PacketSendMode.Reliable);
+					2, new WorldCyclePacket { Cycle = 1, CycleTime = 1f }, PacketSendMode.Reliable);
 
 				ReadyManager.PrepareFreshSnapshot(2);
 				if (ReadyManager.IsClientInSyncBarrier(2) || ReadyManager.HasReconnectProof(2, 99)
@@ -230,13 +230,49 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Reconnect remains Unready until the current baseline is applied");
 		}
 
+		[UnitTest(name: "Ready replay pages extend only the matching idle lease", category: "Networking")]
+		public static UnitTestResult ReadyReplayProgressExtendsIdleLease()
+		{
+			var lease = new ReadyAcceptanceProgressLease(
+				generation: 7, startedAt: 0f, idleTimeoutSeconds: 10f);
+			for (float now = 9f; now <= 90f; now += 9f)
+			{
+				if (lease.IsTimedOut(now) || !lease.TryAdvance(7, now))
+					return UnitTestResult.Fail("Long replay progress did not extend the idle deadline");
+			}
+			if (lease.IsTimedOut(99.9f) || !lease.IsTimedOut(100f))
+				return UnitTestResult.Fail("Idle timeout did not start from the last replay page");
+
+			var stale = new ReadyAcceptanceProgressLease(
+				generation: 7, startedAt: 0f, idleTimeoutSeconds: 10f);
+			if (stale.TryAdvance(6, 9f)
+			    || !stale.IsTimedOut(10f)
+			    || stale.TryAdvance(7, 10f))
+			{
+				return UnitTestResult.Fail("Stale or timed-out replay progress renewed the lease");
+			}
+
+			if (GameClient.ShouldFailWorldLoadRetryBudget(
+				    readyAcceptance: true, attempts: 100)
+			    || !GameClient.ShouldFailWorldLoadRetryBudget(
+				    readyAcceptance: false, attempts: 5))
+			{
+				return UnitTestResult.Fail("Ready retry count remained an independent terminal condition");
+			}
+
+			return UnitTestResult.Pass(
+				"Ready replay uses a generation-bound idle lease beyond its retry window");
+		}
+
 		[UnitTest(name: "World baseline transfer is ACK-windowed and progress-bound", category: "Networking")]
 		public static UnitTestResult WorldBaselineTransferIsAckWindowed()
 		{
-			const int totalChunks = 252;
-			var sent = new List<int>();
-			var window = new WorldDataSendWindow(totalChunks);
-			if (!window.TrySendAvailable(index =>
+				const int totalChunks = 252;
+				var sent = new List<int>();
+				var window = new WorldDataSendWindow(totalChunks);
+				if (WorldDataRequestPacket.BaselinePartSendMode != PacketSendMode.ReliableImmediate)
+					return UnitTestResult.Fail("ACK-windowed baseline parts may wait behind transport Nagle");
+				if (!window.TrySendAvailable(index =>
 			    {
 				    sent.Add(index);
 				    return true;
@@ -300,15 +336,16 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			using var fixture = new BaselineCutFixture();
 			if (!fixture.TryStart(out long generation)
+			    || ReliableSyncBacklog.IsCollecting(2)
 			    || ReliableSyncBacklog.TryBuffer(
 				    2, new WorldCyclePacket { Cycle = 1, CycleTime = 1f },
 				    PacketSendMode.Reliable) != SyncBacklogResult.NotBuffered)
 				return UnitTestResult.Fail("Pre-baseline traffic entered the delta journal");
 
 			if (!ReadyManager.TryBeginWorldBaseline(2, generation)
+			    || !ReliableSyncBacklog.IsCollecting(2)
 			    || ReliableSyncBacklog.CountForTests(2) != 0
-			    || fixture.Sender.SendCount != 0
-			    || fixture.Sender.PendingCountForTests(fixture.Player.Connection) != 0)
+			    || fixture.Sender.SendCount != 0)
 				return UnitTestResult.Fail("Baseline cut flushed instead of discarding superseded deltas");
 
 			if (ReliableSyncBacklog.TryBuffer(
@@ -316,8 +353,7 @@ namespace ONI_Together.DebugTools.UnitTests
 				    PacketSendMode.Reliable) != SyncBacklogResult.Buffered
 			    || ReadyManager.TryBeginWorldBaseline(2, generation)
 			    || ReliableSyncBacklog.CountForTests(2) != 1
-			    || fixture.Sender.SendCount != 0
-			    || fixture.Sender.PendingCountForTests(fixture.Player.Connection) != 0)
+			    || fixture.Sender.SendCount != 0)
 				return UnitTestResult.Fail("A rejected second cut erased or sent post-baseline deltas");
 
 			return UnitTestResult.Pass("Baseline cut discards old deltas and journals only newer state");
@@ -327,27 +363,36 @@ namespace ONI_Together.DebugTools.UnitTests
 		public static UnitTestResult WorldBaselineProgressRenewsIdleLease()
 		{
 			var lease = new WorldBaselineProgressLease(
-				generation: 7, startedAt: 0f, idleTimeoutSeconds: 10f,
-				absoluteTimeoutSeconds: 60f);
-			if (!lease.TryAdvance(7, 0, 252, 9f) || lease.IsTimedOut(15f))
+				generation: 7, startedAt: 0f, timeouts: (idle: 10f, absolute: 60f));
+			if (!lease.TryAdvance(7, (0, 252), 9f) || lease.IsTimedOut(15f))
 				return UnitTestResult.Fail("Contiguous progress did not renew the no-progress deadline");
-			if (lease.TryAdvance(6, 1, 252, 18f)
-			    || lease.TryAdvance(7, 2, 252, 18f)
+			if (lease.TryAdvance(6, (1, 252), 18f)
+			    || lease.TryAdvance(7, (2, 252), 18f)
 			    || !lease.IsTimedOut(19f))
 				return UnitTestResult.Fail("Stale or non-contiguous progress renewed the baseline lease");
 
 			var capped = new WorldBaselineProgressLease(
-				generation: 7, startedAt: 0f, idleTimeoutSeconds: 10f,
-				absoluteTimeoutSeconds: 60f);
+				generation: 7, startedAt: 0f, timeouts: (idle: 10f, absolute: 60f));
 			for (int chunk = 0; chunk < 6; chunk++)
 			{
-				if (!capped.TryAdvance(7, chunk, 252, 9f * (chunk + 1)))
+				if (!capped.TryAdvance(7, (chunk, 252), 9f * (chunk + 1)))
 					return UnitTestResult.Fail("Valid baseline progress was rejected before its absolute cap");
 			}
 			if (!capped.IsTimedOut(60f))
 				return UnitTestResult.Fail("Baseline progress escaped its absolute deadline");
 
-			return UnitTestResult.Pass("Only exact contiguous progress renews idle time within an absolute cap");
+			var production = new WorldBaselineProgressLease(
+				generation: 8, startedAt: 0f,
+				timeouts: (idle: 30f, absolute: GameClient.BaselineAbsoluteTimeoutSeconds));
+			for (int chunk = 0; chunk < 1040; chunk++)
+			{
+				if (!production.TryAdvance(8, (chunk, 1040), 0.5f * (chunk + 1)))
+					return UnitTestResult.Fail("A progressing 1040-part production baseline hit the old absolute deadline");
+			}
+			if (!production.IsTimedOut(GameClient.BaselineAbsoluteTimeoutSeconds))
+				return UnitTestResult.Fail("Production baseline escaped the host-aligned absolute cap");
+
+			return UnitTestResult.Pass("Only exact contiguous progress renews idle time within the host-aligned absolute cap");
 		}
 
 		[UnitTest(name: "Loading client may send only generation-bound baseline progress", category: "Networking")]

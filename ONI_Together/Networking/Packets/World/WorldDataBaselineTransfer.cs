@@ -34,14 +34,20 @@ namespace ONI_Together.Networking.Packets.World
 
 		internal bool AcceptProgress(int appliedThroughChunk)
 		{
-			if (appliedThroughChunk != _highestAppliedChunk + 1
-			    || appliedThroughChunk < 0 || appliedThroughChunk >= _nextChunkToSend)
+			if (appliedThroughChunk < 0 || appliedThroughChunk >= _nextChunkToSend
+			    || appliedThroughChunk >= _totalChunks)
+				return false;
+			if (appliedThroughChunk <= _highestAppliedChunk)
+				return true;
+			if (appliedThroughChunk - _highestAppliedChunk > MaxInFlightChunks)
 				return false;
 			_highestAppliedChunk = appliedThroughChunk;
 			return true;
 		}
 
 		internal int InFlightChunks => _nextChunkToSend - _highestAppliedChunk - 1;
+		internal int HighestAppliedChunk => _highestAppliedChunk;
+		internal int HighestSentChunk => _nextChunkToSend - 1;
 		internal bool IsComplete => _highestAppliedChunk == _totalChunks - 1;
 	}
 

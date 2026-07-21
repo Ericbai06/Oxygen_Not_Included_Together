@@ -221,10 +221,19 @@ namespace ONI_Together.Networking.Transport.Lan
 					DebugConsole.LogWarning($"[LanServer] Rejected packet from stale connection {clientId}");
 					return;
 				}
-                PacketHandler.HandleIncoming(rawData, new DispatchContext(
+				var context = new DispatchContext(
                     clientId,
 					clientId == MultiplayerSession.HostUserID,
-					player.ConnectionGeneration));
+					player.ConnectionGeneration);
+				RiptideFrameResult frameResult = RiptideFrameCodec.Accept(
+					rawData, context, out byte[] complete);
+				if (frameResult == RiptideFrameResult.Rejected)
+				{
+					DebugConsole.LogWarning("[LanServer] Rejected invalid adapter frame");
+					return;
+				}
+				if (frameResult == RiptideFrameResult.Complete)
+					PacketHandler.HandleIncoming(complete, context);
             }
             catch (Exception ex)
             {

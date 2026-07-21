@@ -77,5 +77,16 @@ namespace ONI_Together.Networking
 			hardSyncInProgress = false;
 			DebugConsole.Log("[HardSync] All sync clients are ready.");
 		}
+
+		internal static void OnSyncBarrierAborted()
+		{
+			if (!hardSyncInProgress)
+				return;
+
+			hardSyncDoneThisCycle = false;
+			hardSyncInProgress = false;
+			consumeDailyUseOnCompletion = false;
+			DebugConsole.LogWarning("[HardSync] Sync barrier aborted before Ready commit.");
+		}
 	}
 }

@@ -2,48 +2,60 @@
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.Tools;
-using ONI_Together.Networking.Packets.Tools.Deconstruct;
 using Shared.Profiling;
 
 namespace ONI_Together.Patches.ToolPatches.Deconstruct
 {
-	// All "mark for deconstruction" paths funnel through QueueDeconstruction:
-	//   - DeconstructTool drag → gameObject.Trigger(GameHashes.Deconstruct) → OnDeconstruct → QueueDeconstruction
-	//   - Right-click / user-menu "Deconstruct" button → OnDeconstruct(object) → QueueDeconstruction
-	//   - Single-click-context and any scripted trigger → same hash → same path
-	// Hooking this one method catches drag + single-click + menu in one place,
-	// which the existing DeconstructToolPatch (OnDragTool only) missed.
-	[HarmonyPatch(typeof(Deconstructable), nameof(Deconstructable.QueueDeconstruction), new System.Type[] { typeof(bool) })]
+	[HarmonyPatch(typeof(Deconstructable), nameof(Deconstructable.QueueDeconstruction),
+		new System.Type[] { typeof(bool) })]
 	public static class DeconstructableQueuePatch
 	{
-		public static void Postfix(Deconstructable __instance, bool userTriggered)
+		public static bool Prefix(Deconstructable __instance, bool userTriggered)
 		{
 			using var _ = Profiler.Scope();
+			if (!ShouldHandle(userTriggered))
+				return true;
+			if (MultiplayerSession.IsHost)
+				return true;
+			if (!TryCreate(__instance, out BuildingActionPacket packet))
+				return true;
 
-			try
-			{
-				if (!MultiplayerSession.InSession) return;
-				if (BuildingActionPacket.ProcessingIncoming) return;
-				// Drag path already has its own sync via DeconstructPacket; don't double-send.
-				// This patch exists specifically for non-drag entry points.
-				if (DragToolPacket.ProcessingIncoming) return;
-				if (!userTriggered) return; // only sync user intent; load/rehydrate calls userTriggered=false
+			PacketSender.SendToAllOtherPeers(packet);
+#if DEBUG
+			IntegrationScenarioEvidenceCore.Log(
+				"deconstruct", "client-original-blocked", 0, false,
+				BuildingActionPacket.CanonicalState(packet.NetId, packet.Action));
+#endif
+			return false;
+		}
 
-				var identity = __instance.GetComponent<NetworkIdentity>();
-				if (identity == null || identity.NetId == 0) return;
+		public static void Postfix(Deconstructable __instance, bool userTriggered)
+		{
+			if (!MultiplayerSession.IsHost || !ShouldHandle(userTriggered)
+			    || !TryCreate(__instance, out BuildingActionPacket packet))
+				return;
+			PacketSender.SendToAllClients(packet, PacketSendMode.ReliableImmediate);
+			packet.LogHostOutcome();
+		}
 
-				PacketSender.SendToAllOtherPeers(new BuildingActionPacket
-				{
-					NetId = identity.NetId,
-					Action = BuildingActionKind.QueueDeconstruct,
-				});
-				DebugConsole.Log($"[BuildingAction] send NetId={identity.NetId} kind=QueueDeconstruct src=QueuePatch");
-			}
-			catch (System.Exception ex)
-			{
-				DebugConsole.LogError($"[DeconstructableQueuePatch] Exception: {ex}");
-			}
+		private static bool ShouldHandle(bool userTriggered)
+			=> MultiplayerSession.InSession && userTriggered
+			   && !BuildingActionPacket.ProcessingIncoming
+			   && !DragToolPacket.ProcessingIncoming
+			   && !DeconstructToolPatch.ProcessingLocalDrag;
+
+		private static bool TryCreate(
+			Deconstructable target, out BuildingActionPacket packet)
+		{
+			packet = null;
+			NetworkIdentity identity = target?.GetComponent<NetworkIdentity>();
+			if (identity == null || identity.NetId == 0)
+				return false;
+			packet = BuildingActionPacket.CreateLocal(
+				identity.NetId, BuildingActionKind.QueueDeconstruct);
+			return packet.LifecycleRevision != 0;
 		}
 	}
 }

@@ -9,7 +9,7 @@ namespace ONI_Together.Networking.Components
 {
 	/// <summary>
 	/// Static helper for setting animation elapsed time via reflection.
-	/// Used by DuplicantStatePacket for continuous animation reconciliation.
+	/// Used by presentation snapshots for continuous animation reconciliation.
 	/// Resolves SetElapsedTime method or elapsedTime field once, then caches.
 	/// </summary>
 	internal static class AnimReconciliationHelper

@@ -11,6 +11,9 @@ namespace ONI_Together.DebugTools
 		internal static bool IsFirstCountedSegment(int sampleId, int completedTicks)
 			=> sampleId == 1 && completedTicks == 0;
 
+		internal static bool HasRepairBaselineTimedOut(float elapsedSeconds)
+			=> elapsedSeconds >= RepairBaselineTimeoutSeconds;
+
 		private static string ClientRepairDiagnostics()
 		{
 			return $"resolved={WorldUpdatePacket.ClientResolvedRepairSequence} " +
@@ -30,7 +33,7 @@ namespace ONI_Together.DebugTools
 
 		private void UpdateFenceTimeout(float elapsed)
 		{
-			if (WaitForSpecificFenceDelivery(elapsed) || elapsed < AckTimeoutSeconds)
+			if (elapsed < AckTimeoutSeconds)
 				return;
 			DebugConsole.LogWarning(
 				$"[SoakHash][CAUSAL_FENCE_INCOMPLETE] sample={_sampleId} " +

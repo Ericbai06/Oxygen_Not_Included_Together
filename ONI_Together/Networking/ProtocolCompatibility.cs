@@ -12,7 +12,7 @@ namespace ONI_Together.Networking
 {
 	internal static class ProtocolCompatibility
 	{
-		public const int CurrentProtocolVersion = 9;
+		public const int CurrentProtocolVersion = 10;
 
 		private static int? _packetFingerprint;
 		private static string _modVersion;
@@ -51,6 +51,15 @@ namespace ONI_Together.Networking
 
 		public static HashSet<string> ActiveDlcIds
 			=> new(DlcManager.GetActiveDLCIds(), StringComparer.Ordinal);
+
+		public static bool SupportsVersion(int protocolVersion)
+			=> protocolVersion == CurrentProtocolVersion;
+
+		public static string BuildVersionMismatchReason(int remoteProtocolVersion)
+			=> string.Format(
+				STRINGS.UI.PROTOCOL.PROTOCOL_MISMATCH,
+				CurrentProtocolVersion,
+				remoteProtocolVersion);
 
 		public static bool Matches(
 			string modBuildFingerprint,
@@ -99,6 +108,16 @@ namespace ONI_Together.Networking
 				.ToArray();
 			return ids.Length == 0 ? "Base Game" : string.Join(", ", ids);
 		}
+
+#if DEBUG
+		internal static string CanonicalAdmissionState(
+			IEnumerable<string> dlcIds, string modBuildFingerprint)
+			=> "dlc=" + string.Join(",", (dlcIds ?? Array.Empty<string>())
+				.Where(id => !string.IsNullOrEmpty(id))
+				.Distinct(StringComparer.Ordinal)
+				.OrderBy(id => id, StringComparer.Ordinal))
+			   + "|fingerprint=" + (modBuildFingerprint ?? string.Empty);
+#endif
 
 		private static string ComputeAssemblyFingerprint()
 		{

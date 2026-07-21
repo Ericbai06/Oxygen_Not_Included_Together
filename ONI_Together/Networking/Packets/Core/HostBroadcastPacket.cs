@@ -1,11 +1,11 @@
 ﻿using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using Shared.Interfaces.Networking;
 using Shared.Profiling;
+using UnityEngine;
 
 namespace ONI_Together.Networking.Packets.Core
 {
@@ -18,37 +18,50 @@ namespace ONI_Together.Networking.Packets.Core
 	/// </summary>
 	internal class HostBroadcastPacket : IPacket
 	{
-		internal enum SequenceLane : byte
+		internal enum RelayDomain : byte
 		{
-			Ordered,
-			CursorSnapshot,
+			MustExecute,
+			LatestState,
+		}
+
+		internal readonly struct RelayDispatchActions
+		{
+			internal readonly Func<IPacket, DispatchContext, bool> Dispatch;
+			internal readonly Action<IPacket, ulong> FanOut;
+
+			internal RelayDispatchActions(
+				Func<IPacket, DispatchContext, bool> dispatch,
+				Action<IPacket, ulong> fanOut)
+			{
+				Dispatch = dispatch;
+				FanOut = fanOut;
+			}
+		}
+
+		private sealed class CachedRelay
+		{
+			internal IPacket Packet { get; set; }
+			internal DispatchContext Context { get; set; }
 		}
 
 		public const int MaxInnerPacketBytes = 1024 * 1024;
 		private const int RelayWireOverheadBytes =
 			sizeof(int) + sizeof(int) + sizeof(ulong) + sizeof(ulong) + sizeof(int);
-		private const int MaxCompletedRequests = 2048;
-		private const int MaxTrackedSenders = 256;
-		private static readonly object RequestHistoryLock = new();
-		private static readonly Dictionary<
-			(ulong Sender, long Generation, SequenceLane Lane), ulong> LatestRequests = new();
-		private static readonly Queue<(
-			(ulong Sender, long Generation, SequenceLane Lane) Key,
-			ulong RequestId)> RequestOrder = new();
-		private static readonly HashSet<(
-			(ulong Sender, long Generation, SequenceLane Lane) Key,
-			ulong RequestId)> CompletedRequests = new();
-		private static long _nextRequestId;
+		private static readonly HostBroadcastReorder<CachedRelay> Reorder =
+			new(DispatchCachedRelay, KickSender);
+		private static long _nextMustExecuteSequence;
+		private static long _nextLatestStateSequence;
 
 		public static void ResetSessionState()
 		{
-			lock (RequestHistoryLock)
-			{
-				LatestRequests.Clear();
-				RequestOrder.Clear();
-				CompletedRequests.Clear();
-				Interlocked.Exchange(ref _nextRequestId, 0);
-			}
+			Reorder.Reset();
+			ResetClientRequestSequences();
+		}
+
+		internal static void ResetClientRequestSequences()
+		{
+			Interlocked.Exchange(ref _nextMustExecuteSequence, 0);
+			Interlocked.Exchange(ref _nextLatestStateSequence, 0);
 		}
 
 		public HostBroadcastPacket() { }
@@ -62,7 +75,15 @@ namespace ONI_Together.Networking.Packets.Core
 			innerPacket.Serialize(writer);
 			InnerPacketData = ms.ToArray();
 			SenderId = sender;
-			RequestId = unchecked((ulong)Interlocked.Increment(ref _nextRequestId));
+			RequestId = NextClientRequestSequence(GetRelayDomain(innerPacket));
+		}
+
+		private static ulong NextClientRequestSequence(RelayDomain domain)
+		{
+			long sequence = domain == RelayDomain.MustExecute
+				? Interlocked.Increment(ref _nextMustExecuteSequence)
+				: Interlocked.Increment(ref _nextLatestStateSequence);
+			return unchecked((ulong)sequence);
 		}
 
 		internal static PacketSendMode GetRelaySendMode(IPacket packet)
@@ -85,12 +106,31 @@ namespace ONI_Together.Networking.Packets.Core
 		{
 			if (cursor == null)
 				return false;
-			if (GetRelayWireSize(cursor) <= PacketSender.MAX_PACKET_SIZE_UNRELIABLE)
+			cursor.EnforceUtilityPathBound();
+			int wireSize = GetRelayWireSize(cursor);
+			if (wireSize < PacketSender.MAX_PACKET_SIZE_UNRELIABLE)
 				return true;
-			cursor.HasUtilityPath = false;
-			cursor.UtilityPathData = null;
-			return GetRelayWireSize(cursor) <= PacketSender.MAX_PACKET_SIZE_UNRELIABLE;
+			if (cursor.HasUtilityPath && cursor.UtilityPathData != null)
+			{
+				int excessBytes = wireSize - (PacketSender.MAX_PACKET_SIZE_UNRELIABLE - 1);
+				int keepCount = cursor.UtilityPathData.Length - (excessBytes + sizeof(uint) - 1) / sizeof(uint);
+				cursor.TrimUtilityPathTo(keepCount);
+			}
+			return GetRelayWireSize(cursor) < PacketSender.MAX_PACKET_SIZE_UNRELIABLE;
 		}
+
+		internal static void BindSenderConnectionGeneration(IPacket packet, long generation)
+		{
+			if (packet is PlayerCursorPacket cursor)
+				cursor.SenderConnectionGeneration = generation;
+		}
+
+		internal static void DropConnectionState(ulong senderId, long generation)
+			=> Reorder.DropConnectionState(senderId, generation);
+
+		internal static void CheckReorderTimeouts(float now)
+			=> Reorder.CheckTimeouts(
+				now, Math.Max(1f, Configuration.Instance.Host.TimeoutSeconds));
 
 
 		int InnerPacketId;
@@ -130,39 +170,57 @@ namespace ONI_Together.Networking.Packets.Core
 			using var _ = Profiler.Scope();
 
 			DispatchContext context = PacketHandler.CurrentContext;
+			if (!ValidateOuterAuthority(context))
+				return;
+			if (!TryDeserializeInner(context, out IPacket innerPacket))
+				return;
+
+			RelayDomain domain = GetRelayDomain(innerPacket);
+			Reorder.Accept(new SequencedRelay<CachedRelay>
+			{
+				SenderId = context.SenderId,
+				Generation = context.ConnectionGeneration,
+				Domain = domain,
+				Sequence = RequestId,
+				Bytes = InnerPacketData.Length,
+				Value = new CachedRelay { Packet = innerPacket, Context = context },
+			}, Time.unscaledTime);
+		}
+
+		private bool ValidateOuterAuthority(DispatchContext context)
+		{
 			if (!MultiplayerSession.IsHost)
 			{
 				DebugConsole.LogWarning("[HostBroadcastPacket] clients cannot receive relay wrappers");
-				return;
+				return false;
 			}
-			if (context.SenderIsHost || context.SenderId != SenderId)
+			if (context.SenderIsHost || context.SenderId != SenderId
+			    || !PacketHandler.IsCurrentDispatchContext(context))
 			{
-				DebugConsole.LogWarning($"[HostBroadcastPacket] sender mismatch: transport={context.SenderId}, wire={SenderId}");
-				return;
+				DebugConsole.LogWarning(
+					$"[HostBroadcastPacket] invalid sender context: transport={context.SenderId}, wire={SenderId}");
+				return false;
 			}
-			if (MultiplayerSession.GetPlayer(context.SenderId)?.ProtocolVerified != true)
-			{
-				DebugConsole.LogWarning($"[HostBroadcastPacket] rejected unverified sender {context.SenderId}");
-				return;
-			}
-			SequenceLane lane = GetSequenceLane(InnerPacketId);
-			if (!IsRequestFresh(
-				    context.SenderId, RequestId, context.ConnectionGeneration, lane))
-			{
-				DebugConsole.LogWarning($"[HostBroadcastPacket] rejected stale request {RequestId} from {context.SenderId}");
-				return;
-			}
+			if (MultiplayerSession.GetPlayer(context.SenderId)?.ProtocolVerified == true)
+				return true;
+			DebugConsole.LogWarning($"[HostBroadcastPacket] rejected unverified sender {context.SenderId}");
+			return false;
+		}
+
+		private bool TryDeserializeInner(DispatchContext context, out IPacket innerPacket)
+		{
+			innerPacket = null;
 			if (!PacketRegistry.HasRegisteredPacket(InnerPacketId))
 			{
 				DebugConsole.LogWarning("[HostBroadcastPacket] unknown inner packet id found, cannot rebroadcast: "+InnerPacketId);
-				return;
+				return false;
 			}
-			var innerPacket = PacketRegistry.Create(InnerPacketId);
+			innerPacket = PacketRegistry.Create(InnerPacketId);
 			if (innerPacket is not IClientRelayable
 			    && !PacketRegistry.CanClientDispatchModApi(innerPacket, relayed: true))
 			{
 				DebugConsole.LogWarning($"[HostBroadcastPacket] {innerPacket.GetType().Name} is not client-relayable");
-				return;
+				return false;
 			}
 			using var ms = new MemoryStream(InnerPacketData);
 			using var reader = new BinaryReader(ms);
@@ -170,94 +228,64 @@ namespace ONI_Together.Networking.Packets.Core
 			if (reader.BaseStream.Position != reader.BaseStream.Length)
 			{
 				DebugConsole.LogWarning($"[HostBroadcastPacket] trailing inner payload for {innerPacket.GetType().Name}");
-				return;
+				return false;
 			}
 			if (!IsInnerSenderValid(innerPacket, context.SenderId))
 			{
 				DebugConsole.LogWarning($"[HostBroadcastPacket] payload sender mismatch for {innerPacket.GetType().Name}: transport={context.SenderId}");
-				return;
+				return false;
 			}
-			DebugConsole.Log("[HostBroadcastPacket] received packet of type " + innerPacket.GetType().Name+", dispatching");
-			if (DispatchVerifiedRelayAndFanOut(
-				innerPacket,
-				context,
-				PacketHandler.DispatchNested,
-				static (packet, senderId) => PacketSender.SendToAllExcluding(
-					packet, [MultiplayerSession.HostUserID, senderId],
-					GetRelaySendMode(packet))))
-			{
-				TryBeginRequest(
-					context.SenderId, RequestId, context.ConnectionGeneration, lane);
-			}
+			BindSenderConnectionGeneration(innerPacket, context.ConnectionGeneration);
+			return true;
 		}
 
 		internal static bool IsInnerSenderValid(IPacket innerPacket, ulong transportSenderId)
 			=> innerPacket is not ISenderBoundRelay senderBound || senderBound.RelaySenderId == transportSenderId;
 
-		internal static bool TryBeginRequest(
-			ulong senderId, ulong requestId, long generation = 0,
-			SequenceLane lane = SequenceLane.Ordered)
-		{
-			if (senderId == 0 || requestId == 0)
-				return false;
-			lock (RequestHistoryLock)
-			{
-				var key = (senderId, generation, lane);
-				var completed = (key, requestId);
-				if (CompletedRequests.Contains(completed)
-				    || LatestRequests.TryGetValue(key, out ulong latest) && requestId <= latest)
-					return false;
-				LatestRequests[key] = requestId;
-				CompletedRequests.Add(completed);
-				RequestOrder.Enqueue((key, requestId));
-				TrimRequestHistory();
-				return true;
-			}
-		}
-
-		private static bool IsRequestFresh(
-			ulong senderId, ulong requestId, long generation, SequenceLane lane)
-		{
-			if (senderId == 0 || requestId == 0)
-				return false;
-			lock (RequestHistoryLock)
-			{
-				var key = (senderId, generation, lane);
-				return !CompletedRequests.Contains((key, requestId))
-				    && (!LatestRequests.TryGetValue(key, out ulong latest) || requestId > latest);
-			}
-		}
-
-		private static SequenceLane GetSequenceLane(int innerPacketId)
-			=> innerPacketId == API_Helper.GetHashCode(typeof(PlayerCursorPacket))
-				? SequenceLane.CursorSnapshot
-				: SequenceLane.Ordered;
-
-		private static void TrimRequestHistory()
-		{
-			while (RequestOrder.Count > MaxCompletedRequests
-			       || LatestRequests.Count > MaxTrackedSenders)
-			{
-				var oldest = RequestOrder.Dequeue();
-				CompletedRequests.Remove(oldest);
-				if (LatestRequests.TryGetValue(oldest.Key, out ulong latest)
-				    && latest == oldest.RequestId)
-					LatestRequests.Remove(oldest.Key);
-			}
-		}
+		private static RelayDomain GetRelayDomain(IPacket packet)
+			=> packet is PlayerCursorPacket ? RelayDomain.LatestState : RelayDomain.MustExecute;
 
 		internal static bool DispatchVerifiedRelayAndFanOut(
 			IPacket innerPacket,
 			DispatchContext transportContext,
-			Func<IPacket, DispatchContext, bool> dispatch,
-			Action<IPacket, ulong> fanOut)
+			RelayDispatchActions actions)
 		{
-			if (!dispatch(innerPacket, transportContext.AsVerifiedHostBroadcast()))
+			if (!actions.Dispatch(innerPacket, transportContext.AsVerifiedHostBroadcast()))
 				return false;
 
 			if (innerPacket is not IHostAuthoritativeRelay)
-				fanOut(innerPacket, transportContext.SenderId);
+				actions.FanOut(innerPacket, transportContext.SenderId);
 			return true;
+		}
+
+		private static bool DispatchCachedRelay(CachedRelay relay)
+		{
+			try
+			{
+				DebugConsole.Log(
+					"[HostBroadcastPacket] dispatching " + relay.Packet.GetType().Name);
+				return DispatchVerifiedRelayAndFanOut(
+					relay.Packet,
+					relay.Context,
+					new RelayDispatchActions(
+						PacketHandler.DispatchNested,
+						static (packet, senderId) => PacketSender.SendToAllExcluding(
+							packet, [MultiplayerSession.HostUserID, senderId],
+							GetRelaySendMode(packet))));
+			}
+			catch (Exception ex)
+			{
+				DebugConsole.LogWarning(
+					$"[HostBroadcastPacket] relay dispatch failed for {relay.Context.SenderId}: {ex}");
+				return false;
+			}
+		}
+
+		private static void KickSender(ulong senderId)
+		{
+			DebugConsole.LogWarning(
+				$"[HostBroadcastPacket] relay reorder failed for {senderId}; disconnecting");
+			NetworkConfig.TransportServer?.KickClient(senderId);
 		}
 
 	}

@@ -55,9 +55,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			byte[] body = LargeStorageKeyframe(0, storagePayload).SerializeBody();
 			SoakHashDomainKeyframePagePacket page =
 				SoakHashDomainKeyframePagePacket.Create(12, 1, 0, 0, body);
-			int fragments = (page.GetOrderedReliableWireBytes()
-			                 + SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes - 1)
-			                / SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes;
+			int fragments = page.GetRiptideFragmentCount();
 			SoakHashDomainKeyframeTracker.Begin(new SoakHashDomainKeyframeContext
 			{
 				RunId = 12,
@@ -78,7 +76,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			{
 				return UnitTestResult.Fail(
 					$"Large page was not credit-bounded: body={body.Length}, " +
-					$"wire={page.GetOrderedReliableWireBytes()}, fragments={fragments}, " +
+					$"wire={page.GetReliableWireBytes()}, fragments={fragments}, " +
 					$"accepted={firstAccepted}, legacy={noLegacyProgress}");
 			}
 			return UnitTestResult.Pass(
@@ -184,9 +182,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			if (packet.RunId != 8 || packet.SampleId != 2 || packet.EntryIndex != 4
 			    || packet.NetId != 19 || !packet.HasPosition || packet.Position.x != 2f
 			    || !packet.FlipX || packet.PositionSequence != 27
-			    || packet is not IHostOnlyPacket
-			    || !OrderedReliableChannel.ShouldWrap(packet, PacketSendMode.ReliableImmediate))
-				return UnitTestResult.Fail("Position keyframe lost authority or ordered delivery metadata");
+			    || packet is not IHostOnlyPacket)
+				return UnitTestResult.Fail("Position keyframe lost authority or reliable delivery metadata");
 				return UnitTestResult.Pass("Position keyframes precede the reliable checkpoint fence");
 			}
 
@@ -306,12 +303,12 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			var rendered = new Vector3(1f, 2f, 0f);
 			var authoritative = new Vector3(8f, 9f, 0f);
-			if (EntityPositionHandler.SelectHashPosition(
-				    true, rendered, 3, authoritative) != authoritative
-			    || EntityPositionHandler.SelectHashPosition(
-					    false, rendered, 3, authoritative) != rendered
-			    || EntityPositionHandler.SelectHashPosition(
-					    true, rendered, 0, authoritative) != rendered)
+			if (RemoteMotionPresenter.SelectHashPosition(
+				    true, rendered, (3, authoritative)) != authoritative
+			    || RemoteMotionPresenter.SelectHashPosition(
+					    false, rendered, (3, authoritative)) != rendered
+			    || RemoteMotionPresenter.SelectHashPosition(
+					    true, rendered, (0, authoritative)) != rendered)
 				return UnitTestResult.Fail("World hash still depends on client render interpolation");
 			return UnitTestResult.Pass("World hash compares authoritative movement state");
 		}

@@ -36,10 +36,9 @@ namespace ONI_Together.Networking
 		{
 			if (clientId == 0 || reconnectToken == 0 || snapshotGeneration <= 0)
 				return false;
-			if (_proofs.TryGetValue(reconnectToken, out CompletedReadyProof existing)
-			    && (existing.ClientId != clientId
-			        || existing.SnapshotGeneration != snapshotGeneration))
-				return false;
+			if (_proofs.TryGetValue(reconnectToken, out CompletedReadyProof existing))
+				return existing.ClientId == clientId
+				       && existing.SnapshotGeneration == snapshotGeneration;
 			_proofs[reconnectToken] = new CompletedReadyProof(
 				clientId, reconnectToken, snapshotGeneration, completedAtUtc);
 			return true;

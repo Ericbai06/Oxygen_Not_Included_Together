@@ -107,11 +107,13 @@ namespace ONI_Together.DebugTools.UnitTests
 				return UnitTestResult.Fail("Lifecycle metadata was retained in one oversized final packet");
 
 			int observedEntries = 0;
+			long hostSimTick = packets[0].HostSimTick;
 			for (int index = 0; index < packets.Count; index++)
 			{
 				WorldDataPacket packet = packets[index];
 				if (packet.ChunkIndex != index || packet.ChunkCount != packets.Count
 				    || packet.GridChunkCount != 1
+				    || packet.HostSimTick != hostSimTick
 				    || packet.LifecycleBaselineTotalEntries != lifecycleCount)
 					return UnitTestResult.Fail("Paged baseline lost generation-local ordering metadata");
 				if (index == 0 && packet.Chunks.Count != 1
@@ -236,8 +238,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			using var stream = new MemoryStream();
 			using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
 				packet.Serialize(writer);
-			long orderedWireBytes = stream.Length + WorldDataPacket.OrderedReliableEnvelopeBytes;
-			return checked((int)((orderedWireBytes + WorldDataPacket.ReliableFragmentPayloadBytes - 1)
+			long reliableWireBytes = stream.Length + sizeof(int);
+			return checked((int)((reliableWireBytes + WorldDataPacket.ReliableFragmentPayloadBytes - 1)
 			                     / WorldDataPacket.ReliableFragmentPayloadBytes));
 		}
 

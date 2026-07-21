@@ -1,5 +1,4 @@
-﻿using Epic.OnlineServices.P2P;
-using ONI_Together.DebugTools;
+﻿using ONI_Together.DebugTools;
 using ONI_Together.Misc;
 using ONI_Together.Networking.Packets;
 using ONI_Together.Networking.Packets.Architecture;
@@ -7,11 +6,9 @@ using ONI_Together.Networking.Packets.Core;
 using ONI_Together.Networking.Transport;
 using ONI_Together.Networking.Transport.Steam;
 using Shared.Interfaces.Networking;
-using Steamworks;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using Shared.Profiling;
 using UnityEngine;
 using ONI_Together.Networking.Components;
@@ -76,19 +73,6 @@ namespace ONI_Together.Networking
 		static Dictionary<int, PacketUpdateRunner> UpdateRunners = [];
 		static Dictionary<object, Dictionary<int, List<byte[]>>> WaitingBulkPacketsPerReceiver = [];
 		private static readonly object SendGate = new();
-		private static readonly HashSet<(ulong Sender, long Generation, long Epoch)>
-			TerminatedIncomingStreams = new();
-		private static readonly ReliablePageChannel PageChannel = new(
-			SendReliablePageLocked,
-			SendReliablePageAck,
-			PacketHandler.TryHandleIncomingReliableFrame,
-			TerminateOutgoingPageStream,
-			TerminateIncomingReliableStream,
-			isContextCurrent: PacketHandler.IsCurrentDispatchContext);
-#if DEBUG
-		internal static Action<object> OutgoingPageTerminationForTests;
-		internal static Action<DispatchContext> IncomingPageTerminationForTests;
-#endif
 		// Running byte total per (receiver, packetId) so LAN capacity checks stay O(1) per append.
 		static Dictionary<object, Dictionary<int, int>> WaitingBulkPacketBytes = [];
 		// Packet ids that belong to DragToolPacket subclasses — tagged lazily on first append
@@ -104,9 +88,6 @@ namespace ONI_Together.Networking
 				WaitingBulkPacketBytes.Clear();
 				DragToolBulkPacketIds.Clear();
 				_sendErrorCount = 0;
-				TerminatedIncomingStreams.Clear();
-				PageChannel.Reset();
-				OrderedReliableChannel.ResetSessionState();
 			}
 		}
 
@@ -120,17 +101,6 @@ namespace ONI_Together.Networking
 				WaitingBulkPacketBytes.Remove(connection);
 				foreach (PacketUpdateRunner runner in UpdateRunners.Values)
 					runner.DropConnection(connection);
-				PageChannel.DropConnection(connection);
-				OrderedReliableChannel.DropConnection(connection);
-			}
-		}
-
-		internal static void DropIncoming(ulong senderId)
-		{
-			lock (SendGate)
-			{
-				PageChannel.DropIncoming(senderId);
-				TerminatedIncomingStreams.RemoveWhere(key => key.Sender == senderId);
 			}
 		}
 
@@ -145,12 +115,6 @@ namespace ONI_Together.Networking
 			}
 		}
 
-		internal static bool HasPendingReliable(object connection)
-		{
-			lock (SendGate)
-				return PageChannel.HasPendingReliable(connection);
-		}
-
 		public static void DispatchPendingBulkPackets()
 		{
 			lock (SendGate)
@@ -160,18 +124,19 @@ namespace ONI_Together.Networking
 		private static void DispatchPendingBulkPacketsLocked()
 		{
 			using var _ = Profiler.Scope();
-			PageChannel.ExpireStalledTransfers();
-
 			var emptyConnections = new List<object>();
-			foreach (var kvp in WaitingBulkPacketsPerReceiver)
+			foreach (object conn in WaitingBulkPacketsPerReceiver.Keys.ToList())
 			{
-				var conn = kvp.Key;
-				foreach (var packetId in kvp.Value.Keys.ToList())
+				if (!WaitingBulkPacketsPerReceiver.TryGetValue(
+					    conn, out var pendingByType))
+					continue;
+				foreach (int packetId in pendingByType.Keys.ToList())
 				{
 					DispatchPendingBulkPacketOfType(conn, packetId, true);
 				}
 
-				if (kvp.Value.Count == 0)
+				if (WaitingBulkPacketsPerReceiver.TryGetValue(
+					    conn, out pendingByType) && pendingByType.Count == 0)
 					emptyConnections.Add(conn);
 			}
 
@@ -204,12 +169,16 @@ namespace ONI_Together.Networking
 			bool sent = SendToConnection(
 				conn,
 				new BulkSenderPacket(packetId, pendingPackets),
-				PacketSendMode.ReliableImmediate);
+				PacketSendMode.Reliable);
 			swFlush.Stop();
 			if (!sent)
 			{
+				pendingPackets.Clear();
+				allPendingPackets.Remove(packetId);
+				byteTotals?.Remove(packetId);
 				DebugConsole.LogWarning(
-					$"[PacketSender] Retaining {flushCount} failed bulk packet(s) of type {packetId} for retry");
+					$"[PacketSender] Dropped {flushCount} failed bulk packet(s) of type {packetId} after reliable stream termination");
+				DisconnectAfterReliableFailure(conn);
 				return false;
 			}
 			pendingPackets.Clear();
@@ -327,21 +296,11 @@ namespace ONI_Together.Networking
 			if (conn == null || packet == null)
 				return false;
 			lock (SendGate)
-				return SendToConnectionLocked(conn, packet, sendType, null);
-		}
-
-		internal static bool SendReliableWithCompletion(
-			object conn, IPacket packet, Action<bool> completion)
-		{
-			if (conn == null || packet == null || completion == null)
-				return false;
-			lock (SendGate)
-				return SendToConnectionLocked(
-					conn, packet, PacketSendMode.ReliableImmediate, completion);
+				return SendToConnectionLocked(conn, packet, sendType);
 		}
 
 		private static bool SendToConnectionLocked(
-			object conn, IPacket packet, PacketSendMode sendType, Action<bool> completion)
+			object conn, IPacket packet, PacketSendMode sendType)
 		{
 			try
 			{
@@ -352,16 +311,18 @@ namespace ONI_Together.Networking
 				    && !FlushPendingBulkBeforeReliable(conn))
 					return false;
 
-				byte[] payload = SerializePacketForSending(packet);
-				if ((sendType & PacketSendMode.Reliable) == 0)
-					return payload.Length <= MAX_PACKET_SIZE_UNRELIABLE
-					       && NetworkConfig.TransportPacketSender != null
-					       && NetworkConfig.TransportPacketSender.SendToConnection(conn, packet, sendType);
-				if (packet is IReliablePageControl)
-					return SendOrderedControlLocked(conn, packet);
-				if (packet is OrderedReliablePacket)
+				byte[] bytes = SerializePacketForSending(packet);
+				if ((sendType & PacketSendMode.Reliable) == 0
+				    && bytes.Length > MAX_PACKET_SIZE_UNRELIABLE)
+				{
+					DebugConsole.LogWarning(
+						$"[PacketSender] Rejected oversized unreliable " +
+						$"{packet.GetType().Name}: bytes={bytes.Length}, limit={MAX_PACKET_SIZE_UNRELIABLE}");
 					return false;
-				return PageChannel.TryEnqueue(conn, payload, completion);
+				}
+				return NetworkConfig.TransportPacketSender != null
+				       && NetworkConfig.TransportPacketSender.SendToConnection(
+					       conn, new SerializedPacket(packet, bytes), sendType);
 			}
 			catch (Exception ex)
 			{
@@ -370,82 +331,13 @@ namespace ONI_Together.Networking
 			}
 		}
 
-		private static bool SendReliablePageLocked(object connection, ReliablePagePacket page)
-			=> SendOrderedControlLocked(connection, page);
-
-		private static bool SendReliablePageAck(
-			DispatchContext context, ReliablePageAckPacket ack)
-			=> SendToPlayer(context.SenderId, ack, PacketSendMode.ReliableImmediate);
-
-		private static bool SendOrderedControlLocked(object connection, IPacket control)
+		private static void DisconnectAfterReliableFailure(object connection)
 		{
-			if (NetworkConfig.TransportPacketSender == null)
-				return false;
-			OrderedReliablePacket ordered = OrderedReliableChannel.PrepareOutgoing(connection, control);
-			return NetworkConfig.TransportPacketSender.SendToConnection(
-				       connection, ordered, PacketSendMode.ReliableImmediate)
-			       && OrderedReliableChannel.CommitOutgoing(connection, ordered.Sequence);
-		}
-
-		internal static bool AcceptReliablePage(
-			ReliablePagePacket page, DispatchContext context)
-			=> PageChannel.AcceptPage(page, context);
-
-		internal static bool AcceptReliablePageAck(
-			ReliablePageAckPacket ack, DispatchContext context)
-		{
-			MultiplayerPlayer player = MultiplayerSession.GetPlayer(context.SenderId);
-			if (player?.Connection == null)
-			{
-				TerminateIncomingReliableStream(context);
-				return false;
-			}
-			lock (SendGate)
-				return PageChannel.AcceptAck(player.Connection, ack);
-		}
-
-		internal static bool AcceptReliablePageAckForTests(
-			object connection, ReliablePageAckPacket ack)
-		{
-			lock (SendGate)
-				return PageChannel.AcceptAck(connection, ack);
-		}
-
-		private static void TerminateOutgoingPageStream(object connection)
-		{
-#if DEBUG
-			if (OutgoingPageTerminationForTests != null)
-			{
-				OutgoingPageTerminationForTests(connection);
-				return;
-			}
-#endif
 			MultiplayerPlayer player = MultiplayerSession.ConnectedPlayers.Values
 				.FirstOrDefault(candidate => Equals(candidate.Connection, connection));
 			if (MultiplayerSession.IsHost && player != null)
 				NetworkConfig.TransportServer?.KickClient(player.PlayerId);
 			else if (!MultiplayerSession.IsHost)
-				NetworkConfig.TransportClient?.Disconnect();
-		}
-
-		internal static void TerminateIncomingReliableStream(DispatchContext context)
-		{
-			lock (SendGate)
-			{
-				var key = (context.SenderId, context.ConnectionGeneration, context.SessionEpoch);
-				if (!TerminatedIncomingStreams.Add(key))
-					return;
-			}
-#if DEBUG
-			if (IncomingPageTerminationForTests != null)
-			{
-				IncomingPageTerminationForTests(context);
-				return;
-			}
-#endif
-			if (MultiplayerSession.IsHost)
-				NetworkConfig.TransportServer?.KickClient(context.SenderId);
-			else
 				NetworkConfig.TransportClient?.Disconnect();
 		}
 	}

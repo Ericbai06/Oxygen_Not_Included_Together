@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using Klei.AI;
 using ONI_Together.DebugTools;
@@ -11,6 +12,9 @@ namespace ONI_Together.Patches.Duplicant
 {
 	internal class EffectsPatch
 	{
+		private static readonly Dictionary<(int NetId, int EffectHash),
+			(NetworkIdentity Identity, ulong Lifecycle)>
+			DirtyHostEffects = new();
 		private static int _packetApplyDepth;
 		private static bool IsApplyingPacket => _packetApplyDepth > 0;
 
@@ -20,13 +24,6 @@ namespace ONI_Together.Patches.Duplicant
 			bool isApplyingPacket,
 			bool hasNetworkIdentity)
 			=> !inSession || isHost || isApplyingPacket || !hasNetworkIdentity;
-
-		internal static bool ShouldPredictLocally(
-			bool inSession,
-			bool isHost,
-			bool isApplyingPacket,
-			bool hasNetworkIdentity)
-			=> inSession && !isHost && !isApplyingPacket && hasNetworkIdentity;
 
 		public static EffectInstance AddEffect(
 			Effects effects,
@@ -85,6 +82,90 @@ namespace ONI_Together.Patches.Duplicant
 			return identity != null && identity.NetId != 0;
 		}
 
+		private static void MarkDirty(NetworkIdentity identity, Effect effect)
+		{
+			if (identity == null || identity.NetId == 0 || effect == null)
+				return;
+			DirtyHostEffects[(identity.NetId, effect.IdHash.hash)] =
+				(identity, identity.LifecycleRevision);
+		}
+
+		private static void MarkDirty(NetworkIdentity identity, HashedString effectHash)
+		{
+			if (identity == null || identity.NetId == 0 || effectHash.hash == 0)
+				return;
+			DirtyHostEffects[(identity.NetId, effectHash.hash)] =
+				(identity, identity.LifecycleRevision);
+		}
+
+		public static void FlushDirtyEffects()
+		{
+			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost)
+			{
+				DirtyHostEffects.Clear();
+				return;
+			}
+
+			foreach (var entry in TakeDirtyEffects())
+			{
+				(int netId, int effectHash) = entry.Key;
+				NetworkIdentity identity = entry.Value.Identity;
+				if (!IsCurrentDirtyOwner(
+					NetworkIdentityRegistry.IsRegistered(identity, netId),
+					entry.Value.Lifecycle, identity.LifecycleRevision))
+					continue;
+				EffectInstance current = identity.GetComponent<Effects>()?
+					.Get(new HashedString(effectHash));
+				ToggleEffectPacket packet = current != null
+					? new ToggleEffectPacket(identity, current)
+					: new ToggleEffectPacket(identity, new HashedString(effectHash));
+#if DEBUG
+				string state = packet.EvidenceState();
+				IntegrationScenarioEvidenceCore.Log(
+					"effect", "host-submit", (long)packet.Revision, true, state);
+				IntegrationScenarioEvidenceCore.Log(
+					"effect", "final-state", (long)packet.Revision, true, state);
+#endif
+				PacketSender.SendToAllClients(packet);
+			}
+		}
+
+		private static List<KeyValuePair<(int NetId, int EffectHash),
+			(NetworkIdentity Identity, ulong Lifecycle)>>
+			TakeDirtyEffects()
+		{
+			var snapshot = new List<KeyValuePair<(int, int),
+				(NetworkIdentity, ulong)>>(DirtyHostEffects);
+			DirtyHostEffects.Clear();
+			return snapshot;
+		}
+
+		internal static void ResetSessionState()
+		{
+			_packetApplyDepth = 0;
+			DirtyHostEffects.Clear();
+		}
+
+		internal static bool IsCurrentDirtyOwner(
+			bool isRegistered, ulong capturedLifecycle, ulong currentLifecycle)
+			=> isRegistered && capturedLifecycle == currentLifecycle;
+
+		internal static void MarkDirtyForTests(int netId, int effectHash)
+			=> DirtyHostEffects[(netId, effectHash)] = default;
+
+		internal static ToggleEffectPacket[] DrainDirtyEffectsForTests(
+			Func<int, int, ToggleEffectPacket> resolve)
+		{
+			var packets = new List<ToggleEffectPacket>();
+			foreach (var entry in TakeDirtyEffects())
+			{
+				ToggleEffectPacket packet = resolve(entry.Key.NetId, entry.Key.EffectHash);
+				if (packet != null)
+					packets.Add(packet);
+			}
+			return packets.ToArray();
+		}
+
 		[HarmonyPatch(typeof(Effects), nameof(Effects.Add),
 			[typeof(Effect), typeof(bool), typeof(Func<string, object, string>)])]
 		public class EffectsAddPatch
@@ -97,16 +178,17 @@ namespace ONI_Together.Patches.Duplicant
 				ref EffectInstance __result)
 			{
 				using var scope = Profiler.Scope();
-				bool hasIdentity = TryGetIdentity(__instance, out _);
-				if (ShouldPredictLocally(MultiplayerSession.InSession,
-					MultiplayerSession.IsHost, IsApplyingPacket, hasIdentity))
-				{
-					__result = AddLocally(__instance, newEffect, should_save, resolveTooltipCallback);
-					return false;
-				}
-
-				return ShouldRunMutation(MultiplayerSession.InSession,
+				bool hasIdentity = TryGetIdentity(__instance, out NetworkIdentity identity);
+				bool shouldRun = ShouldRunMutation(MultiplayerSession.InSession,
 					MultiplayerSession.IsHost, IsApplyingPacket, hasIdentity);
+#if DEBUG
+				if (!shouldRun)
+					IntegrationScenarioEvidenceCore.Log(
+						"effect", "client-original-blocked", 0, false,
+						ToggleEffectPacket.EvidenceState(
+							identity.NetId, newEffect?.IdHash.hash ?? 0, active: true));
+#endif
+				return shouldRun;
 			}
 
 			public static void Postfix(Effects __instance, Effect newEffect)
@@ -114,31 +196,8 @@ namespace ONI_Together.Patches.Duplicant
 				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost ||
 				    IsApplyingPacket || !TryGetIdentity(__instance, out NetworkIdentity identity))
 					return;
-				ScheduleHostSnapshot(identity, newEffect);
+				MarkDirty(identity, newEffect);
 			}
-		}
-
-		private static void ScheduleHostSnapshot(NetworkIdentity identity, Effect effect)
-		{
-			if (GameScheduler.Instance == null)
-			{
-				SendHostSnapshot(identity, effect);
-				return;
-			}
-			GameScheduler.Instance.ScheduleNextFrame("ONI Together effect snapshot",
-				_ => SendHostSnapshot(identity, effect));
-		}
-
-		private static void SendHostSnapshot(NetworkIdentity identity, Effect effect)
-		{
-			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost ||
-			    identity == null || identity.NetId == 0 || effect == null)
-				return;
-			EffectInstance current = identity.GetComponent<Effects>()?.Get(effect);
-			ToggleEffectPacket packet = current != null
-				? new ToggleEffectPacket(identity, current)
-				: new ToggleEffectPacket(identity, effect.IdHash);
-			PacketSender.SendToAllClients(packet);
 		}
 
 		[HarmonyPatch(typeof(Effects), nameof(Effects.Remove), [typeof(HashedString)])]
@@ -146,14 +205,26 @@ namespace ONI_Together.Patches.Duplicant
 		{
 			public static bool Prefix(Effects __instance, HashedString effect_id)
 			{
-				using var _ = Profiler.Scope();
+				using var scope = Profiler.Scope();
 				bool hasIdentity = TryGetIdentity(__instance, out NetworkIdentity identity);
 				bool shouldRun = ShouldRunMutation(MultiplayerSession.InSession,
 					MultiplayerSession.IsHost, IsApplyingPacket, hasIdentity);
-				if (shouldRun && MultiplayerSession.InSession && MultiplayerSession.IsHost &&
-				    !IsApplyingPacket && hasIdentity)
-					PacketSender.SendToAllClients(new ToggleEffectPacket(identity, effect_id));
+#if DEBUG
+				if (!shouldRun)
+					IntegrationScenarioEvidenceCore.Log(
+						"effect", "client-original-blocked", 0, false,
+						ToggleEffectPacket.EvidenceState(
+							identity.NetId, effect_id.hash, active: false));
+#endif
 				return shouldRun;
+			}
+
+			public static void Postfix(Effects __instance, HashedString effect_id)
+			{
+				if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost ||
+				    IsApplyingPacket || !TryGetIdentity(__instance, out NetworkIdentity identity))
+					return;
+				MarkDirty(identity, effect_id);
 			}
 		}
 	}

@@ -19,9 +19,6 @@ namespace ONI_Together
         [JsonProperty]
         public ClientSettings Client { get; set; } = new ClientSettings();
 
-        [JsonProperty]
-        public NetworkSettings Network { get; set; } = new NetworkSettings();
-
         [Option("STRINGS.UI.CONFIGURATION.TITLES.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.TOOLTIPS.HOST_SETTINGS.MAX_MESSAGES_PER_POLL", "STRINGS.UI.CONFIGURATION.HEADERS.A_HOST_SETTINGS")]
         [JsonIgnore]
         public int HostMaxMessagesPerPoll
@@ -76,22 +73,6 @@ namespace ONI_Together
         {
             get => Client.TimeoutSeconds;
             set => Client.TimeoutSeconds = Mathf.Max(value, 30);
-        }
-
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.NETWORK_SETTINGS.ENABLE_PACKET_QUEUE", "STRINGS.UI.CONFIGURATION.TOOLTIPS.NETWORK_SETTINGS.ENABLE_PACKET_QUEUE", "STRINGS.UI.CONFIGURATION.HEADERS.C_NETWORK_SETTINGS")]
-        [JsonIgnore]
-        public bool EnablePacketQueue
-        {
-            get => Network.EnablePacketQueue;
-            set => Network.EnablePacketQueue = value;
-        }
-
-        [Option("STRINGS.UI.CONFIGURATION.TITLES.NETWORK_SETTINGS.MAX_PACKETS_PER_SECOND", "STRINGS.UI.CONFIGURATION.TOOLTIPS.NETWORK_SETTINGS.MAX_PACKETS_PER_SECOND", "STRINGS.UI.CONFIGURATION.HEADERS.C_NETWORK_SETTINGS")]
-        [JsonIgnore]
-        public int MaxPacketsPerSecond
-        {
-            get => Network.MaxPacketsPerSecond;
-            set => Network.MaxPacketsPerSecond = Mathf.Clamp(value, 500, 1000);
         }
 
         [Option("STRINGS.UI.CONFIGURATION.TITLES.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.TOOLTIPS.CURSOR_SETTINGS.RANDOM_COLOR", "STRINGS.UI.CONFIGURATION.HEADERS.D_CURSOR_SETTINGS")]
@@ -228,13 +209,6 @@ namespace ONI_Together
     {
         [JsonProperty] public bool HardSyncAtCycleStart { get; set; } = false;
         [JsonProperty] public bool PauseSimOnPlayerDisconnect { get; set; } = false;
-    }
-
-    [Serializable]
-    public class NetworkSettings
-    {
-        [JsonProperty] public bool EnablePacketQueue { get; set; } = false;
-        [JsonProperty] public int MaxPacketsPerSecond { get; set; } = 500;
     }
 
     [Serializable]

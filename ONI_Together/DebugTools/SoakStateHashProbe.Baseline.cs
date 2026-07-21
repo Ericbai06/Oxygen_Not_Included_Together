@@ -12,11 +12,10 @@ namespace ONI_Together.DebugTools
 	{
 		private void BeginRepairBaselineSegment()
 		{
-			InvalidateFenceDelivery();
 			SuppressAuthoritativeRepair();
 			ResumeWorldScan();
 			WorldUpdateBatcher.ResumeRepairDispatch();
-			EntityPositionHandler.SetCheckpointFrozen(false);
+			RemoteMotionPresenter.SetCheckpointFrozen(false);
 			if (!PopulatePendingClients())
 			{
 				Abort("remote client set changed before repair baseline warmup");
@@ -78,8 +77,8 @@ namespace ONI_Together.DebugTools
 				BeginSegment();
 				return;
 			}
-			if (Time.realtimeSinceStartup - _repairBaselineStartedAt
-			    >= TransportDrainTimeoutSeconds)
+			if (HasRepairBaselineTimedOut(
+			    Time.realtimeSinceStartup - _repairBaselineStartedAt))
 			{
 				DebugConsole.LogWarning(
 					"[SoakHash][BASELINE_TIMEOUT] " + HostRepairDiagnostics());

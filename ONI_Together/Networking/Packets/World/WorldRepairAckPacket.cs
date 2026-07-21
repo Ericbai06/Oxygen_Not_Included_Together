@@ -1,5 +1,6 @@
 using System.IO;
 using ONI_Together.Misc.World;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
 using Shared.Profiling;
 
@@ -28,6 +29,10 @@ namespace ONI_Together.Networking.Packets.World
 			using var _ = Profiler.Scope();
 			if (!MultiplayerSession.IsHost || PacketHandler.CurrentContext.SenderIsHost)
 				return;
+			if (AppliedThrough == 1 || AppliedThrough % 32 == 0)
+				DebugConsole.Log(
+					$"[WorldRepairAck][RECEIVE] sender={PacketHandler.CurrentContext.SenderId};" +
+					$"appliedThrough={AppliedThrough}");
 			WorldUpdateBatcher.AcceptRepairAck(
 				PacketHandler.CurrentContext.SenderId, AppliedThrough);
 		}

@@ -10,6 +10,16 @@ namespace ONI_Together.Networking
 {
     public class PlayerAreaVisualizer
     {
+        public struct VisualState
+        {
+            public Color Color;
+            public Vector3 DownPosition;
+            public Vector3 CursorPosition;
+            public bool Dragging;
+            public DragTool.Mode DragMode;
+            public Vector2 LengthLimit;
+        }
+
         private GameObject _visualizer;
         private GameObject _textPrefab;
         private Guid _areaVisualizerText = Guid.Empty;
@@ -62,11 +72,11 @@ namespace ONI_Together.Networking
             }
         }
 
-        public void UpdateArea(Color color, Vector3 downPos, Vector3 cursorPos, bool dragging, DragTool.Mode dragMode, Vector2 lengthLimit)
+        public void UpdateArea(VisualState state)
         {
-            Color = color;
+            Color = state.Color;
 
-            if (!ShouldShow(dragging, dragMode))
+            if (!ShouldShow(state.Dragging, state.DragMode))
             {
                 DestroyArea();
                 cellChangedSinceDown = false;
@@ -74,22 +84,23 @@ namespace ONI_Together.Networking
                 return;
             }
 
-            if (downPos != _lastDownPos)
+            if (state.DownPosition != _lastDownPos)
             {
-                _lastDownPos = downPos;
+                _lastDownPos = state.DownPosition;
                 cellChangedSinceDown = false;
             }
 
             InstantiateNewVisualizer();
 
-            if (Grid.PosToCell(cursorPos) != Grid.PosToCell(downPos))
+            if (Grid.PosToCell(state.CursorPosition) != Grid.PosToCell(state.DownPosition))
             {
                 cellChangedSinceDown = true;
             }
 
-            cursorPos = SnapCursorForLineMode(downPos, cursorPos, dragMode);
-            cursorPos = ClampToLengthLimit(downPos, cursorPos, dragMode, lengthLimit);
-            ApplyAreaRect(downPos, cursorPos);
+            Vector3 cursorPos = SnapCursorForLineMode(
+                state.DownPosition, state.CursorPosition, state.DragMode);
+            cursorPos = ClampToLengthLimit(state, cursorPos);
+            ApplyAreaRect(state.DownPosition, cursorPos);
             _visualizer.SetActive(true);
         }
 
@@ -129,31 +140,31 @@ namespace ONI_Together.Networking
             return cursorPos;
         }
 
-        private static Vector3 ClampToLengthLimit(Vector3 downPos, Vector3 cursorPos, DragTool.Mode mode, Vector2 lengthLimit)
+        private static Vector3 ClampToLengthLimit(VisualState state, Vector3 cursorPos)
         {
-            if (lengthLimit == Vector2.zero)
+            if (state.LengthLimit == Vector2.zero)
                 return cursorPos;
 
             float cellSize = Grid.CellSizeInMeters;
-            Vector3 offset = cursorPos - downPos;
+            Vector3 offset = cursorPos - state.DownPosition;
 
-            float maxX = Mathf.Max(0f, lengthLimit.x - 1f) * cellSize;
-            float maxY = Mathf.Max(0f, lengthLimit.y - 1f) * cellSize;
+            float maxX = Mathf.Max(0f, state.LengthLimit.x - 1f) * cellSize;
+            float maxY = Mathf.Max(0f, state.LengthLimit.y - 1f) * cellSize;
 
-            if (mode == DragTool.Mode.Box)
+            if (state.DragMode == DragTool.Mode.Box)
             {
                 offset.x = Mathf.Clamp(offset.x, -maxX, maxX);
                 offset.y = Mathf.Clamp(offset.y, -maxY, maxY);
             }
-            else if (mode == DragTool.Mode.Line)
+            else if (state.DragMode == DragTool.Mode.Line)
             {
-                if (cursorPos.y == downPos.y)
+                if (cursorPos.y == state.DownPosition.y)
                     offset.x = Mathf.Clamp(offset.x, -maxX, maxX);
                 else
                     offset.y = Mathf.Clamp(offset.y, -maxY, maxY);
             }
 
-            return downPos + offset;
+            return state.DownPosition + offset;
         }
 
         private void ApplyAreaRect(Vector3 downPos, Vector3 cursorPos)

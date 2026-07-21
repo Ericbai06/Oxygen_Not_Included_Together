@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using Riptide;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
@@ -9,9 +10,7 @@ namespace ONI_Together.Networking.Transport.Lan
 {
     public class RiptidePacketSender : TransportPacketSender
     {
-		private const int MAX_PAYLOAD_BYTES = PacketSender.MAX_PACKET_SIZE_UNRELIABLE;
-
-        public override bool SendPacket(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
+        public override bool SendPacket(object conn, SerializedPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
         {
             using var _ = Profiler.Scope();
 
@@ -21,85 +20,85 @@ namespace ONI_Together.Networking.Transport.Lan
             if (!connection.IsConnected)
                 return false;
 
-            byte[] bytes = PacketSender.SerializePacketForSending(packet);
+			byte[] bytes = packet.Bytes;
 
-			if (bytes.Length > MAX_PAYLOAD_BYTES && packet is not ChunkedPacket)
+			if (bytes.Length > RiptideFrameCodec.MaxNativePayloadBytes)
 			{
 				if ((sendType & PacketSendMode.Reliable) == 0)
 					return false;
-				return SendChunked(connection, bytes, sendType);
+				if (!RiptideFrameCodec.TryCreateFrames(bytes, out var frames))
+					return false;
+				if (!SendAdapterFrames(
+					    frames, frame => SendRaw(
+						    connection,
+						    new SerializedPacket(packet.Packet, frame),
+						    sendType)))
+					return false;
+				TrackLogicalSend(packet.Packet, bytes.Length);
+				return true;
 			}
 
-            return SendRaw(connection, bytes, packet, sendType);
+			if (!SendRaw(connection, packet, sendType))
+				return false;
+			TrackLogicalSend(packet.Packet, bytes.Length);
+			return true;
         }
 
-        private bool SendRaw(Connection connection, byte[] bytes, IPacket packet, PacketSendMode sendType)
+		private bool SendRaw(
+			Connection connection, SerializedPacket packet, PacketSendMode sendType)
         {
             MessageSendMode sendMode = ConvertSendType(sendType);
-            int id = PacketRegistry.GetPacketId(packet);
-            Riptide.Message msg = Riptide.Message.Create(sendMode, 1); // TODO: Test with packet id though I don't think it matters since we handle packets elsewhere
-            msg.AddBytes(bytes);
+			Riptide.Message msg = Riptide.Message.Create(sendMode, 1); // TODO: Test with packet id though I don't think it matters since we handle packets elsewhere
+			msg.AddBytes(packet.Bytes);
 
-            if (MultiplayerSession.IsHost)
-            {
-                var server = RiptideServer.ServerInstance;
-                if (server == null)
-                    return false;
-
-                server.Send(msg, connection);
-            }
-            else
-            {
-                var client = RiptideClient.Client;
-                if (client == null)
-                    return false;
-
-                client.Send(msg);
-            }
-
-            PacketTracker.TrackSent(new PacketTracker.PacketTrackData
-            {
-                packet = packet,
-                size = bytes.Length
-            });
+			try
+			{
+				if (!TryNativeSend(connection, msg))
+					return false;
+				SyncStats.RecordNativeSend(packet.PacketType, packet.Bytes.Length, success: true);
+			}
+			catch
+			{
+				SyncStats.RecordNativeSend(packet.PacketType, packet.Bytes.Length, success: false);
+				throw;
+			}
             return true;
         }
 
-        private bool SendChunked(Connection connection, byte[] fullData, PacketSendMode sendType)
-        {
-            int chunkDataSize = MAX_PAYLOAD_BYTES - 20; // overhead for ChunkedPacket header
-            int totalChunks = (fullData.Length + chunkDataSize - 1) / chunkDataSize;
-            int sequenceId = ChunkedPacket.GetNextSequenceId();
-
-			return SendAllChunks(totalChunks, i =>
+		private static void TrackLogicalSend(IPacket packet, int bytes)
+			=> PacketTracker.TrackSent(new PacketTracker.PacketTrackData
 			{
-				int offset = i * chunkDataSize;
-                int length = Math.Min(chunkDataSize, fullData.Length - offset);
-                byte[] chunkData = new byte[length];
-                Array.Copy(fullData, offset, chunkData, 0, length);
+				packet = packet,
+				size = bytes
+				});
 
-                var chunk = new ChunkedPacket
-                {
-                    SequenceId = sequenceId,
-                    ChunkIndex = i,
-                    TotalChunks = totalChunks,
-                    ChunkData = chunkData
-                };
-
-                byte[] chunkBytes = PacketSender.SerializePacketForSending(chunk);
-				return SendRaw(connection, chunkBytes, chunk, sendType);
-			});
-		}
-
-		internal static bool SendAllChunks(int totalChunks, Func<int, bool> sendChunk)
+		internal static bool SendAdapterFrames(
+			IReadOnlyList<byte[]> frames, Func<byte[], bool> nativeSend)
 		{
-			if (totalChunks <= 0 || sendChunk == null)
+			if (frames == null || frames.Count == 0 || nativeSend == null)
 				return false;
-			for (int i = 0; i < totalChunks; i++)
+			foreach (byte[] frame in frames)
 			{
-				if (!sendChunk(i))
+				if (!nativeSend(frame))
 					return false;
 			}
+			return true;
+		}
+
+		private static bool TryNativeSend(Connection connection, Riptide.Message message)
+		{
+			if (MultiplayerSession.IsHost)
+			{
+				Riptide.Server server = RiptideServer.ServerInstance;
+				if (server == null)
+					return false;
+				server.Send(message, connection);
+				return true;
+			}
+			Riptide.Client client = RiptideClient.Client;
+			if (client == null)
+				return false;
+			client.Send(message);
 			return true;
 		}
 

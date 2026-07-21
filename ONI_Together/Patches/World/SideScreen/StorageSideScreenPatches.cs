@@ -81,13 +81,18 @@ namespace ONI_Together.Patches.World.SideScreen
 	[HarmonyPatch(typeof(CounterSideScreen), nameof(CounterSideScreen.ResetCounter))]
 	public static class CounterSideScreen_ResetCounter_Patch
 	{
-		public static void Postfix(CounterSideScreen __instance)
+		public static bool Prefix(CounterSideScreen __instance, out bool __state)
+		{
+			__state = MultiplayerSession.InSession && !BuildingConfigPacket.IsApplyingPacket
+			          && __instance.targetLogicCounter != null;
+			return !__state || MultiplayerSession.IsHost;
+		}
+
+		public static void Postfix(CounterSideScreen __instance, bool __state)
 		{
 			using var _ = Profiler.Scope();
 
-			if (BuildingConfigPacket.IsApplyingPacket) return;
-			if (!MultiplayerSession.InSession) return;
-			if (__instance.targetLogicCounter == null) return;
+			if (!__state) return;
 
 			var identity = __instance.targetLogicCounter.gameObject.AddOrGet<NetworkIdentity>();
 			identity.RegisterIdentity();

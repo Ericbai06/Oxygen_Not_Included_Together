@@ -1,80 +1,23 @@
-﻿using HarmonyLib;
+﻿using System.Collections.Generic;
+using System.Linq;
+using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
-using ONI_Together.Networking.Packets.Tools.Build;
-using System.Linq;
-using Shared.Profiling;
-using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
-using ONI_Together.Networking.Packets.World;
+using ONI_Together.Networking.Packets.Architecture;
+using ONI_Together.Networking.Packets.Tools.Build;
+using Shared.Profiling;
 using UnityEngine;
 
 [HarmonyPatch(typeof(Constructable), nameof(Constructable.FinishConstruction))]
 public static class ConstructablePatch
 {
-	public static void Prefix(
-		Constructable __instance,
-		WorkerBase workerForGameplayEvent,
-		out BuildCompletePacket __state)
+	public static void Prefix(Constructable __instance, out BuildCompletePacket __state)
 	{
 		using var _ = Profiler.Scope();
-		__state = null;
-
-		if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
-			return;
-
-		var building = __instance.GetComponent<Building>();
-		if (building == null || building.Def == null)
-			return;
-
-		int cell = Grid.PosToCell(__instance.transform.position);
-		var def = building.Def;
-
-		var materialTags = __instance.SelectedElementsTags?.Select(tag => tag.ToString()).ToList() ?? new System.Collections.Generic.List<string>();
-
-		float temp = __instance.GetComponent<PrimaryElement>()?.Temperature ?? def.Temperature;
-
-		var rotatable = __instance.GetComponent<Rotatable>();
-		var orientation = rotatable != null ? rotatable.GetOrientation() : Orientation.Neutral;
-
-		var facade = __instance.GetComponent<BuildingFacade>()?.CurrentFacade ?? "DEFAULT_FACADE";
-
-        // Handle utility connections
-        UtilityConnections utilityConnectionFlags = (UtilityConnections)0;
-        // Capture connection directions for wires/pipes
-        var tileVis = __instance.GetComponent<KAnimGraphTileVisualizer>();
-		if (tileVis != null)
-		{
-			utilityConnectionFlags = tileVis.Connections;
-		}
-
-		/*
-        IHaveUtilityNetworkMgr mgr = def.BuildingComplete.GetComponent<IHaveUtilityNetworkMgr>();
-        if (mgr != null)
-		{
-			var networkManager = mgr.GetNetworkManager();
-			if(networkManager != null)
-			{
-                utilityConnectionFlags = networkManager.GetConnections(cell, false);
-            }
-		}*/
-
-		int workerId = workerForGameplayEvent?.GetNetId() ?? 0;
-		var packet = new BuildCompletePacket
-		{
-			Cell = cell,
-			PrefabID = def.PrefabID,
-			Orientation = orientation,
-			MaterialTags = materialTags,
-			Temperature = temp,
-			FacadeID = facade,
-			UtilityConnectionFlags = utilityConnectionFlags,
-			ObjectLayer = def.ObjectLayer,
-			WorkerNetId = workerId
-		};
-		__state = packet;
-
-		NetworkIdentity.BeginManagedSpawn();
+		__state = MultiplayerSession.IsHostInSession ? Capture(__instance) : null;
+		if (__state != null)
+			NetworkIdentity.BeginManagedSpawn();
 	}
 
 	public static void Postfix(ref BuildCompletePacket __state)
@@ -82,23 +25,31 @@ public static class ConstructablePatch
 		BuildCompletePacket state = __state;
 		if (state == null)
 			return;
-		NetworkIdentity.EndManagedSpawn();
-		__state = null;
-		if (!MultiplayerSession.IsHostInSession)
-			return;
-		GameObject built = FindCompletedBuilding(state);
-		if (built == null)
-			return;
-		NetworkIdentity identity = built.AddOrGet<NetworkIdentity>();
-		if (identity.NetId == 0)
-			identity.RegisterIdentity();
-		SpawnPrefabPacket lifecycle = SpawnPrefabPacket.FromIdentity(identity);
-		if (lifecycle == null)
-			return;
-		lifecycle.BindExistingOnly = true;
-		PacketSender.SendToAllClients(state);
-		DebugConsole.Log($"[Host] Sent BuildCompletePacket for {state.PrefabID} at cell {state.Cell}");
-		PacketSender.SendToAllClients(lifecycle, PacketSendMode.ReliableImmediate);
+		try
+		{
+			if (!MultiplayerSession.IsHostInSession
+			    || !TryFinalizeIdentity(state, out NetworkIdentity identity))
+				return;
+			NetworkIdentity.EndManagedSpawn();
+			__state = null;
+			PacketSender.SendToAllClients(state, PacketSendMode.ReliableImmediate);
+#if DEBUG
+			IntegrationScenarioEvidenceCore.Log(
+				"building-lifecycle", "final-state", (long)state.LifecycleRevision, true,
+				BuildAuthority.EvidenceState(
+					state.PrefabID, state.Cell, state.NetId, state.LifecycleRevision));
+#endif
+			DebugConsole.Log(
+				$"[Host] Sent BuildCompletePacket for {state.PrefabID} NetId={state.NetId}");
+		}
+		finally
+		{
+			if (__state != null)
+			{
+				NetworkIdentity.EndManagedSpawn();
+				__state = null;
+			}
+		}
 	}
 
 	public static System.Exception Finalizer(
@@ -107,6 +58,53 @@ public static class ConstructablePatch
 		if (__state != null)
 			NetworkIdentity.EndManagedSpawn();
 		return __exception;
+	}
+
+	private static BuildCompletePacket Capture(Constructable constructable)
+	{
+		Building building = constructable?.GetComponent<Building>();
+		BuildingDef def = building?.Def;
+		if (def == null)
+			return null;
+		NetworkIdentity identity = constructable.GetComponent<NetworkIdentity>();
+		if (identity == null || identity.NetId == 0 || identity.LifecycleRevision == 0
+		    || !NetworkIdentityRegistry.IsRegistered(identity, identity.NetId))
+			return null;
+		List<string> materials = constructable.SelectedElementsTags?
+			.Select(tag => tag.ToString()).ToList() ?? [];
+		if (materials.Count == 0)
+			return null;
+		return new BuildCompletePacket
+		{
+			Cell = Grid.PosToCell(constructable),
+			PrefabID = def.PrefabID,
+			Orientation = constructable.GetComponent<Rotatable>()?.GetOrientation()
+			              ?? Orientation.Neutral,
+			MaterialTags = materials,
+			Temperature = constructable.GetComponent<PrimaryElement>()?.Temperature
+			              ?? def.Temperature,
+			FacadeID = constructable.GetComponent<BuildingFacade>()?.CurrentFacade
+			           ?? BuildAuthority.DefaultFacade,
+			UtilityConnectionFlags = constructable.GetComponent<KAnimGraphTileVisualizer>()?
+				.Connections ?? 0,
+			ObjectLayer = def.ObjectLayer,
+			NetId = identity.NetId,
+			LifecycleRevision = identity.LifecycleRevision
+		};
+	}
+
+	private static bool TryFinalizeIdentity(
+		BuildCompletePacket state, out NetworkIdentity identity)
+	{
+		identity = null;
+		GameObject built = FindCompletedBuilding(state);
+		if (built == null)
+			return false;
+		identity = built.AddOrGet<NetworkIdentity>();
+		identity.RegisterIdentity();
+		return identity.NetId == state.NetId
+		       && identity.LifecycleRevision == state.LifecycleRevision
+		       && NetworkIdentityRegistry.IsRegistered(identity, state.NetId);
 	}
 
 	private static GameObject FindCompletedBuilding(BuildCompletePacket state)

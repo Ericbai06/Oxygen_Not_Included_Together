@@ -1,1 +1,1 @@
-Fixed TileComplete and other completed buildings activating before their materials were initialized on clients.
+Protocol 10 release candidate: expanded host-authoritative synchronization across research, priorities, schedules, buildings, inventory, presentation, entity lifecycle, DLC systems, rockets, and reconnect; added stricter revision, replay, repair, and final-state validation. All players must update to the same DLL.

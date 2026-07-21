@@ -130,37 +130,58 @@ public static class LifecyclePacketTests
 	}
 
 	[UnitTest(
-		name: "Building lifecycle waits for build-state materialization",
+		name: "Domain lifecycle waits for native materialization",
 		category: "Networking")]
-	public static UnitTestResult BuildingsWaitForBuildState()
+	public static UnitTestResult DomainObjectsWaitForNativeMaterialization()
 	{
-		if (!SpawnPrefabPacket.RequiresBuildStateMaterialization(
-			    hasConstructable: true, hasCompletedBuilding: false)
-		    || !SpawnPrefabPacket.RequiresBuildStateMaterialization(
-			    hasConstructable: false, hasCompletedBuilding: true)
-		    || SpawnPrefabPacket.RequiresBuildStateMaterialization(
-			    hasConstructable: false, hasCompletedBuilding: false)
-		    || !BuildStatePolicyIsUsed())
+		if (!SpawnPrefabPacket.RequiresNativeMaterialization(
+			    hasConstructable: true, hasCompletedBuilding: false, hasDiggable: false)
+		    || !SpawnPrefabPacket.RequiresNativeMaterialization(
+			    hasConstructable: false, hasCompletedBuilding: true, hasDiggable: false)
+		    || !SpawnPrefabPacket.RequiresNativeMaterialization(
+			    hasConstructable: false, hasCompletedBuilding: false, hasDiggable: true)
+		    || SpawnPrefabPacket.RequiresNativeMaterialization(
+			    hasConstructable: false, hasCompletedBuilding: false, hasDiggable: false)
+		    || !NativeMaterializationPolicyIsUsed())
 			return UnitTestResult.Fail(
-				"Generic lifecycle can activate a building without initialized materials");
+				"Generic lifecycle can activate an object before ONI initializes its domain state");
 		return UnitTestResult.Pass(
-			"Constructable and completed-building lifecycles wait for BuildState initialization");
+			"Buildings and dig placers bind only after native materialization");
 	}
 
-	private static bool BuildStatePolicyIsUsed()
+	private static bool NativeMaterializationPolicyIsUsed()
 	{
 		const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
 		MethodInfo binding = typeof(SpawnPrefabPacket).GetMethod(
 			"RequiresExistingSnapshotBinding", flags, null,
 			new[] { typeof(NetworkIdentity), typeof(GameObject), typeof(bool) }, null);
+		MethodInfo creator = typeof(SpawnPrefabPacket).GetMethod(
+			"CreateAuthoritativeObject", BindingFlags.Instance | BindingFlags.NonPublic);
 		MethodInfo policy = typeof(SpawnPrefabPacket).GetMethod(
-			nameof(SpawnPrefabPacket.RequiresBuildStateMaterialization), flags);
-		byte[] il = binding?.GetMethodBody()?.GetILAsByteArray();
-		if (il == null || policy == null)
+			nameof(SpawnPrefabPacket.RequiresNativeMaterialization), flags, null,
+			new[] { typeof(GameObject) }, null);
+		if (policy == null)
 			return false;
-		byte[] token = BitConverter.GetBytes(policy.MetadataToken);
-		return Enumerable.Range(0, il.Length - token.Length + 1).Any(index =>
-			il.Skip(index).Take(token.Length).SequenceEqual(token));
+		return Calls(binding, policy) && Calls(creator, policy);
+	}
+
+	private static bool Calls(MethodInfo method, MethodInfo target)
+	{
+		byte[] il = method?.GetMethodBody()?.GetILAsByteArray();
+		if (il == null) return false;
+		for (int index = 0; index <= il.Length - sizeof(int); index++)
+		{
+			try
+			{
+				MethodInfo resolved = method.Module.ResolveMethod(
+					BitConverter.ToInt32(il, index)) as MethodInfo;
+				if (resolved?.Name == target.Name
+				    && resolved.DeclaringType == target.DeclaringType)
+					return true;
+			}
+			catch (ArgumentException) { }
+		}
+		return false;
 	}
 
 	[UnitTest(

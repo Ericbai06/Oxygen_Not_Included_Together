@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Animation;
@@ -18,8 +17,6 @@ namespace ONI_Together.DebugTools.UnitTests;
 
 public static class Round6CoreSafetyTests
 {
-	private static long _requestTestGeneration;
-
 	[UnitTest(name: "Lifecycle registration rejects non-prefab objects", category: "Sync")]
 	public static UnitTestResult LifecycleRegistrationRequiresPrefabIdentity()
 	{
@@ -40,7 +37,7 @@ public static class Round6CoreSafetyTests
 		var handshake = new GameStateRequestPacket();
 		var control = new SaveFileRequestPacket();
 		var animRepair = new AnimResyncRequestPacket();
-		var positionRepair = new EntityPositionRequestPacket();
+		var repairAck = new WorldRepairAckPacket();
 		var mutation = new HostBroadcastPacket();
 
 		if (!PacketHandler.CanDispatchClientPacket(handshake, protocolVerified: false, ClientReadyState.Unready))
@@ -49,6 +46,9 @@ public static class Round6CoreSafetyTests
 			return UnitTestResult.Fail("Unverified client control packet was accepted");
 		if (!PacketHandler.CanDispatchClientPacket(control, protocolVerified: true, ClientReadyState.Unready))
 			return UnitTestResult.Fail("Verified pre-ready control packet was rejected");
+		if (!PacketHandler.CanDispatchClientPacket(repairAck, protocolVerified: true, ClientReadyState.Loading)
+		    || !PacketHandler.CanSendClientPacket(repairAck, ClientState.AwaitingReadyAck))
+			return UnitTestResult.Fail("Repair ACK cannot cross the reconnect Ready boundary");
 		if (GameClient.CanSendRuntimeRequests(ClientState.LoadingWorld)
 		    || GameClient.CanSendRuntimeRequests(ClientState.Connected)
 		    || GameClient.CanSendRuntimeRequests(ClientState.AwaitingReadyAck)
@@ -65,14 +65,14 @@ public static class Round6CoreSafetyTests
 		    || PacketHandler.CanSendClientPacket(mutation, ClientState.LoadingWorld)
 		    || !PacketHandler.CanSendClientPacket(mutation, ClientState.InGame))
 			return UnitTestResult.Fail("Direct host sender gate did not separate reconnect control from runtime mutation");
-		if (PacketHandler.CanDispatchClientPacket(animRepair, protocolVerified: true, ClientReadyState.Loading)
-		    || PacketHandler.CanDispatchClientPacket(positionRepair, protocolVerified: true, ClientReadyState.Loading))
+		if (PacketHandler.CanDispatchClientPacket(
+			    animRepair, protocolVerified: true, ClientReadyState.Loading))
 			return UnitTestResult.Fail("Host accepted runtime repair before Ready");
-		if (PacketHandler.CanDispatchClientPacket(animRepair, protocolVerified: false, ClientReadyState.Loading)
-		    || PacketHandler.CanDispatchClientPacket(positionRepair, protocolVerified: false, ClientReadyState.Loading))
+		if (PacketHandler.CanDispatchClientPacket(
+			    animRepair, protocolVerified: false, ClientReadyState.Loading))
 			return UnitTestResult.Fail("Unverified client could request loading-state repair");
-		if (!PacketHandler.CanDispatchClientPacket(animRepair, protocolVerified: true, ClientReadyState.Ready)
-		    || !PacketHandler.CanDispatchClientPacket(positionRepair, protocolVerified: true, ClientReadyState.Ready))
+		if (!PacketHandler.CanDispatchClientPacket(
+			    animRepair, protocolVerified: true, ClientReadyState.Ready))
 			return UnitTestResult.Fail("Ready client could not request runtime state repair");
 		if (PacketHandler.CanDispatchClientPacket(mutation, protocolVerified: true, ClientReadyState.Unready))
 			return UnitTestResult.Fail("Unready state mutation was accepted");
@@ -107,7 +107,12 @@ public static class Round6CoreSafetyTests
 	{
 		const ulong senderId = 920;
 		HostBroadcastPacket relay = PacketSender.CreateHostRelayForClient(
-			new EntityPositionRequestPacket(), senderId);
+			new PlayerCursorPacket
+			{
+				PlayerID = senderId,
+				Revision = 1,
+				BuildingPrefabId = string.Empty,
+			}, senderId);
 		if (relay.SenderId != senderId)
 			return UnitTestResult.Fail("Client relay replaced its transport identity");
 
@@ -222,6 +227,22 @@ public static class Round6CoreSafetyTests
 			else
 				MultiplayerSession.ConnectedPlayers[clientId] = previousPlayer;
 		}
+	}
+
+	[UnitTest(name: "Steam server: None is a terminal connection state", category: "Networking")]
+	public static UnitTestResult SteamServerCleansUpEveryTerminalState()
+	{
+		bool terminal = SteamworksServer.ShouldCleanupConnectionState(
+			ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_None)
+			&& SteamworksServer.ShouldCleanupConnectionState(
+				ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer)
+			&& SteamworksServer.ShouldCleanupConnectionState(
+				ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally);
+		bool active = SteamworksServer.ShouldCleanupConnectionState(
+			ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected);
+		return terminal && !active
+			? UnitTestResult.Pass()
+			: UnitTestResult.Fail("Steam terminal connection-state policy is incomplete");
 	}
 
 	[UnitTest(name: "Save transfer: request and fallback are one-shot", category: "Networking")]
@@ -400,56 +421,15 @@ public static class Round6CoreSafetyTests
 		return UnitTestResult.Pass("TCP handshake and writes have absolute bounded lifetimes");
 	}
 
-	[UnitTest(name: "Host broadcast: replay and stale ids are rejected", category: "Networking")]
+#if DEBUG
+	[UnitTest(name: "Host broadcast: completed duplicates are sender-scoped", category: "Networking")]
 	public static UnitTestResult HostBroadcastRejectsReplay()
-	{
-		long generation = Interlocked.Increment(ref _requestTestGeneration);
-		if (!HostBroadcastPacket.TryBeginRequest(10, 100, generation)
-		    || HostBroadcastPacket.TryBeginRequest(10, 100, generation)
-		    || !HostBroadcastPacket.TryBeginRequest(20, 100, generation))
-			return UnitTestResult.Fail("Completed request ids were not scoped to sender");
-		if (!HostBroadcastPacket.TryBeginRequest(10, 101, generation)
-		    || HostBroadcastPacket.TryBeginRequest(10, 1, generation))
-			return UnitTestResult.Fail("Freshness window accepted a stale request");
-
-		return UnitTestResult.Pass("Host-broadcast request ids are sender-scoped and replay-safe");
-	}
+		=> HostBroadcastReorderTests.MustExecuteDrainsOnceInOrder();
 
 	[UnitTest(name: "Host broadcast: cursor loss cannot reject ordered commands", category: "Networking")]
 	public static UnitTestResult CursorLaneIsIndependentFromOrderedCommands()
-	{
-		long generation = Interlocked.Increment(ref _requestTestGeneration);
-		if (!HostBroadcastPacket.TryBeginRequest(
-			    10, 102, generation, HostBroadcastPacket.SequenceLane.CursorSnapshot)
-		    || !HostBroadcastPacket.TryBeginRequest(
-			    10, 101, generation, HostBroadcastPacket.SequenceLane.Ordered)
-		    || HostBroadcastPacket.TryBeginRequest(
-			    10, 101, generation, HostBroadcastPacket.SequenceLane.CursorSnapshot))
-			return UnitTestResult.Fail(
-				"A newer cursor datagram rejected an older reliable command or accepted stale cursor state");
-		return UnitTestResult.Pass(
-			"Cursor snapshots are sequenced independently from ordered command relays");
-	}
-
-	[UnitTest(name: "Chunk packet: completed sequence has tombstone", category: "Networking")]
-	public static UnitTestResult ChunkCompletionHasTombstone()
-	{
-		int sequence = ChunkedPacket.GetNextSequenceId();
-		var context = new DispatchContext(903, false);
-		var chunk = new ChunkedPacket
-		{
-			SequenceId = sequence,
-			ChunkIndex = 0,
-			TotalChunks = 1,
-			ChunkData = new byte[] { 7 }
-		};
-		if (!ChunkedPacket.TryAcceptChunk(chunk, context, out _, out _))
-			return UnitTestResult.Fail("Initial sequence did not complete");
-		if (ChunkedPacket.TryAcceptChunk(chunk, context, out _, out _))
-			return UnitTestResult.Fail("Completed sequence was assembled twice");
-
-		return UnitTestResult.Pass("Completed chunk sequence remains tombstoned");
-	}
+		=> HostBroadcastReorderTests.SessionAndReconnectResetDomainSequences();
+#endif
 
 	[UnitTest(name: "TCP callback: session binding rejects stale completion", category: "Networking")]
 	public static UnitTestResult TcpCallbackIsSessionBound()

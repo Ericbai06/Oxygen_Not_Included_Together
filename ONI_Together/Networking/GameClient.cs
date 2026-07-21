@@ -3,12 +3,14 @@ using ONI_Together.Menus;
 using ONI_Together.Misc;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
+using ONI_Together.Networking.Packets.Core;
 using ONI_Together.Networking.Packets.Handshake;
 using ONI_Together.Networking.Packets.World;
 using Shared.Profiling;
 using ONI_Together.Networking.States;
 using ONI_Together.Networking.Transport.Steamworks;
 using ONI_Together.Patches.ToolPatches;
+using ONI_Together.UI;
 using Shared;
 using Shared.Helpers;
 using Steamworks;
@@ -159,7 +161,11 @@ namespace ONI_Together.Networking
 				if (ShouldTransitionToDisconnected(State))
 					SetState(ClientState.Disconnected);
 			};
-			NetworkConfig.TransportClient.OnClientConnected = () => SetState(ClientState.Connected);
+			NetworkConfig.TransportClient.OnClientConnected = () =>
+			{
+				HostBroadcastPacket.ResetClientRequestSequences();
+				SetState(ClientState.Connected);
+			};
 			NetworkConfig.TransportClient.OnContinueConnectionFlow = () => ContinueConnectionFlow();
 			NetworkConfig.TransportClient.OnReturnToMenu = (reason, message) => CoroutineRunner.RunOne(ShowMessageAndReturnToTitle(reason, message));
 			NetworkConfig.TransportClient.OnRequestStateOrReturn = () =>
@@ -201,6 +207,7 @@ namespace ONI_Together.Networking
 			{
 				EndWorldLoadReconnect();
 				SessionStateReset.Reset();
+				ChatScreen.Show();
 			}
 
             Init();
@@ -260,6 +267,7 @@ namespace ONI_Together.Networking
 					default:
 						break;
 				}
+			WorldUpdatePacket.CheckForegroundReorderTimeout(Time.realtimeSinceStartup);
 			UpdateWorldLoadPhase();
 		}
 
@@ -269,6 +277,11 @@ namespace ONI_Together.Networking
 
 			DebugConsole.Log("Gamestate packet received");
 			MP_Timer.Instance.Abort();
+			if (!packet.ProtocolAccepted)
+			{
+				HandleHostProtocolRejection(packet);
+				return;
+			}
 			if (!TryValidateHostProtocol(packet, out string protocolReason, out string protocolMessage))
 			{
 				DebugConsole.LogWarning($"[GameClient] Host protocol validation failed: {protocolReason} | {protocolMessage}");
@@ -314,6 +327,12 @@ namespace ONI_Together.Networking
 				message = string.IsNullOrEmpty(packet.ProtocolFailureReason)
 					? STRINGS.UI.PROTOCOL.VALIDATION.REJECTED
 					: packet.ProtocolFailureReason;
+				return false;
+			}
+
+			if (!ProtocolCompatibility.SupportsVersion(packet.ProtocolVersion))
+			{
+				message = ProtocolCompatibility.BuildVersionMismatchReason(packet.ProtocolVersion);
 				return false;
 			}
 

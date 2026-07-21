@@ -9,10 +9,10 @@ namespace ONI_Together.Networking.Packets.World
 {
 	public sealed class SoakHashDomainKeyframeBatchPacket : IPacket, IHostOnlyPacket
 	{
-		internal const int MaxOrderedWireBytes =
-			SoakHashDomainKeyframePagePacket.MaxOrderedWireBytes;
+		internal const int MaxReliableWireBytes =
+			SoakHashDomainKeyframePagePacket.MaxReliableWireBytes;
 		internal const int MaxEntriesPerBatch = 128;
-		private const int ReliableFrameFixedBytes = sizeof(int) * 7;
+		private const int ReliableFrameFixedBytes = sizeof(int) * 5;
 		private readonly List<byte[]> _entries = new();
 		private int _reliableFrameBytes = ReliableFrameFixedBytes;
 
@@ -45,11 +45,11 @@ namespace ONI_Together.Networking.Packets.World
 			    || EntryCount >= MaxEntriesPerBatch
 			    || NextEntryIndex >= SoakHashDomainKeyframeBeginPacket.MaxEntries)
 				return false;
-			if (entry.Length > MaxOrderedWireBytes - sizeof(int))
+			if (entry.Length > MaxReliableWireBytes - sizeof(int))
 				return false;
 			int nextFrameBytes = checked(
 				_reliableFrameBytes + sizeof(int) + entry.Length);
-			if (OrderedWireBytesForFrame(nextFrameBytes) > MaxOrderedWireBytes)
+			if (nextFrameBytes > MaxReliableWireBytes)
 				return false;
 			_entries.Add(entry);
 			_reliableFrameBytes = nextFrameBytes;
@@ -83,11 +83,11 @@ namespace ONI_Together.Networking.Packets.World
 			for (int index = 0; index < count; index++)
 			{
 				int length = reader.ReadInt32();
-				if (length <= 0 || length > MaxOrderedWireBytes - sizeof(int))
+				if (length <= 0 || length > MaxReliableWireBytes - sizeof(int))
 					throw new InvalidDataException("Invalid soak keyframe batch entry length");
 				int nextFrameBytes = checked(
 					_reliableFrameBytes + sizeof(int) + length);
-				if (OrderedWireBytesForFrame(nextFrameBytes) > MaxOrderedWireBytes)
+				if (nextFrameBytes > MaxReliableWireBytes)
 					throw new InvalidDataException("Soak keyframe batch exceeds wire bounds");
 				byte[] entry = reader.ReadBytes(length);
 				if (entry.Length != length)
@@ -111,14 +111,16 @@ namespace ONI_Together.Networking.Packets.World
 			SoakKeyframePageReceiver.CommitAck(progress);
 		}
 
-		internal int GetOrderedReliableWireBytes()
+		internal int GetReliableWireBytes()
 		{
 			Validate();
-			return OrderedWireBytesForFrame(_reliableFrameBytes);
+			return _reliableFrameBytes;
 		}
 
-		internal int GetOuterReliablePageCount()
-			=> ReliablePageChannel.PageCount(_reliableFrameBytes);
+		internal int GetRiptideFragmentCount()
+			=> (GetReliableWireBytes()
+			    + SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes - 1)
+			   / SoakHashDomainKeyframePagePacket.RiptideFragmentPayloadBytes;
 
 		internal bool IsValid()
 		{
@@ -148,13 +150,9 @@ namespace ONI_Together.Networking.Packets.World
 				frameBytes = checked(frameBytes + sizeof(int) + entry.Length);
 			}
 			if (frameBytes != _reliableFrameBytes
-			    || OrderedWireBytesForFrame(frameBytes) > MaxOrderedWireBytes)
+			    || frameBytes > MaxReliableWireBytes)
 				throw new InvalidDataException("Soak keyframe batch exceeds wire bounds");
 		}
-
-		private static int OrderedWireBytesForFrame(int frameBytes)
-			=> checked(frameBytes + ReliablePageChannel.PageCount(frameBytes)
-			   * SoakHashDomainKeyframePagePacket.OrderedWireOverheadBytes);
 	}
 }
 #endif

@@ -31,8 +31,8 @@ namespace ONI_Together.Patches.GamePatches
 		public static void OnDeserialized_Postfix(GameClock __instance)
 		{
             // Save loaded
-            _lastSentTime = __instance.GetTime();
-            _lastCycle = __instance.GetCycle();
+			_lastSentTime = __instance.GetTime();
+			_lastCycle = __instance.GetCycle();
         }
 
 		// Prevent clients from running AddTime
@@ -72,7 +72,6 @@ namespace ONI_Together.Patches.GamePatches
 					return;
 
 				float currentTime = __instance.GetTime();
-
 				// 1. Broadcast world time every 1s
 				if (currentTime - _lastSentTime >= 1f)
 				{
@@ -82,6 +81,7 @@ namespace ONI_Together.Patches.GamePatches
 					{
 						Cycle = __instance.GetCycle(),
 						CycleTime = __instance.GetTimeSinceStartOfCycle(),
+						HostSimTick = PresentationTickClock.CurrentTick,
 						Revision = NetworkIdentityRegistry.NextAuthorityRevision()
 					}, PacketSendMode.Unreliable);
 				}

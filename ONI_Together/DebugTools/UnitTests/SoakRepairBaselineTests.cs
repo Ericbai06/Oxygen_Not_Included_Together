@@ -96,6 +96,21 @@ namespace ONI_Together.DebugTools.UnitTests
 				"Pending repairs use an uncounted fixed-step run before segment one tick zero");
 		}
 
+		[UnitTest(name: "Soak repair warmup covers a bounded full journal", category: "Networking")]
+		public static UnitTestResult RepairWarmupCoversFullJournal()
+		{
+			float minimumSeconds = WorldUpdateRepairJournal.DefaultMaxEntries
+			                       * WorldUpdateRepairJournal.DefaultReplayIntervalSeconds * 2f;
+			bool preservesTransportWindow = !SoakStateHashProbe.HasRepairBaselineTimedOut(60f);
+			bool reachesAbsoluteLimit = SoakStateHashProbe.HasRepairBaselineTimedOut(300f);
+			return SoakStateHashProbe.RepairBaselineTimeoutSeconds >= minimumSeconds
+			       && preservesTransportWindow && reachesAbsoluteLimit
+				? UnitTestResult.Pass(
+					"Repair warmup covers two replay intervals for every bounded journal entry")
+				: UnitTestResult.Fail(
+					$"Repair warmup is too short: timeout={SoakStateHashProbe.RepairBaselineTimeoutSeconds}, minimum={minimumSeconds}");
+		}
+
 		private static T RoundTrip<T>(T source) where T : IPacket, new()
 		{
 			using var stream = new MemoryStream();

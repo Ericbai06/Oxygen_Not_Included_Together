@@ -14,11 +14,10 @@ namespace ONI_Together.DebugTools
 		{
 			StartCountedRun();
 			ResetHostKeyframeStream();
-			InvalidateFenceDelivery();
 			SuppressAuthoritativeRepair();
 			ResumeWorldScan();
 			WorldUpdateBatcher.ResumeRepairDispatch();
-			EntityPositionHandler.SetCheckpointFrozen(false);
+			RemoteMotionPresenter.SetCheckpointFrozen(false);
 			ResetHostGridReconcile();
 			_pendingFenceClients.Clear();
 			if (!PopulatePendingClients())
@@ -229,7 +228,7 @@ namespace ONI_Together.DebugTools
 				Abort("full changed-cell checkpoint sweep failed");
 				return;
 			}
-			EntityPositionHandler.SetCheckpointFrozen(true);
+			RemoteMotionPresenter.SetCheckpointFrozen(true);
 			WorldUpdateBatcher.Flush();
 			PacketSender.DispatchPendingBulkPackets();
 			_state = ProbeState.WaitingForNetworkDrain;

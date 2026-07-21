@@ -41,8 +41,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			});
 
 			if (fence is not IHostOnlyPacket || (object)ack is IHostOnlyPacket
-			    || !OrderedReliableChannel.ShouldWrap(
-				    fence, PacketSendMode.ReliableImmediate)
 			    || ack.RepairSequenceCut != 17
 			    || ack.RawObserved.Cycle != 12 || ack.RawObserved.CycleTime != 34.5f
 			    || ack.RawObserved.StorageMembershipRecords != 7

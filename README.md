@@ -1,6 +1,6 @@
 # Oxygen Not Included Together
 
-Oxygen Not Included Together is a synchronized multiplayer mod for Oxygen Not Included. Version 1.0.5 targets game build `U59-740622-S` and uses network protocol version `9`.
+Oxygen Not Included Together is a synchronized multiplayer mod for Oxygen Not Included. Version 1.0.6 targets game build `U59-740622-S` and uses network protocol version `10`.
 
 This repository is a personal development fork of [Lyraedan/Oxygen_Not_Included_Together](https://github.com/Lyraedan/Oxygen_Not_Included_Together). The original repository is no longer maintained. This fork is independent and unofficial.
 
@@ -55,6 +55,14 @@ Debug builds expose three in-game entry points:
 - `Shift+F2` opens the test menu.
 - `Shift+F3` discovers and runs all in-game unit tests.
 - `Shift+F4` runs the Riptide loopback smoke test on `127.0.0.1:27777`.
+
+The protocol 10 test harness defines 22 real two-machine business scenarios covering colony controls, buildings, inventory, presentation, entity lifecycle, DLC systems, rockets, and reconnect. Each scenario requires host submission, client application, blocked client-side original execution, revision ordering, and matching final state hashes.
+
+The v1.0.6 Debug build completed 665 in-game checks on macOS: 641 passed, none failed, and 24 were skipped because their required runtime state was absent. Full protocol 10 two-machine scenario and soak acceptance remains pending for this release candidate.
+
+The July 20 macOS-to-macOS regression now uses identical Debug DLLs with SHA-256 `7dae355a37ddc67d9bd18aa857831da1edb7f1f6fefb5d9077629866c56796a9`. The in-game suite reported `total=600, passed=574, failed=0, notRun=26`. A loaded Cycle 119 world completed all 1,040 baseline parts in about 300.6 seconds and entered `InGame`, crossing the former 240-second client limit while valid progress renewed the host idle lease. The immediately preceding transport-equivalent build also completed an in-place hard sync with 512 retained reliable frames carrying 4,096-byte payloads: the client applied the full baseline and 2,109,440-byte replay before the host committed Ready. A paused production checkpoint reported `mismatch=None`. Queued Tile construction at cell `94290` passed through client `BuildStatePacket`, remote worker activity, host `BuildCompletePacket`, and client finalization without `Constructable.OnSpawn`, `SelectedElementsTags`, or NetId collision errors.
+
+The same final DLL completed the 21-segment agent-driven soak in the loaded Cycle 119 world. It advanced 37,800 simulation ticks, or 630 simulation seconds. All 21 post-keyframe comparisons matched time, grid, entity, world, storage, and cluster-rocket state; all lifecycle counters stayed at zero. The terminal record reported `postMismatchSeen=False`, `keyframeApplyFailureSeen=False`, and `postKeyframeEqual=True`. No queue overflow, snapshot-lease expiry, barrier timeout, soak failure, soak abort, or connection loss occurred after `BASELINE_READY`.
 
 The project targets `netstandard2.1`. One DLL is used on macOS, Windows, and Linux, while the release directory includes the UI asset bundle for each platform.
 

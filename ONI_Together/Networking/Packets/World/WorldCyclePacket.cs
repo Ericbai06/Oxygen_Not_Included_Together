@@ -12,6 +12,7 @@ namespace ONI_Together.Networking.Packets.World
 
 		public int Cycle { get; set; }
 		public float CycleTime { get; set; }
+		public long HostSimTick { get; set; }
 		public ulong Revision { get; set; }
 
 		public void Serialize(BinaryWriter writer)
@@ -22,6 +23,7 @@ namespace ONI_Together.Networking.Packets.World
 				Revision = NetworkIdentityRegistry.NextAuthorityRevision();
 			writer.Write(Cycle);
 			writer.Write(CycleTime);
+			writer.Write(HostSimTick);
 			writer.Write(Revision);
 		}
 
@@ -31,9 +33,10 @@ namespace ONI_Together.Networking.Packets.World
 
 			Cycle = reader.ReadInt32();
 			CycleTime = reader.ReadSingle();
+			HostSimTick = reader.ReadInt64();
 			Revision = reader.ReadUInt64();
 			if (Cycle < 0 || float.IsNaN(CycleTime) || float.IsInfinity(CycleTime)
-			    || CycleTime < 0f || CycleTime >= 600f || Revision == 0)
+			    || CycleTime < 0f || CycleTime >= 600f || HostSimTick < 0 || Revision == 0)
 				throw new InvalidDataException("Invalid world cycle state");
 		}
 
@@ -43,11 +46,11 @@ namespace ONI_Together.Networking.Packets.World
 
 			if (MultiplayerSession.IsHost)
 				return;
-			if (!ShouldApplyRevision(lastAppliedRevision, Revision))
+			if (!AcceptRevision(Revision))
 				return;
-			lastAppliedRevision = Revision;
 
 			float totalTime = Cycle * 600f + CycleTime;
+			PresentationTickClock.ObserveWorldClock(HostSimTick, Revision);
 
 			if (GameClock.Instance != null)
 			{
@@ -69,6 +72,15 @@ namespace ONI_Together.Networking.Packets.World
 
 		internal static bool ShouldApplyRevision(ulong current, ulong incoming)
 			=> NetworkIdentityRegistry.IsNewerRevision(current, incoming);
+
+		internal static bool AcceptRevisionForTests(ulong revision) => AcceptRevision(revision);
+
+		private static bool AcceptRevision(ulong revision)
+		{
+			if (!ShouldApplyRevision(lastAppliedRevision, revision)) return false;
+			lastAppliedRevision = revision;
+			return true;
+		}
 
 		internal static void ClearState() => lastAppliedRevision = 0;
 	}

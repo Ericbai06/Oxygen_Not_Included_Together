@@ -3,6 +3,7 @@ using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace ONI_Together.Networking.Packets.Social
 {
@@ -54,6 +55,11 @@ namespace ONI_Together.Networking.Packets.Social
 			    !TrackCurrentManager())
 				return;
 			PendingClientRequests.Enqueue(packet);
+#if DEBUG
+			IntegrationScenarioEvidenceCore.Log(
+				"schedule", "client-original-blocked", _appliedRevision, false,
+				"request=" + packet.GetType().Name);
+#endif
 			TrySendNextClientRequest();
 		}
 
@@ -129,6 +135,9 @@ namespace ONI_Together.Networking.Packets.Social
 				_appliedRevision = packet.Revision;
 				RefreshScheduleScreen();
 				TryCompleteDeferredAck();
+#if DEBUG
+				LogAppliedScheduleEvidence(packet);
+#endif
 			}
 			finally
 			{
@@ -342,8 +351,40 @@ namespace ONI_Together.Networking.Packets.Social
 				return false;
 			_hostRevision = next;
 			PacketSender.SendToAllClients(snapshot, PacketSendMode.ReliableImmediate);
+#if DEBUG
+			LogScheduleEvidence("host-submit", next, true, snapshot);
+			LogScheduleEvidence("final-state", next, true, snapshot);
+#endif
 			return true;
 		}
+
+#if DEBUG
+		private static string GetScheduleEvidenceState(ScheduleSnapshotPacket packet)
+		{
+			using var stream = new MemoryStream();
+			using var writer = new BinaryWriter(stream);
+			packet.Serialize(writer);
+			writer.Flush();
+			return Convert.ToBase64String(stream.ToArray());
+		}
+
+		private static void LogScheduleEvidence(
+			string phase, long revision, bool applied, ScheduleSnapshotPacket packet)
+			=> IntegrationScenarioEvidenceCore.Log(
+				"schedule", phase, revision, applied, GetScheduleEvidenceState(packet));
+
+		private static void LogAppliedScheduleEvidence(ScheduleSnapshotPacket packet)
+		{
+			LogScheduleEvidence("revision-accepted", packet.Revision, true, packet);
+			LogScheduleEvidence("client-apply", packet.Revision, true, packet);
+			LogScheduleEvidence("final-state", packet.Revision, true, packet);
+			if (!ScheduleSyncProtocol.ShouldApplySnapshot(packet.Revision, packet.Revision))
+				LogScheduleEvidence("revision-duplicate", packet.Revision, false, packet);
+			long older = packet.Revision - 1;
+			if (!ScheduleSyncProtocol.ShouldApplySnapshot(older, packet.Revision))
+				LogScheduleEvidence("revision-out-of-order", older, false, packet);
+		}
+#endif
 
 		private static void SendCurrentSnapshot(ulong playerId)
 		{

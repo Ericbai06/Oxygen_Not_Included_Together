@@ -12,14 +12,10 @@ using Utils = ONI_Together.Misc.Utils;
 
 namespace ONI_Together.UI
 {
-	public class ChatScreen : KScreen
+	public partial class ChatScreen : KScreen
 	{
 		public TMP_InputField inputField;
-		private RectTransform messageContainer;
-		private Dictionary<long, TextMeshProUGUI> messages = new Dictionary<long, TextMeshProUGUI>();
 		private RectTransform panelRectTransform;
-
-		public static ChatScreen Instance;
 
 		private GameObject header;
 		private GameObject chatbox;
@@ -27,49 +23,6 @@ namespace ONI_Together.UI
 		private RectTransform chatWindowRootRT;
 		private bool expanded = false;
 
-		public struct PendingMessage
-		{
-			public long timestamp;
-			public string message;
-		}
-
-		private static List<PendingMessage> pendingMessages = new List<PendingMessage>();
-		private static List<PendingMessage> chatHistory = new List<PendingMessage>();
-
-		public static void Show()
-		{
-			using var _ = Profiler.Scope();
-
-			if (Instance != null)
-				return;
-
-			var go = new GameObject("ChatScreen", typeof(RectTransform));
-			Instance = go.AddComponent<ChatScreen>();
-			var parent = GameScreenManager.Instance.ssOverlayCanvas.transform;
-			go.transform.SetParent(parent, false);
-
-			var rt = go.GetComponent<RectTransform>();
-			rt.anchorMin = new Vector2(0.5f, 0.5f);
-			rt.anchorMax = new Vector2(0.5f, 0.5f);
-			rt.pivot = new Vector2(0.5f, 0.5f);
-			rt.sizeDelta = Vector2.zero;
-			rt.anchoredPosition = new Vector2(0, 0);
-
-			Instance.SetupUI();
-
-			Game.Instance?.Subscribe(MP_HASHES.OnPlayerJoined, _ => SendChatHistoryToClients());
-		}
-
-		private static void SendChatHistoryToClients()
-		{
-			using var _ = Profiler.Scope();
-
-			if (!MultiplayerSession.IsHost || chatHistory.Count == 0)
-				return;
-
-			var packet = new ChatHistorySyncPacket(chatHistory);
-			PacketSender.SendToAllClients(packet);
-		}
         private void SetupUI()
         {
 	        using var _ = Profiler.Scope();
@@ -205,11 +158,6 @@ namespace ONI_Together.UI
             StartCoroutine(FixInputFieldDisplay());
         }
 
-        private void OnDestroy()
-        {
-            SaveChatWindowState();
-        }
-
         private void SaveChatWindowState()
         {
             if (chatWindowRootRT == null) return;
@@ -254,44 +202,6 @@ namespace ONI_Together.UI
             Configuration.Instance.Save();
         }
 
-        public void ProcessMessageQueue()
-		{
-			using var _ = Profiler.Scope();
-
-			foreach (var pending in pendingMessages)
-				QueueMessage(pending);
-			pendingMessages.Clear();
-		}
-
-		public static void QueueMessage(PendingMessage message)
-		{
-			using var _ = Profiler.Scope();
-
-			QueueMessage(message.timestamp, message.message);
-		}
-
-		private static void QueueMessage(long timestamp, string msg)
-		{
-			using var _ = Profiler.Scope();
-
-			if (string.IsNullOrEmpty(msg))
-			{
-				return;
-			}
-
-			if (Instance != null)
-				Instance.AddMessage(timestamp, msg);
-			else
-			{
-				PendingMessage pending = new PendingMessage()
-				{
-					timestamp = timestamp,
-					message = msg
-				};
-				pendingMessages.Add(pending);
-			}
-		}
-
 		private System.Collections.IEnumerator FixInputFieldDisplay()
 		{
 			using var _ = Profiler.Scope();
@@ -301,106 +211,6 @@ namespace ONI_Together.UI
 			inputField.gameObject.SetActive(false);
 			yield return new WaitForEndOfFrame();
 			inputField.gameObject.SetActive(true);
-		}
-
-		public void ClearMessages()
-		{
-			using var _ = Profiler.Scope();
-
-			foreach (var tmp in messages.Values)
-				Destroy(tmp.gameObject);
-			messages.Clear();
-		}
-
-		public void AddMessage(long timestamp, string text)
-		{
-			using var _ = Profiler.Scope();
-
-			DebugConsole.Log($"Adding chat message with timestamp {timestamp} : {text}");
-			// We have a message with this timestamp already. Skip (Handles recieveing multiple of the same chat packet)
-			if (messages.ContainsKey(timestamp))
-				return;
-
-			if (messageContainer == null)
-			{
-				DebugConsole.LogWarning("[Chatbox] Tried to add a message but messageContainer was null!");
-				return;
-			}
-
-            // Create a new message object
-            var go = new GameObject("Message", typeof(RectTransform), typeof(TextMeshProUGUI));
-			go.transform.SetParent(messageContainer, false);
-
-			var rt = go.GetComponent<RectTransform>();
-			rt.anchorMin = new Vector2(0, 1);
-			rt.anchorMax = new Vector2(1, 1);
-			rt.pivot = new Vector2(0, 1);
-			rt.offsetMin = new Vector2(0, 0);
-			rt.offsetMax = new Vector2(0, 0);
-
-			var tmp = go.GetComponent<TextMeshProUGUI>();
-			tmp.text = text;
-			tmp.font = Utils.GetDefaultTMPFont();
-			tmp.fontSize = 18;
-            tmp.textWrappingMode = TextWrappingModes.Normal;
-			tmp.richText = true;
-			tmp.alignment = TextAlignmentOptions.TopLeft;
-			tmp.color = new Color(0.9f, 0.9f, 0.9f, 1f);
-			tmp.margin = new Vector4(6, 2, 6, 2);
-
-			// Fit content height
-			var fitter = go.AddComponent<ContentSizeFitter>();
-			fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-			fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
-
-            messages.Add(timestamp, tmp);
-			if (text != STRINGS.UI.MP_CHATWINDOW.CHAT_INITIALIZED)
-				ChatHistorySyncPacket.AppendBounded(chatHistory,
-					new PendingMessage { timestamp = timestamp, message = text });
-
-			// Manually rebuild layout and force scroll to bottom
-			LayoutRebuilder.ForceRebuildLayoutImmediate(messageContainer);
-			var scrollRect = messageContainer.GetComponentInParent<ScrollRect>();
-			if (scrollRect != null)
-				scrollRect.verticalNormalizedPosition = 0f;
-		}
-		public static bool IsFocused()
-		{
-			using var _ = Profiler.Scope();
-
-			return Instance != null && Instance.inputField != null && Instance.inputField.isFocused;
-		}
-
-		private void Update()
-		{
-			using var _ = Profiler.Scope();
-
-			header.SetActive(MultiplayerSession.InSession);
-			chatbox.SetActive(MultiplayerSession.InSession && expanded);
-			resizeHandles.SetActive(MultiplayerSession.InSession && expanded);
-			if (!MultiplayerSession.InSession)
-			{
-				return;
-			}
-
-			// ENTER while NOT focused: activate input
-			else if (!inputField.isFocused && Input.GetKeyDown(KeyCode.Return))
-			{
-				inputField.ActivateInputField();
-			}
-
-			// ESC while focused: cancel typing
-			else if (inputField.isFocused && Input.GetKeyDown(KeyCode.Escape))
-			{
-				inputField.DeactivateInputField();
-			}
-
-			// Shift+R: reset chat window position and size to defaults
-			if (!inputField.isFocused && Input.GetKeyDown(KeyCode.R) &&
-			    (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)))
-			{
-				ResetChatWindowState();
-			}
 		}
 
 		public GameObject CreatePanel(string name, Transform parent, Vector2 size)
@@ -581,32 +391,17 @@ namespace ONI_Together.UI
 
 			if (!string.IsNullOrWhiteSpace(text))
 			{
-				string senderName = Utils.GetLocalPlayerName();
-
-					PendingMessage message = GeneratePendingMessage(
-						ChatMessagePacket.FormatDisplayMessage(senderName, CursorManager.Instance.color, text));
-                QueueMessage(message);
 				inputField.text = "";
-
 				var packet = new ChatMessagePacket(text);
-				// Host fans out directly; clients use the validated HostBroadcast relay.
-				PacketSender.SendToAllOtherPeers(packet);
+				if (MultiplayerSession.IsHost)
+					packet.PublishHostLocal();
+				else
+					PacketSender.SendToAllOtherPeers(packet);
 			}
 
 			inputField.DeactivateInputField();
 		}
 
-		public static PendingMessage GeneratePendingMessage(string message)
-		{
-			using var _ = Profiler.Scope();
-
-			PendingMessage pendingMessage = new PendingMessage()
-			{
-				timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-				message = message
-			};
-			return pendingMessage;
-        }
         private void CreateResizeHandles(Transform parent, RectTransform target)
 		{
 			using var _ = Profiler.Scope();

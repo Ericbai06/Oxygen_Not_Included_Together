@@ -14,6 +14,7 @@ namespace ONI_Together.Networking.Packets.World
 	{
 		public int Cell;
 		public byte ConduitType;
+		public ulong Revision;
 		public int Element;        // SimHashes (int-backed enum)
 		public float Mass;
 		public float Temperature;
@@ -26,6 +27,7 @@ namespace ONI_Together.Networking.Packets.World
 		internal const int MaxUpdateCount = 50;
 		public const byte CONDUIT_GAS = 0;
 		public const byte CONDUIT_LIQUID = 1;
+		private static readonly Dictionary<(int Cell, byte Type), ulong> clientRevisions = new();
 
 		public List<ConduitCellUpdate> Updates = new List<ConduitCellUpdate>();
 
@@ -36,8 +38,10 @@ namespace ONI_Together.Networking.Packets.World
 			writer.Write(Updates.Count);
 			foreach (var u in Updates)
 			{
+				ValidateUpdate(u);
 				writer.Write(u.Cell);
 				writer.Write(u.ConduitType);
+				writer.Write(u.Revision);
 				writer.Write(u.Element);
 				writer.Write(u.Mass);
 				writer.Write(u.Temperature);
@@ -56,18 +60,41 @@ namespace ONI_Together.Networking.Packets.World
 			Updates = new List<ConduitCellUpdate>(count);
 			for (int i = 0; i < count; i++)
 			{
-				Updates.Add(new ConduitCellUpdate
+				var update = new ConduitCellUpdate
 				{
 					Cell = reader.ReadInt32(),
 					ConduitType = reader.ReadByte(),
+					Revision = reader.ReadUInt64(),
 					Element = reader.ReadInt32(),
 					Mass = reader.ReadSingle(),
 					Temperature = reader.ReadSingle(),
 					DiseaseIdx = reader.ReadByte(),
 					DiseaseCount = reader.ReadInt32(),
-				});
+				};
+				ValidateUpdate(update);
+				Updates.Add(update);
 			}
 		}
+
+		private static void ValidateUpdate(ConduitCellUpdate update)
+		{
+			if (update.Revision == 0)
+				throw new InvalidDataException("Conduit revision must be non-zero");
+			if (update.ConduitType != CONDUIT_GAS && update.ConduitType != CONDUIT_LIQUID)
+				throw new InvalidDataException($"Invalid conduit type: {update.ConduitType}");
+		}
+
+		internal static bool TryAcceptRevision(int cell, byte conduitType, ulong revision)
+		{
+			var key = (cell, conduitType);
+			ulong current = clientRevisions.TryGetValue(key, out ulong value) ? value : 0;
+			if (!NetworkIdentityRegistry.IsNewerRevision(current, revision))
+				return false;
+			clientRevisions[key] = revision;
+			return true;
+		}
+
+		internal static void ResetClientRevisionState() => clientRevisions.Clear();
 
 		public void OnDispatched()
 		{

@@ -174,6 +174,11 @@ namespace ONI_Together.Networking.Transport.Steam
             var state = data.m_info.m_eState;
 
             DebugConsole.Log($"[GameServer] OnConnectionStatusChanged: state={state} from {clientId}");
+			if (ShouldCleanupConnectionState(state))
+			{
+				OnClientClosed(conn, clientId);
+				return;
+			}
 
             switch (state)
             {
@@ -184,13 +189,13 @@ namespace ONI_Together.Networking.Transport.Steam
                 case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_Connected:
                     OnClientConnected(conn, clientId);
                     break;
-
-                case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer:
-                case ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-                    OnClientClosed(conn, clientId);
-                    break;
             }
         }
+
+		internal static bool ShouldCleanupConnectionState(ESteamNetworkingConnectionState state)
+			=> state is ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_None
+				or ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ClosedByPeer
+				or ESteamNetworkingConnectionState.k_ESteamNetworkingConnectionState_ProblemDetectedLocally;
 
         private static void TryAcceptConnection(HSteamNetConnection conn, CSteamID clientId)
         {
@@ -322,5 +327,24 @@ namespace ONI_Together.Networking.Transport.Steam
                 DebugConsole.LogError($"[GameServer] KickClient: Invalid connection type for {clientId}");
             }
         }
+
+		internal static bool TryGetMaxQueueHealth(
+			out long queueUsec, out int unackedReliableBytes)
+		{
+			queueUsec = -1;
+			unackedReliableBytes = -1;
+			bool found = false;
+			foreach (MultiplayerPlayer player in MultiplayerSession.ConnectedPlayers.Values)
+			{
+				if (player.Connection is not HSteamNetConnection connection
+				    || !SteamworksClient.TryQueryConnectionHealth(connection, out var status))
+					continue;
+				queueUsec = Math.Max(queueUsec, (long)status.m_usecQueueTime);
+				unackedReliableBytes = Math.Max(
+					unackedReliableBytes, status.m_cbSentUnackedReliable);
+				found = true;
+			}
+			return found;
+		}
     }
 }

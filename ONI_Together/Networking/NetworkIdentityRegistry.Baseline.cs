@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking.Components;
+using ONI_Together.Networking.Packets.Tools.Build;
 using ONI_Together.Networking.Packets.World;
 using UnityEngine;
 
@@ -30,6 +31,7 @@ namespace ONI_Together.Networking
 
 		internal static void ClearPendingSnapshotDeltas()
 		{
+			BuildCompletePacket.ClearPending();
 			GroundItemPickedUpPacket.ClearPending();
 			StorageItemPacket.ClearPending();
 			SpawnPrefabPacket.ClearPendingBindings();

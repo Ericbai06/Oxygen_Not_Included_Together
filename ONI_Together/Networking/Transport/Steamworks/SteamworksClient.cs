@@ -18,7 +18,7 @@ using static ONI_Together.Menus.NetworkIndicatorsScreen;
 
 namespace ONI_Together.Networking.Transport.Steam
 {
-    public class SteamworksClient : TransportClient
+    public partial class SteamworksClient : TransportClient
     {
         private static Callback<SteamNetConnectionStatusChangedCallback_t> _connectionStatusChangedCallback;
         public static HSteamNetConnection? Connection { get; private set; }
@@ -141,62 +141,6 @@ namespace ONI_Together.Networking.Transport.Steam
 
             SteamNetworkingSockets.RunCallbacks();
             EvaluateConnectionHealth();
-        }
-
-        public override void OnMessageRecieved()
-        {
-            using var _ = Profiler.Scope();
-
-            if (Connection.HasValue)
-                ProcessIncomingMessages(Connection.Value);
-            //else
-            //    DebugConsole.LogWarning($"[GameClient] Poll() - Connection is null! State: {State}");
-        }
-
-        private static void ProcessIncomingMessages(HSteamNetConnection conn)
-        {
-            using var _ = Profiler.Scope();
-
-            var scope = Profiler.Scope();
-            int totalBytes = 0;
-
-            int maxMessagesPerConnectionPoll = Configuration.GetClientProperty<int>("MaxMessagesPerPoll");
-            IntPtr[] messages = new IntPtr[maxMessagesPerConnectionPoll];
-            int msgCount = SteamNetworkingSockets.ReceiveMessagesOnConnection(conn, messages, maxMessagesPerConnectionPoll);
-
-            //if (msgCount > 0)
-            //{
-            //	DebugConsole.Log($"[GameClient] ProcessIncomingMessages() - Received {msgCount} messages");
-            //}
-
-            for (int i = 0; i < msgCount; i++)
-            {
-                var msg = Marshal.PtrToStructure<SteamNetworkingMessage_t>(messages[i]);
-                totalBytes += msg.m_cbSize;
-                byte[] data = new byte[msg.m_cbSize];
-                Marshal.Copy(msg.m_pData, data, 0, msg.m_cbSize);
-
-                try
-                {
-                    //DebugConsole.Log($"[GameClient] Processing packet {i+1}/{msgCount}, size: {msg.m_cbSize} bytes, readyToProcess: {PacketHandler.readyToProcess}");
-                    ulong senderId = msg.m_identityPeer.GetSteamID64();
-					if (!TryCreateHostDispatchContext(msg.m_conn, senderId, out DispatchContext context))
-					{
-						DebugConsole.LogWarning("[GameClient] Rejected message from a stale host connection");
-					}
-					else
-					{
-						PacketHandler.HandleIncoming(data, context);
-					}
-                }
-                catch (Exception ex)
-                {
-                    DebugConsole.LogWarning($"[GameClient] Failed to handle incoming packet: {ex}"); // Prevent crashes from packet handling
-                }
-
-                SteamNetworkingMessage_t.Release(messages[i]);
-            }
-            scope.End(msgCount, totalBytes);
         }
 
         private static void OnConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t data)
@@ -327,26 +271,28 @@ namespace ONI_Together.Networking.Transport.Steam
         {
             using var _ = Profiler.Scope();
 
-            if (Connection.HasValue)
-            {
-                SteamNetConnectionRealTimeStatus_t status = default;
-                SteamNetConnectionRealTimeLaneStatus_t laneStatus = default;
-
-                EResult res = SteamNetworkingSockets.GetConnectionRealTimeStatus(
-                        Connection.Value,
-                        ref status,
-                        0,
-                        ref laneStatus
-                );
-
-                if (res == EResult.k_EResultOK)
-                {
-                    return status;
-                }
-            }
+			if (Connection.HasValue
+			    && TryQueryConnectionHealth(Connection.Value, out var status))
+				return status;
             return null;
         }
 
+		internal static bool TryQueryConnectionHealth(
+			HSteamNetConnection connection, out SteamNetConnectionRealTimeStatus_t status)
+		{
+			status = default;
+			SteamNetConnectionRealTimeLaneStatus_t laneStatus = default;
+			return SteamNetworkingSockets.GetConnectionRealTimeStatus(
+				connection, ref status, 0, ref laneStatus) == EResult.k_EResultOK;
+		}
+		internal static bool TryGetCurrentQueueHealth(
+			out long queueUsec, out int unackedReliableBytes)
+		{
+			SteamNetConnectionRealTimeStatus_t? status = QueryConnectionHealth();
+			queueUsec = status.HasValue ? (long)status.Value.m_usecQueueTime : -1;
+			unackedReliableBytes = status?.m_cbSentUnackedReliable ?? -1;
+			return status.HasValue;
+		}
         public static void EvaluateConnectionHealth()
         {
             using var _ = Profiler.Scope();

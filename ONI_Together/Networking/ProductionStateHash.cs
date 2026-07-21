@@ -178,32 +178,37 @@ namespace ONI_Together.Networking
 		private static void WriteWorldMembership(BinaryWriter writer, NetworkIdentity identity)
 		{
 			Vector3 position = identity.transform.position;
-			EntityPositionHandler handler = identity.GetComponent<EntityPositionHandler>();
-			bool authoritativeClient = MultiplayerSession.IsClient && handler?.serverTimestamp > 0;
-			if (MultiplayerSession.IsClient && handler?.serverTimestamp > 0)
-				position = handler.serverPosition;
+			RemoteMotionPresenter presenter = identity.GetComponent<RemoteMotionPresenter>();
+			bool authoritativeClient = MultiplayerSession.IsClient
+			                           && presenter?.AuthoritativeRevision > 0;
+			if (authoritativeClient)
+				position = presenter.AuthoritativePosition;
 			writer.Write(identity.NetId);
 			writer.Write(identity.gameObject.GetMyWorldId());
 			writer.Write(Grid.PosToCell(position));
 			writer.Write(NormalizeFloatBits(position.x));
 			writer.Write(NormalizeFloatBits(position.y));
 			writer.Write(NormalizeFloatBits(position.z));
-			WriteNavigation(writer, handler, authoritativeClient);
+			WriteNavigation(writer, presenter, authoritativeClient);
 		}
 
 		private static void WriteNavigation(
-			BinaryWriter writer, EntityPositionHandler handler, bool authoritativeClient)
+			BinaryWriter writer, RemoteMotionPresenter presenter, bool authoritativeClient)
 		{
-			writer.Write(handler != null);
-			writer.Write(authoritativeClient ? handler.serverFlipX : handler?.kbac?.FlipX ?? false);
-			writer.Write(authoritativeClient ? handler.serverFlipY : handler?.kbac?.FlipY ?? false);
-			NavType nav = authoritativeClient ? handler.serverNavType : CurrentNavType(handler);
+			writer.Write(presenter != null);
+			writer.Write(authoritativeClient
+				? presenter.AuthoritativeFlipX : presenter?.AnimController?.FlipX ?? false);
+			writer.Write(authoritativeClient
+				? presenter.AuthoritativeFlipY : presenter?.AnimController?.FlipY ?? false);
+			NavType nav = authoritativeClient
+				? presenter.AuthoritativeNavType : CurrentNavType(presenter);
 			writer.Write((byte)nav);
 		}
 
-		private static NavType CurrentNavType(EntityPositionHandler handler)
-			=> handler?.navigator != null && handler.navigator.CurrentNavType != NavType.NumNavTypes
-				? handler.navigator.CurrentNavType : NavType.Floor;
+		private static NavType CurrentNavType(RemoteMotionPresenter presenter)
+			=> presenter?.Navigator != null
+			   && presenter.Navigator.CurrentNavType != NavType.NumNavTypes
+				? presenter.Navigator.CurrentNavType : NavType.Floor;
 
 		private static byte[] HashStorage(NetworkIdentity[] identities)
 		{

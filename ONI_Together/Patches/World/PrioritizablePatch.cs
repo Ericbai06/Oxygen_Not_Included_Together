@@ -3,6 +3,7 @@ using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Tools.Prioritize;
 using ONI_Together.Networking.Packets.World;
+using ONI_Together.DebugTools;
 using Shared.Profiling;
 using UnityEngine;
 
@@ -11,35 +12,19 @@ namespace ONI_Together.Patches.World
 	[HarmonyPatch(typeof(Prioritizable), "SetMasterPriority")]
 	public static class PrioritizablePatch
 	{
-		public static void Postfix(Prioritizable __instance, PrioritySetting priority)
+		public static void Postfix(Prioritizable __instance)
 		{
 			using var _ = Profiler.Scope();
 
-			if (PrioritizeStatePacket.IsApplying || !MultiplayerSession.InSession ||
+			if (PrioritizeStatePacket.IsApplying
+			    || PrioritizeStatePacket.IsHostMutationSuppressed
+			    || !MultiplayerSession.InSession ||
 			    !MultiplayerSession.IsHost)
 				return;
 
-			// Find NetId
-			int netId = 0;
-			// Prioritizable is a component, usually on the same GameObject as NetworkIdentity
-			var identity = __instance.GetComponent<NetworkIdentity>();
+			NetworkIdentity identity = __instance.GetComponent<NetworkIdentity>();
 			if (identity != null)
-			{
-				netId = identity.NetId;
-			}
-
-			if (netId != 0)
-			{
-				var packet = new PrioritizeStatePacket();
-				packet.Priorities.Add(new PrioritizeStatePacket.PriorityData
-				{
-					NetId = netId,
-					PriorityClass = (int)priority.priority_class,
-					PriorityValue = priority.priority_value
-				});
-
-				PacketSender.SendToAllClients(packet);
-			}
+				PrioritizeStatePacket.PublishHostMutation(identity);
 		}
 	}
 
@@ -59,12 +44,18 @@ namespace ONI_Together.Patches.World
 			if (identity == null || identity.NetId == 0 || prioritizable == null || !prioritizable.IsPrioritizable())
 				return false;
 
-			PacketSender.SendToAllOtherPeers(new PrioritizeTargetRequestPacket
+			if (PrioritizeTargetRequestPacket.TryCreateClientRequest(
+				    identity, priority, out PrioritizeTargetRequestPacket request))
 			{
-				NetId = identity.NetId,
-				PriorityClass = (int)priority.priority_class,
-				PriorityValue = priority.priority_value
-			});
+				PacketSender.SendToAllOtherPeers(request);
+#if DEBUG
+				string state = "net=" + request.NetId + "|life=" + request.TargetLifecycleRevision
+				               + "|class=" + request.PriorityClass + "|value=" + request.PriorityValue;
+				IntegrationScenarioEvidenceCore.Log(
+					"priority", "client-original-blocked", (long)request.BasePriorityRevision,
+					false, state);
+#endif
+			}
 			return false;
 		}
 	}

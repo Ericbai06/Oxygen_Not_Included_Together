@@ -19,18 +19,9 @@ namespace ONI_Together.Patches.World
 			if (!MultiplayerSession.IsHost) return;
 			if (__instance?.tech == null) return;
 
-			// Prevent sending completion if we're applying state from a received packet
-			if (ResearchStatePacket.IsApplying) return;
-
-			// Send completion packet to all clients
-			var packet = new ResearchCompletePacket
-			{
-				TechId = __instance.tech.Id
-			};
-
-			PacketSender.SendToAllClients(packet);
+			if (ResearchSyncCoordinator.IsApplyingAuthoritativeState) return;
+			ResearchSyncCoordinator.PublishHostCompletion(__instance.tech.Id);
 			ONI_Together.DebugTools.DebugConsole.Log($"[ResearchCompletePatch] Sent completion for: {__instance.tech.Name}");
 		}
 	}
 }
-

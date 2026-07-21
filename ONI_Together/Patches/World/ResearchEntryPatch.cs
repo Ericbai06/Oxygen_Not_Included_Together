@@ -15,24 +15,17 @@ namespace ONI_Together.Patches.World
 			if (!MultiplayerSession.InSession) return true; // Offline, operate normally
 			if (MultiplayerSession.IsHost) return true; // Host operates normally
 
-			// Client: Send Request
 			var targetTech = __instance.targetTech;
-			if (targetTech != null)
+			if (targetTech != null && ResearchSyncCoordinator.TrySendRequest(targetTech.Id))
 			{
-				var packet = new ResearchRequestPacket
-				{
-					TechId = targetTech.Id
-				};
-				PacketSender.SendToHost(packet);
 				ONI_Together.DebugTools.DebugConsole.Log($"[Client] Requested research: {targetTech.Id}");
+#if DEBUG
+				ONI_Together.DebugTools.IntegrationScenarioEvidenceCore.Log(
+					"research", "client-original-blocked",
+					ResearchSyncCoordinator.AppliedResearchRevision, false,
+					"tech=" + System.Uri.EscapeDataString(targetTech.Id));
+#endif
 			}
-
-			// Suppress local sound/state change until confirmed?
-			// Existing method plays sound and calls Research.Instance.SetActiveResearch.
-			// If we assume latency, we might want to let it run locally if we trust it,
-			// OR suppress and wait for ResearchStatePacket to confirm active research.
-			// Let's suppress to prevent desync (e.g. invalid research).
-
 			return false;
 		}
 	}

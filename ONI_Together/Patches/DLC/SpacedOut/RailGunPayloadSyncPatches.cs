@@ -185,7 +185,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 			GameObject go = identity.gameObject;
 			if (go.PrefabID().GetHashCode() != RailGunPayloadConfig.ID.GetHashCode()) return false;
 			target.Marker = go.AddOrGet<RailGunPayloadSyncMarker>();
-			go.AddOrGet<EntityPositionHandler>();
+			go.AddOrGet<RemoteMotionPresenter>();
 			target.Payload = go.GetSMI<RailGunPayload.StatesInstance>();
 			target.Storage = go.GetComponent<Storage>();
 			return target.Payload != null && target.Storage != null &&
@@ -403,7 +403,7 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 		{
 			if (!MultiplayerSession.InSession || !MultiplayerSession.IsHost || SpacedOutSyncGuard.IsApplying) return;
 			RailGunPayloadSyncMarker marker = __instance.gameObject.AddOrGet<RailGunPayloadSyncMarker>();
-			__instance.gameObject.AddOrGet<EntityPositionHandler>();
+			__instance.gameObject.AddOrGet<RemoteMotionPresenter>();
 			marker.Source = source;
 			marker.Destination = destination;
 			marker.Started = true;

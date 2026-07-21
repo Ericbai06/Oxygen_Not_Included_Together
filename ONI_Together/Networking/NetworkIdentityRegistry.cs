@@ -1,6 +1,7 @@
 ﻿using ONI_Together.DebugTools;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.World;
+using ONI_Together.Networking.Packets.Tools.Build;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -462,6 +463,7 @@ namespace ONI_Together.Networking
 				ReliableSyncBacklog.ClearAll();
 			_lookupFailCount = 0;
 			// TODO Rope into 1
+			BuildCompletePacket.ClearPending();
 			GroundItemPickedUpPacket.ClearPending();
 			StorageItemPacket.ClearPending();
 			SpawnPrefabPacket.ClearState();

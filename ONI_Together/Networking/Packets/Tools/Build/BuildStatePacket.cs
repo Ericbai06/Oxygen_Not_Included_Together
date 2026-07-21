@@ -1,5 +1,8 @@
 using System.Collections.Generic;
 using System.IO;
+#if DEBUG
+using ONI_Together.DebugTools;
+#endif
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using Shared.Interfaces.Networking;
@@ -58,8 +61,16 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 		public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
-			if (ShouldApply(MultiplayerSession.IsHost, PacketHandler.CurrentContext.SenderIsHost))
-				BuildAuthority.TryApply(this);
+			if (!ShouldApply(MultiplayerSession.IsHost, PacketHandler.CurrentContext.SenderIsHost))
+				return;
+			if (!BuildAuthority.TryApply(this))
+				return;
+#if DEBUG
+			IntegrationScenarioEvidenceCore.Log(
+				"building-lifecycle", "client-original-blocked",
+				(long)LifecycleRevision, false,
+				BuildAuthority.EvidenceState(PrefabID, Cell, NetId, LifecycleRevision));
+#endif
 		}
 
 		internal static BuildStatePacket FromRequest(

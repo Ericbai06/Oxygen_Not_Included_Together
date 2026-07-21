@@ -31,7 +31,7 @@ namespace ONI_Together.Patches.Critters
 					if (!AnimSyncEligibility.IsAnimatedCritter(__result))
 						return;
 
-					__result.AddOrGet<EntityPositionHandler>();
+					__result.AddOrGet<RemoteMotionPresenter>();
 					__result.AddOrGet<NetworkIdentity>();
 					__result.GetComponent<SaveLoadRoot>()?.TryDeclareOptionalComponent<NetworkIdentity>();
 					__result.AddOrGet<AnimStateSyncer>();

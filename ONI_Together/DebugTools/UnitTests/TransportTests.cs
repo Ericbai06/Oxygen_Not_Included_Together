@@ -16,9 +16,23 @@ namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class TransportTests
 	{
+		[UnitTest(name: "Steam client receive pump drains a bounded frame budget", category: "Networking")]
+		public static UnitTestResult SteamClientReceivePumpIsBounded()
+		{
+			if (SteamworksClient.ReceiveBudgetForTests(16) != 128
+			    || SteamworksClient.ReceiveBudgetForTests(256) != 256
+			    || !SteamworksClient.ShouldContinueReceiveForTests(16, 16, 16, 128)
+			    || SteamworksClient.ShouldContinueReceiveForTests(15, 16, 15, 128)
+			    || SteamworksClient.ShouldContinueReceiveForTests(16, 16, 128, 128))
+				return UnitTestResult.Fail("Steam receive pump can stop at 16 or exceed its frame budget");
+			return UnitTestResult.Pass("Steam receive pump drains full batches up to 128 messages per frame");
+		}
+
 		private sealed class SequencedPacketSender : TransportPacketSender
 		{
 			private readonly Queue<bool> _results;
+			public readonly List<IPacket> Packets = new();
+			public readonly List<int> ByteCounts = new();
 			public int SendCount { get; private set; }
 
 			public SequencedPacketSender(params bool[] results)
@@ -28,12 +42,36 @@ namespace ONI_Together.DebugTools.UnitTests
 
 			public override bool SendPacket(
 				object conn,
-				IPacket packet,
+				SerializedPacket packet,
 				PacketSendMode sendType = PacketSendMode.ReliableImmediate)
 			{
 				SendCount++;
+				Packets.Add(packet.Packet);
+				ByteCounts.Add(packet.Bytes.Length);
 				return _results.Count == 0 || _results.Dequeue();
 			}
+		}
+
+		private sealed class WireSizePacket : IPacket
+		{
+			internal int BodyBytes;
+			internal int SerializeCalls;
+			public void Serialize(System.IO.BinaryWriter writer)
+			{
+				SerializeCalls++;
+				writer.Write(new byte[BodyBytes]);
+			}
+			public void Deserialize(System.IO.BinaryReader reader) { }
+			public void OnDispatched() { }
+		}
+
+		private sealed class OversizedReplayPacket : IPacket
+		{
+			public void Serialize(System.IO.BinaryWriter writer)
+				=> writer.Write(new byte[DeferredReliableBatchPacket.MaxFrameCost]);
+
+			public void Deserialize(System.IO.BinaryReader reader) { }
+			public void OnDispatched() { }
 		}
 
 		private sealed class RecordingTransportServer : TransportServer
@@ -54,6 +92,64 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
+		[UnitTest(name: "Reliable packets use the native transport directly", category: "Networking")]
+		public static UnitTestResult ReliablePacketsUseNativeTransportDirectly()
+		{
+			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
+			var sender = new SequencedPacketSender(true);
+			object connection = new();
+			try
+			{
+				NetworkConfig.TransportPacketSender = sender;
+				PacketSender.ResetSessionState();
+				var packet = new AllClientsReadyPacket();
+				bool sent = PacketSender.SendToConnection(
+					connection, packet, PacketSendMode.Reliable);
+				return sent && sender.Packets.Count == 1
+				       && ReferenceEquals(sender.Packets[0], packet)
+					? UnitTestResult.Pass("Reliable packet crossed the native transport seam without an envelope")
+					: UnitTestResult.Fail("Reliable packet was queued or wrapped before the native transport seam");
+			}
+			finally
+			{
+				PacketSender.ResetSessionState();
+				NetworkConfig.TransportPacketSender = originalSender;
+			}
+		}
+
+		[UnitTest(name: "Transport seam serializes once and enforces unreliable byte boundary", category: "Networking")]
+		public static UnitTestResult SerializedTransportSeamIsSinglePass()
+		{
+			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
+			var sender = new SequencedPacketSender(true, true);
+			try
+			{
+				PacketRegistry.TryRegister(typeof(WireSizePacket));
+				NetworkConfig.TransportPacketSender = sender;
+				var exact = new WireSizePacket { BodyBytes = 996 };
+				var oversized = new WireSizePacket { BodyBytes = 997 };
+				var reliable = new WireSizePacket { BodyBytes = 2000 };
+				bool exactSent = PacketSender.SendToConnection(
+					new object(), exact, PacketSendMode.Unreliable);
+				bool oversizedSent = PacketSender.SendToConnection(
+					new object(), oversized, PacketSendMode.Unreliable);
+				bool reliableSent = PacketSender.SendToConnection(
+					new object(), reliable, PacketSendMode.Reliable);
+				return exactSent && !oversizedSent && reliableSent
+				       && exact.SerializeCalls == 1 && oversized.SerializeCalls == 1
+				       && reliable.SerializeCalls == 1 && sender.SendCount == 2
+				       && sender.ByteCounts[0] == 1000 && sender.ByteCounts[1] == 2004
+					? UnitTestResult.Pass(
+						"Each logical send serialized once; 1000 B passed and 1001 B unreliable was rejected")
+					: UnitTestResult.Fail(
+						"Transport seam reserialized or applied the unreliable boundary incorrectly");
+			}
+			finally
+			{
+				NetworkConfig.TransportPacketSender = originalSender;
+			}
+		}
+
 		private sealed class RemovingTransportServer : TransportServer
 		{
 			public readonly List<ulong> KickedClientIds = new();
@@ -71,53 +167,11 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		#if DEBUG
-		[UnitTest(name: "Reliable bulk: failed page remains terminal until drop", category: "Networking")]
-		public static UnitTestResult FailedBulkFlushRetainsPayload()
-		{
-			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
-			bool originalQueueSetting = Configuration.Instance.EnablePacketQueue;
-			var sender = new SequencedPacketSender(false, true);
-			object connection = new();
-			int terminations = 0;
-			try
-			{
-				Configuration.Instance.EnablePacketQueue = false;
-				NetworkConfig.TransportPacketSender = sender;
-				PacketSender.OutgoingPageTerminationForTests = candidate =>
-				{
-					if (ReferenceEquals(candidate, connection))
-						terminations++;
-				};
-				PacketSender.ResetSessionState();
-				PacketSender.SendToConnection(connection, new DuplicantCarryItemPacket());
-				PacketSender.DispatchPendingBulkPackets();
-				int retained = PacketSender.PendingBulkCountForTests(connection);
-				PacketSender.DispatchPendingBulkPackets();
-				PacketSender.DropConnection(connection);
-
-				return sender.SendCount == 1 && terminations == 1 && retained == 1
-				       && PacketSender.PendingBulkCountForTests(connection) == 0
-					? UnitTestResult.Pass("Failed page terminated once and retained bulk state until connection drop")
-					: UnitTestResult.Fail(
-						$"Failed bulk state was inconsistent: sends={sender.SendCount}, terminations={terminations}, retained={retained}");
-			}
-			finally
-			{
-				PacketSender.ResetSessionState();
-				PacketSender.OutgoingPageTerminationForTests = null;
-				NetworkConfig.TransportPacketSender = originalSender;
-				Configuration.Instance.EnablePacketQueue = originalQueueSetting;
-			}
-		}
-		#endif
-
 		[UnitTest(name: "Reliable broadcast: failed send disconnects peer", category: "Networking")]
 		public static UnitTestResult FailedReliableBroadcastDisconnectsPeer()
 		{
 			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
 			TransportServer originalServer = NetworkConfig.TransportServer;
-			bool originalQueueSetting = Configuration.Instance.EnablePacketQueue;
 			ulong originalHostId = MultiplayerSession.HostUserID;
 			bool originalIsHost = MultiplayerSession.IsHost;
 			var originalPlayers = new Dictionary<ulong, MultiplayerPlayer>(MultiplayerSession.ConnectedPlayers);
@@ -126,14 +180,14 @@ namespace ONI_Together.DebugTools.UnitTests
 			{
 				PrepareFailedBroadcast(new SequencedPacketSender(false), server);
 				PacketSender.SendToAllClients(new AllClientsReadyPacket(), PacketSendMode.Reliable);
-				return server.KickedClientId == 2
+				return server.KickedClientId == 2 && server.KickCount == 1
 					? UnitTestResult.Pass("Reliable broadcast failure disconnected the desynchronized peer")
 					: UnitTestResult.Fail("Reliable broadcast failure was silently ignored");
 			}
 			finally
 			{
 				RestoreBroadcastState(
-					originalSender, originalServer, originalQueueSetting,
+					originalSender, originalServer,
 					originalHostId, originalIsHost, originalPlayers);
 			}
 		}
@@ -143,7 +197,6 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
 			TransportServer originalServer = NetworkConfig.TransportServer;
-			bool originalQueueSetting = Configuration.Instance.EnablePacketQueue;
 			ulong originalHostId = MultiplayerSession.HostUserID;
 			bool originalIsHost = MultiplayerSession.IsHost;
 			var originalPlayers = new Dictionary<ulong, MultiplayerPlayer>(MultiplayerSession.ConnectedPlayers);
@@ -166,7 +219,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 			finally
 			{
-				RestoreBroadcastState(originalSender, originalServer, originalQueueSetting,
+				RestoreBroadcastState(originalSender, originalServer,
 					originalHostId, originalIsHost, originalPlayers);
 			}
 		}
@@ -176,7 +229,6 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			TransportPacketSender originalSender = NetworkConfig.TransportPacketSender;
 			TransportServer originalServer = NetworkConfig.TransportServer;
-			bool originalQueueSetting = Configuration.Instance.EnablePacketQueue;
 			ulong originalHostId = MultiplayerSession.HostUserID;
 			bool originalIsHost = MultiplayerSession.IsHost;
 			var originalPlayers = new Dictionary<ulong, MultiplayerPlayer>(MultiplayerSession.ConnectedPlayers);
@@ -199,7 +251,8 @@ namespace ONI_Together.DebugTools.UnitTests
 				    || !ReadyManager.TryBeginWorldBaseline(2, generation))
 					return UnitTestResult.Fail("Could not arrange active world baseline");
 
-				var invalid = new DeferredReliablePacket(System.Array.Empty<byte>());
+				PacketRegistry.TryRegister(typeof(OversizedReplayPacket));
+				var invalid = new OversizedReplayPacket();
 				PacketSender.SendToAllClients(invalid, PacketSendMode.Reliable);
 				PacketSender.SendToAllClients(invalid, PacketSendMode.Reliable);
 				if (server.KickCount != 1 || ReadyManager.IsClientInSyncBarrier(2)
@@ -210,7 +263,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			finally
 			{
 				ReadyManager.ResetSessionState();
-				RestoreBroadcastState(originalSender, originalServer, originalQueueSetting,
+				RestoreBroadcastState(originalSender, originalServer,
 					originalHostId, originalIsHost, originalPlayers);
 			}
 		}
@@ -218,9 +271,9 @@ namespace ONI_Together.DebugTools.UnitTests
 		private static void PrepareFailedBroadcast(
 			TransportPacketSender sender, TransportServer server)
 		{
-			Configuration.Instance.EnablePacketQueue = false;
 			NetworkConfig.TransportPacketSender = sender;
 			NetworkConfig.TransportServer = server;
+			PacketSender.ResetSessionState();
 			MultiplayerSession.HostUserID = 1;
 			MultiplayerSession.IsHost = true;
 			MultiplayerSession.ConnectedPlayers.Clear();
@@ -239,7 +292,6 @@ namespace ONI_Together.DebugTools.UnitTests
 		private static void RestoreBroadcastState(
 			TransportPacketSender sender,
 			TransportServer server,
-			bool queueSetting,
 			ulong hostId,
 			bool isHost,
 			Dictionary<ulong, MultiplayerPlayer> players)
@@ -251,7 +303,6 @@ namespace ONI_Together.DebugTools.UnitTests
 			MultiplayerSession.IsHost = isHost;
 			NetworkConfig.TransportPacketSender = sender;
 			NetworkConfig.TransportServer = server;
-			Configuration.Instance.EnablePacketQueue = queueSetting;
 		}
 
 		[UnitTest(name: "Transport server/client types match NetworkConfig", category: "Transport", liveSafe: true)]

@@ -11,6 +11,7 @@ namespace ONI_Together.Networking.Packets.World
 	public class WorldDataRequestPacket : IPacket
 	{
 		private const int ChunkSize = 16;
+		internal const PacketSendMode BaselinePartSendMode = PacketSendMode.ReliableImmediate;
 		private static int _rejectedPackets;
 		private static readonly Dictionary<ulong, ActiveTransfer> ActiveTransfers = new();
 		public ulong SenderId;
@@ -85,6 +86,8 @@ namespace ONI_Together.Networking.Packets.World
 			{
 				return false;
 			}
+			if (!ResearchSyncCoordinator.SendBaselineSnapshot(target))
+				return false;
 
 			DebugConsole.Log($"[WorldDataRequestPacket] Sending world data to {target}");
 			WorldUpdateBatcher.Flush();
@@ -133,9 +136,21 @@ namespace ONI_Together.Networking.Packets.World
 		{
 			if (!ActiveTransfers.TryGetValue(target, out ActiveTransfer transfer)
 			    || transfer.Generation != snapshotGeneration
-			    || !ReadyManager.IsCurrentSnapshot(target, snapshotGeneration)
-			    || !transfer.Window.AcceptProgress(appliedThroughChunk))
+			    || !ReadyManager.IsCurrentSnapshot(target, snapshotGeneration))
 				return false;
+			int previous = transfer.Window.HighestAppliedChunk;
+			if (!transfer.Window.AcceptProgress(appliedThroughChunk))
+			{
+				DebugConsole.LogWarning(
+					$"[WorldDataRequestPacket] Progress mismatch: target={target},"
+					+ $"generation={snapshotGeneration},appliedThrough={appliedThroughChunk},"
+					+ $"highestApplied={previous},highestSent={transfer.Window.HighestSentChunk},"
+					+ $"inFlight={transfer.Window.InFlightChunks},"
+					+ $"window={WorldDataSendWindow.MaxInFlightChunks}.");
+				return false;
+			}
+			if (appliedThroughChunk > previous)
+				ReadyManager.RecordWorldBaselineProgress(target);
 			if (transfer.Window.IsComplete)
 			{
 				ActiveTransfers.Remove(target);
@@ -167,7 +182,7 @@ namespace ONI_Together.Networking.Packets.World
 
 		private static bool TrySendAvailable(ulong target, ActiveTransfer transfer)
 			=> transfer.Window.TrySendAvailable(index => PacketSender.SendToPlayer(
-				target, transfer.Packets[index], PacketSendMode.Reliable));
+				target, transfer.Packets[index], BaselinePartSendMode));
 
 		internal static List<WorldDataPacket> BuildPacketsForTests(
 			long generation,
@@ -197,12 +212,14 @@ namespace ONI_Together.Networking.Packets.World
 				return new List<WorldDataPacket>();
 
 			var packets = new List<WorldDataPacket>(partCount);
+			long hostSimTick = PresentationTickClock.CurrentTick;
 			for (int index = 0; index < partCount; index++)
 			{
 				bool final = index == partCount - 1;
 				packets.Add(new WorldDataPacket
 				{
 					SnapshotGeneration = generation,
+					HostSimTick = hostSimTick,
 					IsFinalChunk = final,
 					ChunkIndex = index,
 					ChunkCount = partCount,

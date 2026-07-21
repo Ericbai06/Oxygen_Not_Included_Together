@@ -26,12 +26,15 @@ namespace ONI_Together.Patches.DLC.SpacedOut
 				_applyDepth--;
 		}
 
-		internal static void Run(System.Action action)
-		{
-			Begin();
-			try
+			internal static void Run(System.Action action)
 			{
-				action();
+				Begin();
+				try
+				{
+#if DEBUG
+					RocketSettingsStatePacket.RecordClientOriginalBlocked();
+#endif
+					action();
 			}
 			finally
 			{

@@ -100,7 +100,7 @@ namespace ONI_Together.Networking.Packets.Architecture
 					: throw new InvalidOperationException($"No packet registered for type {type}");
 		}
 
-        public static int GetPacketId(IPacket packet)
+		public static int GetPacketId(IPacket packet)
         {
 	        using var scope = Profiler.Scope();
 
@@ -112,6 +112,11 @@ namespace ONI_Together.Networking.Packets.Architecture
 
             return id;
         }
+
+		internal static string GetPacketName(int id)
+			=> _PacketTypes.TryGetValue(id, out Type packetType)
+				? packetType.Name
+				: id.ToString();
 
 		public static void RegisterDefaults()
 		{

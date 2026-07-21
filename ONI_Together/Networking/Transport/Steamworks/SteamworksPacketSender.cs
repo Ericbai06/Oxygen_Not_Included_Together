@@ -11,62 +11,60 @@ namespace ONI_Together.Networking.Transport.Steam
 {
     public class SteamworksPacketSender : TransportPacketSender
     {
-        public override bool SendPacket(object conn, IPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
+        public override bool SendPacket(object conn, SerializedPacket packet, PacketSendMode sendType = PacketSendMode.ReliableImmediate)
         {
             using var _ = Profiler.Scope();
 
             if (conn is not HSteamNetConnection connection)
                 return false;
 
-            byte[] bytes = PacketSender.SerializePacketForSending(packet);
-            int steamSendType = ConvertSendType(sendType);
-            if (bytes.Length >= Utils.MaxSteamNetworkingSocketsMessageSizeSend)
-            {
-                if (packet is ChunkedPacket)
-                    return false;
-                return ChunkedPacket.TrySendSerializedChunks(
-                    bytes,
-                    Utils.MaxSteamNetworkingSocketsMessageSizeSend,
-                    chunk => SendRaw(
-                        connection,
-                        PacketSender.SerializePacketForSending(chunk),
-                        chunk,
-                        steamSendType));
-            }
-            return SendRaw(connection, bytes, packet, steamSendType);
+            return SendRaw(connection, packet, sendType);
         }
 
-        private static bool SendRaw(
+        private bool SendRaw(
             HSteamNetConnection connection,
-            byte[] bytes,
-            IPacket packet,
-            int steamSendType)
+			SerializedPacket packet,
+			PacketSendMode sendType)
         {
+			byte[] bytes = packet.Bytes;
+			if (bytes.Length >= Utils.MaxSteamNetworkingSocketsMessageSizeSend)
+				return false;
             IntPtr unmanagedPointer = Marshal.AllocHGlobal(bytes.Length);
             try
             {
                 Marshal.Copy(bytes, 0, unmanagedPointer, bytes.Length);
 
-                EResult result = SteamNetworkingSockets.SendMessageToConnection(
-                    connection,
-                    unmanagedPointer,
-                    (uint)bytes.Length,
-                    steamSendType,
-                    out _);
+				EResult result;
+				try
+				{
+					result = SteamNetworkingSockets.SendMessageToConnection(
+						connection,
+						unmanagedPointer,
+						(uint)bytes.Length,
+						ConvertSendType(sendType),
+						out _);
+				}
+				catch
+				{
+					SyncStats.RecordNativeSend(
+						packet.PacketType, bytes.Length, success: false);
+					throw;
+				}
 
                 bool sent = result == EResult.k_EResultOK;
+			SyncStats.RecordNativeSend(packet.PacketType, bytes.Length, sent);
 
                 if (!sent)
                 {
 					DebugConsole.LogWarning(
-						$"[Sockets] Failed to send {packet.GetType().Name} to " +
+						$"[Sockets] Failed to send {packet.PacketType} to " +
 						$"{connection.m_HSteamNetConnection} ({Utils.FormatBytes(bytes.Length)} | result: {result})");
                 }
                 else
                 {
                     PacketTracker.TrackSent(new PacketTracker.PacketTrackData
                     {
-                        packet = packet,
+						packet = packet.Packet,
                         size = bytes.Length
                     });
                     //DebugConsole.Log($"[Sockets] Sent {packet.Type} to conn {conn} ({Utils.FormatBytes(bytes.Length)})");

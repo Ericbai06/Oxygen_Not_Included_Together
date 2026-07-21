@@ -1,13 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
-using Shared.Profiling;
 using Shared.Interfaces.Networking;
+using Shared.Profiling;
 
 namespace ONI_Together.Networking.Packets.Core
 {
@@ -15,7 +11,6 @@ namespace ONI_Together.Networking.Packets.Core
     {
         public int PacketID;
         public byte[] PacketData;
-        public int SendType; // Reliable, Unreliable
         public ulong SenderId;
         public bool SenderIsHost;
 
@@ -25,7 +20,6 @@ namespace ONI_Together.Networking.Packets.Core
 
 			Validate();
 			writer.Write(PacketID);
-            writer.Write(SendType);
             writer.Write(SenderId);
             writer.Write(SenderIsHost);
             writer.Write(PacketData.Length);
@@ -37,7 +31,6 @@ namespace ONI_Together.Networking.Packets.Core
             using var _ = Profiler.Scope();
 
             PacketID = reader.ReadInt32();
-            SendType = reader.ReadInt32();
             SenderId = reader.ReadUInt64();
             SenderIsHost = reader.ReadBoolean();
             int length = reader.ReadInt32();
@@ -56,19 +49,24 @@ namespace ONI_Together.Networking.Packets.Core
             using var _ = Profiler.Scope();
 
 			Validate();
-			DebugConsole.Log("Recieved a packet from a dedicated server with packet id: " + PacketID);
+			DispatchContext transportContext = PacketHandler.CurrentContext;
+			DispatchContext? relayContext = PacketHandler.TryCreateDedicatedRelayContext(
+				transportContext, SenderId, SenderIsHost);
+			if (!relayContext.HasValue)
+				throw new InvalidDataException("Invalid dedicated relay sender context");
+			DebugConsole.Log("Received a packet from a dedicated server with packet id: " + PacketID);
 			if (!PacketHandler.TryHandleIncoming(
 				    PacketData,
-				    PacketHandler.CurrentContext))
+				    relayContext.Value))
 				throw new InvalidDataException("Dedicated relay payload was rejected");
         }
 
 		private void Validate()
 		{
-			if (PacketData == null || PacketData.Length < sizeof(int)
+			if (SenderId == 0 || PacketData == null || PacketData.Length < sizeof(int)
 			    || PacketData.Length > PacketHandler.MaxPacketSize
 			    || BitConverter.ToInt32(PacketData, 0) != PacketID
-			    || ReliablePageChannel.IsForbiddenDedicatedFrame(PacketData))
+			    || PacketHandler.IsForbiddenDedicatedFrame(PacketData))
 				throw new InvalidDataException("Invalid dedicated relay payload");
 		}
     }

@@ -158,72 +158,6 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("GantryToggle receive handler is registered");
         }
 
-        [UnitTest(name: "Auto chunking: split and reassemble roundtrip", category: "Networking")]
-        public static UnitTestResult AutoChunkingWorks()
-        {
-            const int payloadSize = 2500;
-            const int chunkSize = 900;
-
-            byte[] payload = new byte[payloadSize];
-            var rnd = new Random(42);
-            rnd.NextBytes(payload);
-
-            int totalChunks = (payloadSize + chunkSize - 1) / chunkSize;
-            int sequence = ChunkedPacket.GetNextSequenceId();
-
-            var roundtripped = new List<byte[]>(totalChunks);
-            for (int i = 0; i < totalChunks; i++)
-            {
-                int offset = i * chunkSize;
-                int length = Math.Min(chunkSize, payloadSize - offset);
-                byte[] slice = new byte[length];
-                Array.Copy(payload, offset, slice, 0, length);
-
-                var chunk = new ChunkedPacket
-                {
-                    SequenceId = sequence,
-                    ChunkIndex = i,
-                    TotalChunks = totalChunks,
-                    ChunkData = slice
-                };
-
-                using var ms = new MemoryStream();
-                using (var w = new BinaryWriter(ms, Encoding.UTF8, true))
-                    chunk.Serialize(w);
-                ms.Position = 0;
-                var copy = new ChunkedPacket();
-                using (var r = new BinaryReader(ms, Encoding.UTF8, true))
-                    copy.Deserialize(r);
-
-                if (copy.SequenceId != sequence || copy.ChunkIndex != i || copy.TotalChunks != totalChunks)
-                    return UnitTestResult.Fail($"Chunk {i} header did not roundtrip");
-
-                if (copy.ChunkData.Length != length)
-                    return UnitTestResult.Fail($"Chunk {i} data length mismatch: got {copy.ChunkData.Length}, expected {length}");
-
-                roundtripped.Add(copy.ChunkData);
-            }
-
-            byte[] reassembled = new byte[payloadSize];
-            int writeOffset = 0;
-            foreach (var part in roundtripped)
-            {
-                Array.Copy(part, 0, reassembled, writeOffset, part.Length);
-                writeOffset += part.Length;
-            }
-
-            if (writeOffset != payloadSize)
-                return UnitTestResult.Fail($"Reassembled size {writeOffset} != original {payloadSize}");
-
-            for (int i = 0; i < payloadSize; i++)
-            {
-                if (reassembled[i] != payload[i])
-                    return UnitTestResult.Fail($"Reassembled byte {i} differs from original");
-            }
-
-            return UnitTestResult.Pass($"Chunked {payloadSize} bytes into {totalChunks} chunks and reassembled byte-identical");
-        }
-
         [UnitTest(name: "All expected clients connected", category: "Networking", liveSafe: true)]
         public static UnitTestResult AllClientsConnected()
         {
@@ -368,8 +302,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			bool dispatched = HostBroadcastPacket.DispatchVerifiedRelayAndFanOut(
 				new SpeedChangePacket(SpeedChangePacket.SpeedState.Normal),
 				new DispatchContext(101, false),
-				(_, _) => true,
-				(_, _) => fanoutCount++);
+				new HostBroadcastPacket.RelayDispatchActions(
+					(_, _) => true,
+					(_, _) => fanoutCount++));
 			return dispatched && fanoutCount == 0
 				? UnitTestResult.Pass("Host-ordered command bypasses generic sender-excluding fanout")
 				: UnitTestResult.Fail("Host-ordered command was generically fanned out");

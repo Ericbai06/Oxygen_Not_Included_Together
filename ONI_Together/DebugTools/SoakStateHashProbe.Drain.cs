@@ -19,7 +19,6 @@ namespace ONI_Together.DebugTools
 
 		private void ResumeAuthoritativeRepair()
 		{
-			InvalidateFenceDelivery();
 			if (!_authoritativeRepairSuppressed)
 				return;
 			WorldStateSyncer.SetAuthoritativeRepairSuppressed(false);
@@ -53,16 +52,7 @@ namespace ONI_Together.DebugTools
 			return false;
 		}
 
-		private void InvalidateFenceDelivery()
-		{
-			unchecked { _fenceDeliveryToken++; }
-			_fenceDeliveryCompleted = false;
-		}
-
-		internal static bool IsSpecificFenceDeliveryPending(bool completed)
-			=> !completed;
-
-		private bool SendFenceWithCompletion(IPacket fence, ProbeState waitingState)
+		private bool SendFence(IPacket fence, ProbeState waitingState)
 		{
 			if (_pendingClients.Count != 1
 			    || !MultiplayerSession.ConnectedPlayers.TryGetValue(
@@ -74,40 +64,11 @@ namespace ONI_Together.DebugTools
 			}
 			_state = waitingState;
 			_stateStartedAt = Time.realtimeSinceStartup;
-			_fenceDeliveryCompleted = false;
-			int token = unchecked(++_fenceDeliveryToken);
-			int runId = _runId;
-			int sampleId = _sampleId;
-			bool sent = PacketSender.SendReliableWithCompletion(
-				player.Connection, fence,
-				success => CompleteFenceDelivery(token, runId, sampleId, waitingState, success));
+			bool sent = PacketSender.SendToConnection(
+				player.Connection, fence, PacketSendMode.ReliableImmediate);
 			if (!sent)
-				CompleteFenceDelivery(token, runId, sampleId, waitingState, false);
+				Abort("fence transport send failed");
 			return sent;
-		}
-
-		private void CompleteFenceDelivery(
-			int token, int runId, int sampleId, ProbeState waitingState, bool success)
-		{
-			if (!_running || token != _fenceDeliveryToken || runId != _runId
-			    || sampleId != _sampleId || _state != waitingState)
-				return;
-			_fenceDeliveryCompleted = true;
-			if (!success)
-			{
-				Abort("fence transport delivery failed");
-				return;
-			}
-			_stateStartedAt = Time.realtimeSinceStartup;
-		}
-
-		private bool WaitForSpecificFenceDelivery(float elapsed)
-		{
-			if (!IsSpecificFenceDeliveryPending(_fenceDeliveryCompleted))
-				return false;
-			if (elapsed >= TransportDrainTimeoutSeconds)
-				Abort("fence transport delivery timeout");
-			return true;
 		}
 	}
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Architecture;
@@ -16,21 +17,23 @@ namespace ONI_Together.Networking
 	internal static class ReliableSyncBacklog
 	{
 		private const int MaxEntriesPerClient = DeferredReliableBatchPacket.MaxFrames;
-		private const int MaxBytesPerClient = ReliablePageChannel.MaxQueuedBytes;
-		private const int EmptyBatchCost = sizeof(int) * 4;
+		internal const int MaxBytesPerClient = 16 * 1024 * 1024;
+		private const int EmptyJournalBytes = sizeof(int);
+		private static readonly Dictionary<ulong, ClientBacklog> Clients = new();
+		private static long _nextReplayId;
 
 		private sealed class ClientBacklog
 		{
-			public readonly Queue<byte[]> Packets = new();
-			public int Bytes = EmptyBatchCost;
-			public bool Overflowed;
-			public bool Replaying;
-			public int ReplayCount;
-			public MultiplayerPlayer ReplayPlayer;
-			public System.Action<bool> Completion;
+			internal readonly Queue<byte[]> Packets = new();
+			internal int Bytes = EmptyJournalBytes;
+			internal bool Overflowed;
+			internal bool Replaying;
+			internal long ConnectionGeneration;
+			internal ReadyReplayProof Proof;
+			internal List<byte[][]> ReplayBatches;
+			internal MultiplayerPlayer ReplayPlayer;
+			internal Action<bool> Completion;
 		}
-
-		private static readonly Dictionary<ulong, ClientBacklog> Clients = new();
 
 		internal static void Begin(ulong clientId)
 		{
@@ -43,118 +46,170 @@ namespace ONI_Together.Networking
 			Clients[clientId] = new ClientBacklog();
 		}
 
-		internal static SyncBacklogResult TryBuffer(ulong clientId, IPacket packet, PacketSendMode sendMode)
+		internal static SyncBacklogResult TryBuffer(
+			ulong clientId, IPacket packet, PacketSendMode sendMode)
 		{
 			if (!Clients.TryGetValue(clientId, out ClientBacklog backlog)
 			    || (sendMode & PacketSendMode.Reliable) == 0)
 				return SyncBacklogResult.NotBuffered;
 			if (backlog.Overflowed)
 				return SyncBacklogResult.Terminated;
-
 			try
 			{
 				byte[] payload = PacketSender.SerializePacketForSending(packet);
 				int cost = checked(sizeof(int) + payload.Length);
-				if (packet is DeferredReliablePacket or DeferredReliableBatchPacket
+				if (PacketHandler.IsForbiddenReadyReplayFrame(payload)
 				    || backlog.Packets.Count >= MaxEntriesPerClient
-				    || cost > MaxBytesPerClient - backlog.Bytes)
-				{
-					backlog.Overflowed = true;
-					return SyncBacklogResult.Overflow;
-				}
-
+				    || cost > MaxBytesPerClient - backlog.Bytes
+				    || cost > DeferredReliableBatchPacket.MaxFrameCost)
+					return MarkOverflowed(backlog);
 				backlog.Packets.Enqueue(payload);
 				backlog.Bytes += cost;
 				return SyncBacklogResult.Buffered;
 			}
-			catch (System.Exception ex)
+			catch (Exception ex)
 			{
-				backlog.Overflowed = true;
-				DebugConsole.LogWarning($"[SyncBacklog] Failed to snapshot {packet.GetType().Name}: {ex.Message}");
-				return SyncBacklogResult.Overflow;
+				DebugConsole.LogWarning(
+					$"[SyncBacklog] Failed to snapshot {packet.GetType().Name}: {ex.Message}");
+				return MarkOverflowed(backlog);
 			}
 		}
 
+		internal static bool IsBuffering(ulong clientId)
+			=> Clients.TryGetValue(clientId, out ClientBacklog backlog)
+			   && !backlog.Overflowed;
+
+		private static SyncBacklogResult MarkOverflowed(ClientBacklog backlog)
+		{
+			backlog.Overflowed = true;
+			return SyncBacklogResult.Overflow;
+		}
+
 		internal static void BufferForDisconnectedClients(
-			IPacket packet,
-			PacketSendMode sendMode,
-			System.Func<ulong, bool> isExcluded)
+			IPacket packet, PacketSendMode sendMode, Func<ulong, bool> isExcluded)
 		{
 			foreach (ulong clientId in new List<ulong>(Clients.Keys))
 			{
 				if (MultiplayerSession.ConnectedPlayers.ContainsKey(clientId)
 				    || isExcluded != null && isExcluded(clientId))
 					continue;
-
-					if (TryBuffer(clientId, packet, sendMode) != SyncBacklogResult.Overflow)
-						continue;
-					DebugConsole.LogWarning($"[SyncBacklog] Disconnected client {clientId} exceeded its delta journal");
-					ReadyManager.PrepareFreshSnapshot(clientId);
+				if (TryBuffer(clientId, packet, sendMode) != SyncBacklogResult.Overflow)
+					continue;
+				DebugConsole.LogWarning(
+					$"[SyncBacklog] Disconnected client {clientId} exceeded its delta journal");
+				ReadyManager.PrepareFreshSnapshot(clientId);
 			}
 		}
 
-		internal static bool Replay(MultiplayerPlayer player, System.Action<bool> completion)
+		internal static bool Replay(
+			MultiplayerPlayer player,
+			ReadyReplayProof proof,
+			Action<bool> completion)
 		{
-			if (player == null || player.Connection == null
+			if (player == null || player.Connection == null || proof.ReconnectToken == 0
+			    || proof.SnapshotGeneration <= 0
 			    || !Clients.TryGetValue(player.PlayerId, out ClientBacklog backlog)
 			    || backlog.Overflowed || backlog.Replaying || completion == null)
 				return false;
-
 			backlog.Replaying = true;
 			backlog.ReplayPlayer = player;
+			backlog.ConnectionGeneration = player.ConnectionGeneration;
 			backlog.Completion = completion;
-			return SendNextBatch(player.PlayerId, backlog);
+			backlog.ReplayBatches = CreateBatches(backlog.Packets);
+			proof.ReplayId = NextReplayId();
+			proof.BatchCount = backlog.ReplayBatches.Count;
+			backlog.Proof = proof;
+			DebugConsole.Log(
+				$"[SyncBacklog] Sending {backlog.Packets.Count} frame(s) in " +
+				$"{backlog.Proof.BatchCount} batch(es), {backlog.Bytes - EmptyJournalBytes} B " +
+				$"for {player.PlayerId} replay={backlog.Proof.ReplayId}");
+			return SendReplay(player.PlayerId, backlog);
 		}
 
-		private static bool SendNextBatch(ulong clientId, ClientBacklog backlog)
+		private static bool SendReplay(ulong clientId, ClientBacklog backlog)
 		{
-			if (backlog.Packets.Count == 0)
+			for (int index = 0; index < backlog.ReplayBatches.Count; index++)
 			{
-				Clients.Remove(clientId);
-				System.Action<bool> completed = backlog.Completion;
-				backlog.Completion = null;
-				completed?.Invoke(true);
-				return true;
+				var header = new ReadyReplayBatchHeader
+				{
+					SnapshotGeneration = backlog.Proof.SnapshotGeneration,
+					ReplayId = backlog.Proof.ReplayId,
+					BatchIndex = index,
+					BatchCount = backlog.Proof.BatchCount,
+				};
+				DeferredReliableBatchPacket packet = DeferredReliableBatchPacket.Create(
+					header, backlog.ReplayBatches[index]);
+				if (!PacketSender.SendToConnection(
+					    backlog.ReplayPlayer.Connection, packet, PacketSendMode.Reliable))
+					return FailReplay(clientId, backlog);
 			}
-
-			byte[][] frames = backlog.Packets.ToArray();
-			backlog.ReplayCount = frames.Length;
-			var batch = new DeferredReliableBatchPacket(frames);
-			bool accepted = PacketSender.SendReliableWithCompletion(
-				backlog.ReplayPlayer.Connection,
-				batch,
-				succeeded => CompleteBatch(clientId, backlog, succeeded));
-			if (accepted)
+			ReadyReplayCommitPacket commit = ReadyReplayCommitPacket.Create(backlog.Proof);
+			if (PacketSender.SendToConnection(
+				    backlog.ReplayPlayer.Connection, commit, PacketSendMode.ReliableImmediate))
 				return true;
+			return FailReplay(clientId, backlog);
+		}
+
+		internal static bool AcceptApplied(
+			ulong clientId, long connectionGeneration, ReadyReplayProof proof)
+		{
+			if (!Clients.TryGetValue(clientId, out ClientBacklog backlog)
+			    || !backlog.Replaying || backlog.ReplayPlayer?.Connection == null
+			    || backlog.ConnectionGeneration != connectionGeneration
+			    || backlog.ReplayPlayer.ConnectionGeneration != connectionGeneration
+			    || !proof.Matches(backlog.Proof))
+				return false;
+			ReadyManager.RecordReliableReplayProgress(clientId);
+			Clients.Remove(clientId);
+			DebugConsole.Log(
+				$"[SyncBacklog] Replay applied for {clientId} replay={backlog.Proof.ReplayId}");
+			Action<bool> completion = backlog.Completion;
+			backlog.Completion = null;
+			completion?.Invoke(true);
+			return true;
+		}
+
+		private static bool FailReplay(ulong clientId, ClientBacklog backlog)
+		{
+			if (!Clients.TryGetValue(clientId, out ClientBacklog current)
+			    || !ReferenceEquals(current, backlog))
+				return false;
 			backlog.Replaying = false;
-			System.Action<bool> completion = backlog.Completion;
+			Action<bool> completion = backlog.Completion;
 			backlog.Completion = null;
 			completion?.Invoke(false);
 			return false;
 		}
 
-		private static void CompleteBatch(
-			ulong clientId, ClientBacklog backlog, bool succeeded)
+		private static List<byte[][]> CreateBatches(IEnumerable<byte[]> packets)
 		{
-			if (!Clients.TryGetValue(clientId, out ClientBacklog current)
-			    || !ReferenceEquals(current, backlog))
-				return;
-			if (!succeeded)
+			var batches = new List<byte[][]>();
+			var current = new List<byte[]>();
+			int wireBytes = DeferredReliableBatchPacket.FixedWireBytes;
+			foreach (byte[] packet in packets)
 			{
-				backlog.Replaying = false;
-				System.Action<bool> failed = backlog.Completion;
-				backlog.Completion = null;
-				failed?.Invoke(false);
-				return;
+				int cost = sizeof(int) + packet.Length;
+				if (wireBytes + cost > DeferredReliableBatchPacket.MaxWireBytes)
+				{
+					batches.Add(current.ToArray());
+					current.Clear();
+					wireBytes = DeferredReliableBatchPacket.FixedWireBytes;
+				}
+				current.Add(packet);
+				wireBytes += cost;
 			}
+			if (current.Count > 0)
+				batches.Add(current.ToArray());
+			return batches;
+		}
 
-			for (int index = 0; index < backlog.ReplayCount; index++)
-			{
-				byte[] frame = backlog.Packets.Dequeue();
-				backlog.Bytes -= sizeof(int) + frame.Length;
-			}
-			backlog.ReplayCount = 0;
-			SendNextBatch(clientId, backlog);
+		private static ulong NextReplayId()
+		{
+			long replayId = System.Threading.Interlocked.Increment(ref _nextReplayId);
+			if (replayId > 0)
+				return (ulong)replayId;
+			System.Threading.Interlocked.Exchange(ref _nextReplayId, 1);
+			return 1UL;
 		}
 
 		internal static bool Transfer(ulong oldClientId, ulong newClientId)
@@ -163,7 +218,6 @@ namespace ONI_Together.Networking
 				return false;
 			if (oldClientId == newClientId)
 				return true;
-
 			ClientBacklog backlog = Clients[oldClientId];
 			Clients.Remove(oldClientId);
 			Clients.Add(newClientId, backlog);
@@ -172,11 +226,10 @@ namespace ONI_Together.Networking
 
 		internal static bool CanTransfer(ulong oldClientId, ulong newClientId)
 			=> Clients.TryGetValue(oldClientId, out ClientBacklog backlog)
-			   && !backlog.Overflowed
-			   && !backlog.Replaying
+			   && !backlog.Overflowed && !backlog.Replaying
 			   && (oldClientId == newClientId || !Clients.ContainsKey(newClientId));
 
-		internal static void Prune(System.Func<ulong, bool> keep)
+		internal static void Prune(Func<ulong, bool> keep)
 		{
 			foreach (ulong clientId in new List<ulong>(Clients.Keys))
 			{
@@ -208,12 +261,22 @@ namespace ONI_Together.Networking
 		internal static void ClearAll()
 		{
 			Clients.Clear();
+			System.Threading.Interlocked.Exchange(ref _nextReplayId, 0);
 			ReadyManager.CancelAllPendingReadyCommits();
 		}
+
 		internal static int CountForTests(ulong clientId)
-			=> Clients.TryGetValue(clientId, out ClientBacklog backlog) ? backlog.Packets.Count : 0;
+			=> Clients.TryGetValue(clientId, out ClientBacklog backlog)
+				? backlog.Packets.Count : 0;
+
+		internal static bool IsCollecting(ulong clientId)
+			=> Clients.TryGetValue(clientId, out ClientBacklog backlog)
+			   && !backlog.Overflowed && !backlog.Replaying;
+
+		internal static bool IsReplaying(ulong clientId)
+			=> Clients.TryGetValue(clientId, out ClientBacklog backlog) && backlog.Replaying;
 
 		internal static bool IsReplayingForTests(ulong clientId)
-			=> Clients.TryGetValue(clientId, out ClientBacklog backlog) && backlog.Replaying;
+			=> IsReplaying(clientId);
 	}
 }

@@ -61,39 +61,41 @@ namespace ONI_Together.Networking.Packets.Core
 				DebugConsole.LogWarning($"[ClientReadyStatusPacket] Rejected invalid ready state {(int)Status}");
 				return;
 			}
-
 			if (!MultiplayerSession.IsHost)
+				DispatchClient();
+			else
+				DispatchHost();
+		}
+
+		private void DispatchClient()
+		{
+			if (string.IsNullOrEmpty(PlayerName))
+				return;
+			MultiplayerSession.KnownPlayerNames[SenderId] = PlayerName;
+			if (SenderId == MultiplayerSession.HostUserID)
 			{
-				if (string.IsNullOrEmpty(PlayerName))
-					return;
-
-				MultiplayerSession.KnownPlayerNames[SenderId] = PlayerName;
-
-				if (SenderId == MultiplayerSession.HostUserID)
-				{
-					var host = MultiplayerSession.GetPlayer(SenderId);
-					if (host != null)
-					{
-						host.PlayerName = PlayerName;
-					}
-				}
+				var host = MultiplayerSession.GetPlayer(SenderId);
+				if (host != null)
+					host.PlayerName = PlayerName;
+			}
+			else
+			{
+				var client = NetworkConfig.TransportClient as RiptideClient;
+				bool isLoading = client != null && SenderId == MultiplayerSession.LocalUserID
+				                 && client.IsLoadingReconnect;
+				if (isLoading)
+					client.IsLoadingReconnect = false;
 				else
 				{
-					var client = NetworkConfig.TransportClient as RiptideClient;
-					bool isLoading = client != null && SenderId == MultiplayerSession.LocalUserID && client.IsLoadingReconnect;
-					if (isLoading)
-					{
-						client.IsLoadingReconnect = false;
-					}
-					else
-					{
-						var pending = ChatScreen.GeneratePendingMessage(
-							string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, PlayerName));
-						ChatScreen.QueueMessage(pending);
-					}
+					var pending = ChatScreen.GeneratePendingMessage(
+						string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, PlayerName));
+					ChatScreen.QueueMessage(pending);
 				}
-				return;
 			}
+		}
+
+		private void DispatchHost()
+		{
 			if (!SyncBarrier.SenderMatches(SenderId, PacketHandler.CurrentContext.SenderId))
 			{
 				DebugConsole.LogWarning($"[ClientReadyStatusPacket] Rejected spoofed sender {SenderId} from {PacketHandler.CurrentContext.SenderId}");
@@ -108,50 +110,69 @@ namespace ONI_Together.Networking.Packets.Core
 				DebugConsole.LogError("Tried to update ready state for a null player", false);
 				return;
 			}
-
+			bool duplicatePendingReady = SyncBarrier.IsExactReady(Status)
+			                             && ReadyManager.IsPendingReadyCommit(
+				                             player,
+				                             ReconnectToken,
+				                             SnapshotGeneration);
 			if (Status == ClientReadyState.Aborted)
 			{
-				if (!ReadyManager.TryAbortClientWorldLoad(
-					    SenderId, ReconnectToken, SnapshotGeneration))
-				{
-					DebugConsole.LogWarning(
-						$"[ClientReadyStatusPacket] Rejected invalid abort proof from {SenderId}");
-					return;
-				}
-				DebugConsole.LogWarning(
-					$"[ClientReadyStatusPacket] Client {SenderId} aborted world loading");
-				NetworkConfig.TransportServer?.KickClient(SenderId);
-				ReadyManager.RefreshScreen();
-				ReadyManager.RefreshReadyState();
+				DispatchAbort();
 				return;
 			}
-
 			if (Status == ClientReadyState.Loading)
 			{
-				if (!ReadyManager.SetPlayerReadyState(
-					    player, Status, ReconnectToken, SnapshotGeneration))
-				{
-					DebugConsole.LogWarning($"[ClientReadyStatusPacket] Rejected loading proof from {SenderId}");
-					return;
-				}
-				var server = NetworkConfig.TransportServer as RiptideServer;
-				server?.MarkClientLoading(SenderId, ReconnectToken);
-				if (!PacketSender.SendToPlayer(SenderId, new LoadingAcceptedPacket
-				{
-					ReconnectToken = ReconnectToken,
-					SnapshotGeneration = SnapshotGeneration
-				}, PacketSendMode.ReliableImmediate))
-				{
-					DebugConsole.LogWarning($"[ClientReadyStatusPacket] Failed to acknowledge loading for {SenderId}");
-					ReadyManager.AbortSyncBarrier(SenderId);
-					NetworkConfig.TransportServer?.KickClient(SenderId);
-					return;
-				}
-				ReadyManager.RefreshScreen();
-				ReadyManager.RefreshReadyState();
+				DispatchLoading(player);
 				return;
 			}
+			DispatchReady(player, duplicatePendingReady);
+		}
 
+		private void DispatchAbort()
+		{
+			bool replayWasActive = ReliableSyncBacklog.IsReplaying(SenderId);
+			if (!ReadyManager.TryAbortClientWorldLoad(
+				    SenderId, ReconnectToken, SnapshotGeneration))
+			{
+				DebugConsole.LogWarning(
+					$"[ClientReadyStatusPacket] Rejected invalid abort proof from {SenderId}");
+				return;
+			}
+			DebugConsole.LogWarning(
+				$"[ClientReadyStatusPacket] Client {SenderId} aborted world loading");
+			if (!replayWasActive)
+				NetworkConfig.TransportServer?.KickClient(SenderId);
+			ReadyManager.RefreshScreen();
+			ReadyManager.RefreshReadyState();
+		}
+
+		private void DispatchLoading(MultiplayerPlayer player)
+		{
+			if (!ReadyManager.SetPlayerReadyState(
+				    player, Status, ReconnectToken, SnapshotGeneration))
+			{
+				DebugConsole.LogWarning($"[ClientReadyStatusPacket] Rejected loading proof from {SenderId}");
+				return;
+			}
+			var server = NetworkConfig.TransportServer as RiptideServer;
+			server?.MarkClientLoading(SenderId, ReconnectToken);
+			if (!PacketSender.SendToPlayer(SenderId, new LoadingAcceptedPacket
+			{
+				ReconnectToken = ReconnectToken,
+				SnapshotGeneration = SnapshotGeneration
+			}, PacketSendMode.ReliableImmediate))
+			{
+				DebugConsole.LogWarning($"[ClientReadyStatusPacket] Failed to acknowledge loading for {SenderId}");
+				ReadyManager.AbortSyncBarrier(SenderId);
+				NetworkConfig.TransportServer?.KickClient(SenderId);
+				return;
+			}
+			ReadyManager.RefreshScreen();
+			ReadyManager.RefreshReadyState();
+		}
+
+		private void DispatchReady(MultiplayerPlayer player, bool duplicatePendingReady)
+		{
 			if (!ReadyManager.SetPlayerReadyState(
 				    player, Status, ReconnectToken, SnapshotGeneration))
 			{
@@ -161,41 +182,38 @@ namespace ONI_Together.Networking.Packets.Core
 
 			bool nameChanged = !string.IsNullOrEmpty(PlayerName) && player.PlayerName != PlayerName;
 			if (nameChanged)
-			{
 				player.PlayerName = PlayerName;
-			}
-
 			DebugConsole.Log($"[ClientReadyStatusPacket] {SenderId} marked as {Status}");
-
 			if (NetworkConfig.IsLanConfig() && nameChanged)
-			{
-				var server = NetworkConfig.TransportServer as RiptideServer;
-				bool isLoadingReconnect = server != null && server.ConsumeReconnectFromLoad(SenderId);
-
-				if (!isLoadingReconnect)
-				{
-					var pending = ChatScreen.GeneratePendingMessage(
-						string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, player.PlayerName));
-					ChatScreen.QueueMessage(pending);
-				}
-
-				PacketSender.SendToAllClients(new ClientReadyStatusPacket
-				{
-					SenderId = MultiplayerSession.HostUserID,
-					PlayerName = Utils.GetLocalPlayerName()
-				});
-
-				PacketSender.SendToAllClients(new ClientReadyStatusPacket
-				{
-					SenderId = SenderId,
-					PlayerName = player.PlayerName
-				});
-			}
-
+				BroadcastLanName(player);
 			ReadyManager.RefreshScreen();
+			if (duplicatePendingReady)
+				return;
 			bool allReady = ReadyManager.IsEveryoneReady();
             DebugConsole.Log($"[ClientReadyStatusPacket] Is everyone ready? {allReady}");
 			ReadyManager.RefreshReadyState();
+		}
+
+		private void BroadcastLanName(MultiplayerPlayer player)
+		{
+			var server = NetworkConfig.TransportServer as RiptideServer;
+			bool isLoadingReconnect = server != null && server.ConsumeReconnectFromLoad(SenderId);
+			if (!isLoadingReconnect)
+			{
+				var pending = ChatScreen.GeneratePendingMessage(
+					string.Format(STRINGS.UI.MP_CHATWINDOW.CHAT_CLIENT_JOINED, player.PlayerName));
+				ChatScreen.QueueMessage(pending);
+			}
+			PacketSender.SendToAllClients(new ClientReadyStatusPacket
+			{
+				SenderId = MultiplayerSession.HostUserID,
+				PlayerName = Utils.GetLocalPlayerName()
+			});
+			PacketSender.SendToAllClients(new ClientReadyStatusPacket
+			{
+				SenderId = SenderId,
+				PlayerName = player.PlayerName
+			});
 		}
 	}
 }

@@ -3,7 +3,7 @@
 	<!-- General Package Properties -->
 	<PropertyGroup>
 		<PackageId>ItsLukesMultiplayerMod</PackageId>
-		<Version>1.0.5</Version>
+		<Version>1.0.6</Version>
 		<Authors>ItsLuke,Sgt_Lmalas</Authors>
 		<Copyright>$(AssemblyCopyright)</Copyright>
 	</PropertyGroup>
@@ -68,6 +68,10 @@
 
 	<ItemGroup>
 		<PackageReference Include="PLib" Version="4.22.0" />
+	</ItemGroup>
+
+	<ItemGroup Condition="'$(Configuration)' != 'Debug'">
+		<Compile Remove="DebugTools/UnitTests/**/*.cs" />
 	</ItemGroup>
 
 </Project>

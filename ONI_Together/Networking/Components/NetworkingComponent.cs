@@ -2,6 +2,7 @@
 using ONI_Together.Misc;
 using ONI_Together.Networking.States;
 using ONI_Together.Networking.Transport.Steamworks;
+using ONI_Together.Patches.Duplicant;
 using Shared.Profiling;
 using Steamworks;
 using UnityEngine;
@@ -11,6 +12,7 @@ namespace ONI_Together.Networking.Components
 	public class NetworkingComponent : MonoBehaviour
 	{
 		public static UnityTaskScheduler scheduler = new UnityTaskScheduler();
+		private static long _lastPresentationFlushTick;
 
 		/*
 		 * TODO:
@@ -55,8 +57,30 @@ namespace ONI_Together.Networking.Components
 				// Check for inactive transfers and request missing chunks
 				ONI_Together.Misc.World.SaveChunkAssembler.CheckInactiveTransfers();
 			}
-            NetworkConfig.TransportPacketSender.Flush();
+			EffectsPatch.FlushDirtyEffects();
+			if (ShouldFlushPresentation(PresentationTickClock.CurrentTick))
+			{
+				DuplicantStateSender.FlushPending();
+				RemoteMotionPresenter.FlushPending();
+			}
+			PacketSender.DispatchPendingBulkPackets();
         }
+
+		internal static void ResetPresentationFlushGate()
+			=> _lastPresentationFlushTick = PresentationTickClock.CurrentTick;
+
+		internal static void ResetPresentationFlushGateForTests(long tick)
+			=> _lastPresentationFlushTick = tick;
+
+		internal static bool ShouldFlushPresentationForTests(long tick)
+			=> ShouldFlushPresentation(tick);
+
+		private static bool ShouldFlushPresentation(long tick)
+		{
+			if (tick <= _lastPresentationFlushTick) return false;
+			_lastPresentationFlushTick = tick;
+			return true;
+		}
 
         private void OnApplicationQuit()
 		{

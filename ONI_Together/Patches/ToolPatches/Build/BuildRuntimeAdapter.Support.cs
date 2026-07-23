@@ -5,6 +5,7 @@ using System.Reflection;
 #if DEBUG
 using ONI_Together.DebugTools;
 #endif
+using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.Tools.Build;
 using UnityEngine;
 
@@ -35,7 +36,7 @@ namespace ONI_Together.Patches.ToolPatches.Build
 			FaultInjectionUnitySeams.EnsureExpectedRuntimeTarget(fault, candidate);
 #endif
 			if (deferredDestroy)
-				Object.Destroy(candidate);
+				UnityEngine.Object.Destroy(candidate);
 #if DEBUG
 			FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: candidate);
 #endif

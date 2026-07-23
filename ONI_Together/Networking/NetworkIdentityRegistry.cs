@@ -468,7 +468,6 @@ namespace ONI_Together.Networking
 				ReliableSyncBacklog.ClearAll();
 			_lookupFailCount = 0;
 			// TODO Rope into 1
-			BuildCompletePacket.ClearPending();
 			GroundItemPickedUpPacket.ClearPending();
 			StorageItemPacket.ClearPending();
 			SpawnPrefabPacket.ClearState();

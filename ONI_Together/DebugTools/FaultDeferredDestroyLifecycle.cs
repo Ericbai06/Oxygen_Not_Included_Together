@@ -16,7 +16,7 @@ namespace ONI_Together.DebugTools
 				NetworkIdentityRegistry.Unregister(replacement, replacement.NetId);
 			NetworkIdentityRegistry.RestoreLifecycleRevisionState(
 				context.DeferredOriginalNetId, context.DeferredLifecycleState);
-			return BuildAuthority.TryApplyIdentity(
+			return NetworkIdentityRegistry.TryBindAuthoritativeLifecycle(
 				context.DeferredReplacement, context.DeferredOriginalNetId,
 				context.DeferredOriginalLifecycle);
 		}

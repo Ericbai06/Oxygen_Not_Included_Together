@@ -4,6 +4,7 @@ using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.Core;
 using ONI_Together.Networking.Packets.Tools.Build;
+using ONI_Together.Patches.ToolPatches.Build;
 
 namespace ONI_Together.DebugTools
 {
@@ -24,7 +25,7 @@ namespace ONI_Together.DebugTools
 				return false;
 			string[] parts = command.Split(':');
 			if (parts.Length != 4 || !IsAutomationIdentifier(parts[1])
-			    || !int.TryParse(parts[2], out cell) || !BuildAuthority.IsWireCell(cell)
+			    || !int.TryParse(parts[2], out cell) || !BuildRequestValidator.IsWireCell(cell)
 			    || !IsAutomationIdentifier(parts[3]))
 				return false;
 			prefabId = parts[1];
@@ -61,41 +62,36 @@ namespace ONI_Together.DebugTools
 				return DebugCommandOutcome.Fail(command, "active-host-and-valid-cell-required");
 			if (!IsIntegrationMutationWindowOpen())
 				return DebugCommandOutcome.Fail(command, "sync-checkpoint-active");
-			if (BuildAuthority.GetHostInstantBuildPolicy())
+			if (HostBuildPolicyProvider.Current.InstantBuild)
 				return DebugCommandOutcome.Fail(command, "non-instant-host-required");
-			BuildingDef def = Assets.GetBuildingDef(prefabId);
-			if (def == null)
-				return DebugCommandOutcome.Fail(command, "unknown-prefab");
-			var request = new BuildPacket(
-				def, cell, Orientation.Neutral, new[] { TagManager.Create(materialTag) },
-				new PrioritySetting(PriorityScreen.PriorityClass.basic, 5),
-				BuildAuthority.DefaultFacade);
-			BuildStatePacket publishedState = null;
-			bool placed = BuildAuthority.TryExecuteHost(
-				request, instantBuild: false,
-				state =>
-				{
-					PacketSender.SendToAllClients(state);
-					publishedState = state;
-				}, out string error);
-			if (!placed || publishedState == null)
-				return DebugCommandOutcome.Fail(
-					command, placed ? "state-publish-failed" : error);
+			var request = new BuildRequest(
+				BuildToolPatch.NextOperationId(), prefabId,
+				new SinglePlacementGeometry(cell, Orientation.Neutral),
+				new[] { materialTag }, BuildRequestValidator.DefaultFacade, 0, 5,
+				(int)global::ObjectLayer.Building);
+			AuthoritativeBuildExecutor.SetSessionEpoch(request.OperationId.SessionEpoch);
+			if (!AuthoritativeBuildExecutor.Execute(request, new HostBuildPolicy(false),
+				out BuildCommit publishedCommit, out BuildRejected rejection))
+				return DebugCommandOutcome.Fail(command, rejection?.Message ?? "build-rejected");
+			BuildPublisher.Publish(publishedCommit);
+			PlacementOutcome publishedState = publishedCommit.Placements.FirstOrDefault();
+			if (publishedState == null)
+				return DebugCommandOutcome.Fail(command, "commit-empty");
 			IntegrationScenarioEvidenceCore.Log(
 				TypedEvidenceRuntimeContext.Create(
 					scenario: "building-lifecycle", phase: "host-submit",
-					revision: (long)publishedState.LifecycleRevision,
+						revision: (long)publishedCommit.Revision.Value,
 					target: new BuildingLifecycleTarget
 					{
-						Prefab = publishedState.PrefabID,
+						Prefab = prefabId,
 						Cell = publishedState.Cell,
 						NetId = publishedState.NetId,
 					},
 					state: new BuildingLifecycleState
 					{
-						LifecycleRevision = (long)publishedState.LifecycleRevision,
-						Queued = !publishedState.InstantBuild,
-						Completed = publishedState.InstantBuild,
+						LifecycleRevision = (long)publishedCommit.Revision.Value,
+						Queued = true,
+						Completed = false,
 					},
 					entryId: "sync:c898f1c14a6f951b3ef66100"));
 			return DebugCommandOutcome.Ok(

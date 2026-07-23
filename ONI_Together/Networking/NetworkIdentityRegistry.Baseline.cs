@@ -31,7 +31,6 @@ namespace ONI_Together.Networking
 
 		internal static void ClearPendingSnapshotDeltas()
 		{
-			BuildCompletePacket.ClearPending();
 			GroundItemPickedUpPacket.ClearPending();
 			StorageItemPacket.ClearPending();
 			SpawnPrefabPacket.ClearPendingBindings();

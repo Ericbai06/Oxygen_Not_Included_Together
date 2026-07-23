@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
@@ -10,29 +11,26 @@ namespace ONI_Together.Patches.ToolPatches.Build
 	[HarmonyPatch(typeof(BaseUtilityBuildTool), nameof(BaseUtilityBuildTool.BuildPath))]
 	public static class UtilityBuildToolPatch
 	{
-		static bool Prefix(BaseUtilityBuildTool __instance, out UtilityBuildCapture __state)
+		static bool Prefix(BaseUtilityBuildTool __instance)
 		{
 			using var _ = Profiler.Scope();
-			__state = null;
-			bool runLocally = ShouldRunLocally(
-				MultiplayerSession.InSession,
-				MultiplayerSession.IsHost,
-				UtilityBuildPacket.ProcessingIncoming);
-			if (runLocally)
-			{
-				if (MultiplayerSession.IsHostInSession && !UtilityBuildPacket.ProcessingIncoming)
-					__state = UtilityBuildAuthority.Capture(__instance);
+			if (!MultiplayerSession.InSession || BuildMutationContext.IsManaged)
 				return true;
-			}
-
 			try
 			{
-				UtilityBuildCapture capture = UtilityBuildAuthority.Capture(__instance);
-				if (capture?.Request == null)
+				if (!TryCapture(__instance, out BuildRequest request))
 					return false;
-				PacketSender.SendToAllOtherPeers(capture.Request);
-				DebugConsole.Log(
-					$"[UtilityBuild] Requested {capture.Request.PrefabID} with {capture.Request.Cells.Count} nodes");
+				if (MultiplayerSession.IsHost)
+				{
+					AuthoritativeBuildExecutor.SetSessionEpoch(request.OperationId.SessionEpoch);
+					if (AuthoritativeBuildExecutor.Execute(request, HostBuildPolicyProvider.Current,
+						out BuildCommit commit, out BuildRejected rejection))
+						BuildPublisher.Publish(commit);
+					else
+						BuildPublisher.Publish(rejection);
+				}
+				else
+					PacketSender.SendToAllOtherPeers(new BuildRequestPacket(request));
 			}
 			catch (Exception exception)
 			{
@@ -41,20 +39,27 @@ namespace ONI_Together.Patches.ToolPatches.Build
 			return false;
 		}
 
-		static void Postfix(UtilityBuildCapture __state)
+		internal static bool TryCapture(
+			BaseUtilityBuildTool tool,
+			out BuildRequest request)
 		{
-			using var _ = Profiler.Scope();
-			if (!MultiplayerSession.IsHostInSession || __state == null || UtilityBuildPacket.ProcessingIncoming)
-				return;
-			try
-			{
-				if (UtilityBuildAuthority.TryCaptureOutcome(__state, out UtilityBuildStatePacket state))
-					PacketSender.SendToAllClients(state);
-			}
-			catch (Exception exception)
-			{
-				DebugConsole.LogError($"[UtilityBuildToolPatch.Postfix] {exception}");
-			}
+			request = null;
+			if (tool?.def == null || tool.path == null || tool.path.Count == 0 ||
+				tool.selectedElements == null)
+				return false;
+			PrioritySetting priority = PlanScreen.Instance != null
+				? PlanScreen.Instance.GetBuildingPriority()
+				: new PrioritySetting(PriorityScreen.PriorityClass.basic, 5);
+			request = new BuildRequest(
+				BuildToolPatch.NextOperationId(),
+				tool.def.PrefabID,
+				new UtilityPathGeometry(tool.path.Select(node => node.cell)),
+				tool.selectedElements.Select(tag => tag.ToString()),
+				tool.facadeID,
+				(int)priority.priority_class,
+				priority.priority_value,
+				(int)tool.def.ObjectLayer);
+			return true;
 		}
 
 		internal static bool ShouldRunLocally(bool inSession, bool isHost, bool processingIncoming)

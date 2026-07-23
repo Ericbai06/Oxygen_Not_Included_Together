@@ -67,7 +67,7 @@ namespace ONI_Together.DebugTools
 		private static FaultProbeResult DuplicateFinish(string id)
 		{
 			bool rejected = !NetworkIdentityRegistry.ShouldAcceptLifecycleRevision(7, 7)
-			                && BuildCompletePacket.IsAlreadyAppliedLifecycle(7, 7, true, true);
+				                && BuildLifecycleAdmission.IsAlreadyAppliedLifecycle(7, 7, true, true);
 			bool clean = NetworkIdentityRegistry.ShouldAcceptLifecycleRevision(7, 8);
 			return FaultWorkProbe.Stateless(id, rejected, clean,
 				"NetworkIdentityRegistry.ShouldAcceptLifecycleRevision");

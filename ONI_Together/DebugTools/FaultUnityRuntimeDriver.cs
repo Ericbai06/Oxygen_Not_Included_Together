@@ -14,6 +14,7 @@ using ONI_Together.Patches.DLC.Prehistoric;
 using ONI_Together.Patches.DLC.SpacedOut;
 using ONI_Together.Patches.Duplicant;
 using ONI_Together.Patches.GamePatches;
+using ONI_Together.Patches.ToolPatches.Build;
 using ONI_Together.Patches.World;
 using ONI_Together.Scripts.Duplicants;
 using UnityEngine;
@@ -84,7 +85,7 @@ namespace ONI_Together.DebugTools
 				case "work.client-native-start": WorkableStartWorkAuthorityPatch.Prefix(); break;
 				case "building.selected-elements-null": global::ConstructablePatch.Capture((Constructable)context.Target); break;
 				case "building.destroy-deferred":
-					BuildAuthority.TryGetReplacement(context.BuildingDef, context.Cell,
+					OniBuildRuntimeAdapter.TryGetReplacement(context.BuildingDef, context.Cell,
 						Orientation.Neutral, context.Materials, out _);
 					FaultDeferredDestroyRuntime.RecordDestroyRequest(context); break;
 				case "dlc.prefab-missing": ((SpawnPrefabPacket)context.Target).CreateAuthoritativeObject(); break;

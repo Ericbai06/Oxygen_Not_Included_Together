@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Tools.Build;
@@ -10,6 +11,14 @@ namespace ONI_Together.Patches.ToolPatches.Build
 {
 	internal static class OniBuildRuntimeAdapter
 	{
+		private static readonly FieldInfo PriorityClassField =
+			typeof(PrioritySetting).GetField(
+				nameof(PrioritySetting.priority_class),
+				BindingFlags.Instance | BindingFlags.Public)
+			?? throw new MissingFieldException(
+				typeof(PrioritySetting).FullName,
+				nameof(PrioritySetting.priority_class));
+
 		internal static bool TryGetReplacement(
 			BuildingDef def,
 			int cell,
@@ -415,7 +424,16 @@ namespace ONI_Together.Patches.ToolPatches.Build
 		}
 
 		private static PrioritySetting ToPriority(int priorityClass, int priorityValue)
-			=> new((PriorityScreen.PriorityClass)priorityClass, priorityValue);
+		{
+			PrioritySetting setting = default;
+			object boxed = setting;
+			PriorityClassField.SetValue(
+				boxed,
+				Enum.ToObject(PriorityClassField.FieldType, priorityClass));
+			setting = (PrioritySetting)boxed;
+			setting.priority_value = priorityValue;
+			return setting;
+		}
 
 		private static void SetPriority(GameObject gameObject, PrioritySetting priority)
 			=> gameObject.GetComponent<Prioritizable>()?.SetMasterPriority(priority);

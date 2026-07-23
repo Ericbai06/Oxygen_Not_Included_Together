@@ -41,9 +41,15 @@ namespace ONI_Together.Patches.World
 					{
 						NetworkIdentity blockedIdentity = __instance.GetComponent<NetworkIdentity>();
 						if (blockedIdentity != null && blockedIdentity.NetId != 0)
-							IntegrationScenarioEvidenceCore.Log(
-								"pickup", "client-original-blocked", 0, false,
-								GroundItemPickedUpPacket.CanonicalState(blockedIdentity.NetId));
+						{
+							int cell = Grid.PosToCell(blockedIdentity.gameObject);
+							if (Grid.IsValidCell(cell))
+								IntegrationScenarioEvidenceCore.Log(
+									GroundItemPickedUpPacket.CreateEvidence(
+										"client-original-blocked", 0,
+										blockedIdentity.NetId, cell,
+										"sync:1cd12fefe0022daf8954b4b8"));
+						}
 					}
 #endif
 					return;
@@ -53,7 +59,7 @@ namespace ONI_Together.Patches.World
 					return;
 				var packet = new GroundItemPickedUpPacket(identity.NetId);
 				PacketSender.SendToAllClients(packet, PacketSendMode.ReliableImmediate);
-				packet.LogHostOutcome();
+				packet.LogHostOutcome("sync:42a26843f32c4b3be4183a88");
 				DebugConsole.Log($"[GroundPickup] sent NetId={identity.NetId}");
 			}
 		}

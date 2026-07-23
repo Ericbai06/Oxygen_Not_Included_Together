@@ -35,9 +35,19 @@ public static class ConstructablePatch
 			PacketSender.SendToAllClients(state, PacketSendMode.ReliableImmediate);
 #if DEBUG
 			IntegrationScenarioEvidenceCore.Log(
-				"building-lifecycle", "final-state", (long)state.LifecycleRevision, true,
-				BuildAuthority.EvidenceState(
-					state.PrefabID, state.Cell, state.NetId, state.LifecycleRevision));
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "building-lifecycle", phase: "final-state",
+					revision: (long)state.LifecycleRevision,
+					target: new BuildingLifecycleTarget
+					{
+						Prefab = state.PrefabID, Cell = state.Cell, NetId = state.NetId,
+					},
+					state: new BuildingLifecycleState
+					{
+						LifecycleRevision = (long)state.LifecycleRevision,
+						Queued = false, Completed = true,
+					},
+					entryId: "sync:dbfc8eeb5a623ab482197ef1"));
 #endif
 			DebugConsole.Log(
 				$"[Host] Sent BuildCompletePacket for {state.PrefabID} NetId={state.NetId}");
@@ -60,7 +70,7 @@ public static class ConstructablePatch
 		return __exception;
 	}
 
-	private static BuildCompletePacket Capture(Constructable constructable)
+	internal static BuildCompletePacket Capture(Constructable constructable)
 	{
 		Building building = constructable?.GetComponent<Building>();
 		BuildingDef def = building?.Def;
@@ -70,7 +80,13 @@ public static class ConstructablePatch
 		if (identity == null || identity.NetId == 0 || identity.LifecycleRevision == 0
 		    || !NetworkIdentityRegistry.IsRegistered(identity, identity.NetId))
 			return null;
-		List<string> materials = constructable.SelectedElementsTags?
+		IList<Tag> selectedElementsTags = constructable.SelectedElementsTags;
+#if DEBUG
+		IFaultInputMutation fault = ProductionFaultInputGates.MissingSelectedElements(
+			ref selectedElementsTags);
+		FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: constructable);
+#endif
+		List<string> materials = selectedElementsTags?
 			.Select(tag => tag.ToString()).ToList() ?? [];
 		if (materials.Count == 0)
 			return null;

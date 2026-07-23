@@ -89,6 +89,9 @@ namespace ONI_Together.Networking.Packets.Core
 			(PacketSender.MAX_PACKET_SIZE_UNRELIABLE - HeaderBytes) / EntityMotionState.WireBytes;
 		private static readonly Dictionary<int, ulong> LastRevisions = [];
 		public EntityMotionState[] States = [];
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		public void Serialize(BinaryWriter writer)
 		{
@@ -96,6 +99,9 @@ namespace ONI_Together.Networking.Packets.Core
 				throw new InvalidDataException("Invalid motion batch");
 			writer.Write(States.Length);
 			foreach (EntityMotionState state in States) state.Serialize(writer);
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void Deserialize(BinaryReader reader)
@@ -109,21 +115,39 @@ namespace ONI_Together.Networking.Packets.Core
 				States[index] = new EntityMotionState();
 				States[index].Deserialize(reader);
 			}
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 		}
 
 		public void OnDispatched()
 		{
-			if (MultiplayerSession.IsHost) return;
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "motion"))
+					MotionActionFlow.ExecuteClient(this);
+				return;
+			}
+			ApplyRuntimePacket();
+#else
+			ApplyRuntimePacket();
+#endif
+		}
+
+		internal bool ApplyRuntimePacket()
+		{
+			if (MultiplayerSession.IsHost) return false;
+			bool applied = false;
 			foreach (EntityMotionState state in States)
 			{
 				if (!AcceptEntityRevision(state.NetId, state.Revision)
 				    || !NetworkIdentityRegistry.TryGet(state.NetId, out NetworkIdentity identity))
 					continue;
 				identity.gameObject.AddOrGet<RemoteMotionPresenter>().ApplySnapshot(state);
-#if DEBUG
-				LogClientEvidence(state);
-#endif
+				applied = true;
 			}
+			return applied;
 		}
 
 		internal static List<EntityMotionBatchPacket> CreateBatches(
@@ -160,31 +184,31 @@ namespace ONI_Together.Networking.Packets.Core
 		}
 
 #if DEBUG
-		internal static string EvidenceState(EntityMotionState state)
-			=> string.Join(",",
-				FormattableString.Invariant($"netId={state.NetId},kind={(byte)state.Kind},tick={state.StartSimTick}"),
-				FormattableString.Invariant($"source={state.Source.x:R}|{state.Source.y:R}|{state.Source.z:R}"),
-				FormattableString.Invariant($"target={state.Target.x:R}|{state.Target.y:R}|{state.Target.z:R}"),
-				FormattableString.Invariant($"duration={state.DurationTicks},startNav={(byte)state.StartNavType}"),
-				FormattableString.Invariant($"endNav={(byte)state.EndNavType},flags={(byte)state.Flags}"));
+		private const string PacketDispatchEntryId = "sync:f60e38b805c1052cff0fec0d";
+
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, EntityMotionState state, string entryId)
+			=> TypedEvidenceRuntimeContext.Create(
+				"motion", phase, revision,
+				new MotionTarget { EntityNetId = state.NetId },
+				new MotionState
+				{
+					Tick = state.StartSimTick,
+					StartPosition = new[] { (double)state.Source.x, state.Source.y },
+					EndPosition = new[] { (double)state.Target.x, state.Target.y },
+					NavigationState = state.Kind + ":" + state.StartNavType + "->" + state.EndNavType,
+					MotionRevision = revision,
+				}, entryId);
 
 		private static void LogClientEvidence(EntityMotionState state)
 		{
-			string evidenceState = EvidenceState(state);
 			long revision = (long)state.Revision;
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "client-apply", revision, true, evidenceState);
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "revision-accepted", revision, true, evidenceState);
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "revision-duplicate", revision,
-				AcceptEntityRevision(state.NetId, state.Revision), evidenceState);
-			ulong olderRevision = state.Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "revision-out-of-order", (long)olderRevision,
-				AcceptEntityRevision(state.NetId, olderRevision), evidenceState);
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "final-state", revision, true, evidenceState);
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"revision-accepted", revision, state, PacketDispatchEntryId));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"client-apply", revision, state, PacketDispatchEntryId));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"final-state", revision, state, PacketDispatchEntryId));
 		}
 #endif
 	}

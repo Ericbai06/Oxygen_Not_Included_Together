@@ -66,6 +66,27 @@ namespace ONI_Together.DebugTools
 		{
 			try
 			{
+				if (ScenarioActionAdmission.TryParseArmCommand(
+					    command, out ScenarioActionAdmission admission))
+				{
+					ScenarioActionReceiverGate.ArmExpected(admission);
+					return DebugCommandOutcome.Ok(command, "scenario-action-admission-armed");
+				}
+				if (command?.StartsWith("scenario-arm:", StringComparison.Ordinal) == true)
+					return DebugCommandOutcome.Fail(command, "invalid-scenario-action-admission");
+				if (FaultInjectionCommand.TryParse(command, out FaultInjectionCommand fault))
+				{
+					FaultInjectionReceipt receipt = FaultInjectionDriverRegistry.Dispatch(fault);
+					return DebugCommandOutcome.FromFaultReceipt(command, receipt);
+				}
+				if (command?.StartsWith("fault-inject:", StringComparison.Ordinal) == true
+				    || command?.StartsWith("fault-clean:", StringComparison.Ordinal) == true)
+					return DebugCommandOutcome.Fail(command, "invalid-fault-injection");
+				if (ScenarioActionCommand.TryParse(command, out ScenarioActionCommand scenario))
+					return ScenarioActionHandlerRegistry.Dispatch(scenario);
+				if (command?.StartsWith("scenario-action:", StringComparison.Ordinal) == true
+				    || command?.StartsWith("scenario-cleanup:", StringComparison.Ordinal) == true)
+					return DebugCommandOutcome.Fail(command, "invalid-scenario-action");
 				if (TryParseNetworkBuildCommand(
 					    command, out string prefabId, out int cell, out string materialTag))
 					return ExecuteNetworkBuild(prefabId, cell, materialTag);
@@ -99,6 +120,9 @@ namespace ONI_Together.DebugTools
 					command, $"{ex.GetType().Name}: {ex.Message}");
 			}
 		}
+
+		internal static DebugCommandOutcome ExecuteAutomationCommandForTests(string command)
+			=> ExecuteAutomationCommand(command);
 
 		private static void LogCommandOutcome(DebugCommandOutcome outcome)
 		{

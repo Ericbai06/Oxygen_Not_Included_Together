@@ -9,6 +9,8 @@ namespace ONI_Together.Networking.Packets.Social
 {
 	internal static partial class ScheduleSyncCoordinator
 	{
+		private const string ScheduleSnapshotEntryId = "sync:070807062307db2c13923e0c";
+		private const string ScheduleRequestEntryId = "sync:b9961f5cf1ab0fccf609d98d";
 		private static ScheduleManager _trackedManager;
 		private static long _hostRevision;
 		private static long _appliedRevision;
@@ -56,9 +58,11 @@ namespace ONI_Together.Networking.Packets.Social
 				return;
 			PendingClientRequests.Enqueue(packet);
 #if DEBUG
-			IntegrationScenarioEvidenceCore.Log(
-				"schedule", "client-original-blocked", _appliedRevision, false,
-				"request=" + packet.GetType().Name);
+			if (TryCreateCurrentScheduleEvidence(packet, out ScheduleTarget target,
+			    out ScheduleState state))
+				IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+					"schedule", "client-original-blocked", _appliedRevision,
+					target, state, ScheduleRequestEntryId));
 #endif
 			TrySendNextClientRequest();
 		}
@@ -352,40 +356,94 @@ namespace ONI_Together.Networking.Packets.Social
 			_hostRevision = next;
 			PacketSender.SendToAllClients(snapshot, PacketSendMode.ReliableImmediate);
 #if DEBUG
-			LogScheduleEvidence("host-submit", next, true, snapshot);
-			LogScheduleEvidence("final-state", next, true, snapshot);
+			LogScheduleEvidence("host-submit", next, snapshot);
+			LogScheduleEvidence("final-state", next, snapshot);
 #endif
 			return true;
 		}
 
 #if DEBUG
-		private static string GetScheduleEvidenceState(ScheduleSnapshotPacket packet)
-		{
-			using var stream = new MemoryStream();
-			using var writer = new BinaryWriter(stream);
-			packet.Serialize(writer);
-			writer.Flush();
-			return Convert.ToBase64String(stream.ToArray());
-		}
-
 		private static void LogScheduleEvidence(
-			string phase, long revision, bool applied, ScheduleSnapshotPacket packet)
-			=> IntegrationScenarioEvidenceCore.Log(
-				"schedule", phase, revision, applied, GetScheduleEvidenceState(packet));
-
+			string phase, long revision, ScheduleSnapshotPacket packet)
+		{
+			if (!TryCreateScheduleEvidence(packet, out ScheduleTarget target,
+			    out ScheduleState state))
+				return;
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				"schedule", phase, revision, target, state, ScheduleSnapshotEntryId));
+		}
 		private static void LogAppliedScheduleEvidence(ScheduleSnapshotPacket packet)
 		{
-			LogScheduleEvidence("revision-accepted", packet.Revision, true, packet);
-			LogScheduleEvidence("client-apply", packet.Revision, true, packet);
-			LogScheduleEvidence("final-state", packet.Revision, true, packet);
+			LogScheduleEvidence("revision-accepted", packet.Revision, packet);
+			LogScheduleEvidence("client-apply", packet.Revision, packet);
+			LogScheduleEvidence("final-state", packet.Revision, packet);
 			if (!ScheduleSyncProtocol.ShouldApplySnapshot(packet.Revision, packet.Revision))
-				LogScheduleEvidence("revision-duplicate", packet.Revision, false, packet);
+				LogScheduleEvidence("revision-duplicate", packet.Revision, packet);
 			long older = packet.Revision - 1;
 			if (!ScheduleSyncProtocol.ShouldApplySnapshot(older, packet.Revision))
-				LogScheduleEvidence("revision-out-of-order", older, false, packet);
+				LogScheduleEvidence("revision-out-of-order", older, packet);
+		}
+		private static bool TryCreateScheduleEvidence(
+			ScheduleSnapshotPacket packet, out ScheduleTarget target, out ScheduleState state)
+		{
+			target = null;
+			state = null;
+			if (packet?.Schedules == null || packet.Schedules.Count == 0)
+				return false;
+			ScheduleSnapshotEntry schedule = packet.Schedules[0];
+			target = new ScheduleTarget { ScheduleId = "0:" + schedule.Name };
+			state = new ScheduleState
+			{
+				Revision = packet.Revision,
+				Blocks = CreateBlockEvidence(schedule.BlockGroupIds),
+			};
+			return true;
+		}
+		private static bool TryCreateCurrentScheduleEvidence(
+			IPacket packet, out ScheduleTarget target, out ScheduleState state)
+		{
+			target = null;
+			state = null;
+			List<Schedule> schedules = ScheduleManager.Instance?.schedules;
+			if (schedules == null || schedules.Count == 0)
+				return false;
+			int index = GetRequestScheduleIndex(packet);
+			if (index < 0 || index >= schedules.Count)
+				index = 0;
+			Schedule schedule = schedules[index];
+			target = new ScheduleTarget { ScheduleId = index + ":" + schedule.name };
+			var groups = new List<string>(schedule.blocks.Count);
+			foreach (ScheduleBlock block in schedule.blocks)
+				groups.Add(block.GroupId);
+			state = new ScheduleState
+			{
+				Revision = _appliedRevision,
+				Blocks = CreateBlockEvidence(groups),
+			};
+			return true;
+		}
+		private static int GetRequestScheduleIndex(IPacket packet)
+		{
+			return packet switch
+			{
+				ScheduleBlockUpdatePacket value => value.ScheduleIndex,
+				ScheduleDeletePacket value => value.ScheduleIndex,
+				ScheduleDetailsUpdatePacket value => value.ScheduleIndex,
+				ScheduleRowPacket value => value.ScheduleIndex,
+				ScheduleAssignmentPacket value => value.ScheduleIndex,
+				ScheduleAddPacket value when value.Duplicated => value.SourceScheduleIndex,
+				_ => 0,
+			};
+		}
+		private static List<ScheduleBlockState> CreateBlockEvidence(
+			IReadOnlyList<string> groups)
+		{
+			var blocks = new List<ScheduleBlockState>(groups.Count);
+			for (int index = 0; index < groups.Count; index++)
+				blocks.Add(new ScheduleBlockState { Start = index, Group = groups[index] });
+			return blocks;
 		}
 #endif
-
 		private static void SendCurrentSnapshot(ulong playerId)
 		{
 			long revision = _hostRevision > 0 ? _hostRevision : 1;

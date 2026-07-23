@@ -45,8 +45,15 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 			if (MultiplayerSession.IsHost) return;
 			foreach (DuplicantPresentationEntry entry in Entries)
 			{
-				if (!AcceptEntityRevision(entry.NetId, entry.Revision)
-				    || !NetworkIdentityRegistry.TryGet(entry.NetId, out NetworkIdentity identity))
+				#if DEBUG
+				string revisionPhase = RevisionPhase(entry.NetId, entry.Revision);
+				#endif
+				bool accepted = AcceptEntityRevision(entry.NetId, entry.Revision);
+				#if DEBUG
+				LogRevisionEvidence(entry, revisionPhase);
+				#endif
+				if (!accepted || !NetworkIdentityRegistry.TryGet(
+					    entry.NetId, out NetworkIdentity identity))
 					continue;
 				identity.gameObject.AddOrGet<RemoteDuplicantPresenter>().ApplySnapshot(entry);
 #if DEBUG
@@ -91,32 +98,79 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 		}
 
 #if DEBUG
-		internal static string EvidenceState(DuplicantPresentationEntry entry)
-			=> string.Join(",",
-				FormattableString.Invariant($"netId={entry.NetId},tick={entry.StartSimTick},duration={entry.DurationTicks}"),
-				FormattableString.Invariant($"action={(byte)entry.ActionState},anim={entry.AnimHash},mode={entry.PlayMode}"),
-				FormattableString.Invariant($"speed={entry.AnimSpeed:R},elapsed={entry.AnimElapsedAtStart:R}"),
-				FormattableString.Invariant($"working={(entry.IsWorking ? 1 : 0)},workVisual={(byte)entry.WorkVisual}"),
-				FormattableString.Invariant($"targetCell={entry.TargetCell},targetNetId={entry.VisualTargetNetId}"),
-				FormattableString.Invariant($"tool={(byte)entry.ToolVisual},facing={(byte)entry.Facing}"),
-				FormattableString.Invariant($"showProgress={(entry.ShowProgress ? 1 : 0)},progress={entry.ProgressPercent:R}"),
-				FormattableString.Invariant($"remaining={entry.WorkTimeRemaining:R},total={entry.WorkTimeTotal:R}"));
+		private const string PacketDispatchEntryId = "sync:f60e38b805c1052cff0fec0d";
+
+		private static string RevisionPhase(int netId, ulong revision)
+		{
+			if (!LastRevisions.TryGetValue(netId, out ulong last) || revision > last)
+				return "revision-accepted";
+			return revision == last ? "revision-duplicate" : "revision-out-of-order";
+		}
+
+		private static void LogRevisionEvidence(
+			DuplicantPresentationEntry entry, string phase)
+		{
+			long revision = (long)entry.Revision;
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"animation", phase, revision, entry, PacketDispatchEntryId));
+			if (entry.ActionState == DuplicantActionState.Digging)
+				IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+					"remote-dig", phase, revision, entry, PacketDispatchEntryId));
+		}
+
+		internal static ITypedEvidenceTarget CreateEvidenceTarget(
+			string scenario, DuplicantPresentationEntry entry)
+			=> scenario == "remote-dig"
+				? new RemoteDigTarget
+				{
+					MinionNetId = entry.NetId,
+					TargetNetId = entry.VisualTargetNetId,
+					TargetCell = entry.TargetCell,
+				}
+				: new AnimationTarget
+				{
+					MinionNetId = entry.NetId,
+					TargetNetId = entry.VisualTargetNetId,
+					TargetCell = entry.TargetCell,
+				};
+
+		internal static ITypedEvidenceState CreateEvidenceState(
+			string scenario, DuplicantPresentationEntry entry)
+		{
+			string action = entry.ActionState.ToString();
+			string animation = entry.AnimHash.ToString(
+				System.Globalization.CultureInfo.InvariantCulture);
+			string tool = entry.ToolVisual.ToString();
+			double progress = entry.ShowProgress ? entry.ProgressPercent : 0d;
+			return scenario == "remote-dig"
+				? new RemoteDigState
+				{
+					Action = action, Animation = animation,
+					Tool = tool, Progress = progress,
+				}
+				: new AnimationState
+				{
+					Action = action, Animation = animation,
+					Tool = tool, Progress = progress,
+				};
+		}
+
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string scenario, string phase, long revision,
+			DuplicantPresentationEntry entry, string entryId)
+			=> TypedEvidenceRuntimeContext.Create(
+				scenario, phase, revision,
+				CreateEvidenceTarget(scenario, entry),
+				CreateEvidenceState(scenario, entry), entryId);
 
 		private static void LogClientEvidence(
 			string scenario, DuplicantPresentationEntry entry)
 		{
-			string state = EvidenceState(entry);
 			long revision = (long)entry.Revision;
-			IntegrationScenarioEvidenceCore.Log(scenario, "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(scenario, "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				scenario, "revision-duplicate", revision,
-				AcceptEntityRevision(entry.NetId, entry.Revision), state);
-			ulong olderRevision = entry.Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				scenario, "revision-out-of-order", (long)olderRevision,
-				AcceptEntityRevision(entry.NetId, olderRevision), state);
-			IntegrationScenarioEvidenceCore.Log(scenario, "final-state", revision, true, state);
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				scenario, "client-apply", revision, entry, PacketDispatchEntryId));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				scenario, "final-state", revision, entry, PacketDispatchEntryId));
 		}
 #endif
 	}

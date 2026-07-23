@@ -131,12 +131,6 @@ namespace ONI_Together.Networking
 				return;
 			}
 
-			if (!SendReadyAccepted(
-				    player.PlayerId, pending.ReconnectToken, pending.SnapshotGeneration))
-			{
-				AbortReadyCommit(player, "Failed to acknowledge Ready");
-				return;
-			}
 			if (!_completedReadyProofs.Record(
 				    player.PlayerId,
 				    pending.ReconnectToken,
@@ -144,6 +138,14 @@ namespace ONI_Together.Networking
 				    System.DateTime.UtcNow))
 			{
 				AbortReadyCommit(player, "Failed to record completed Ready proof");
+				return;
+			}
+			if (!SendReadyAccepted(
+				    player.PlayerId, pending.ReconnectToken, pending.SnapshotGeneration))
+			{
+				_completedReadyProofs.Acknowledge(
+					player.PlayerId, pending.ReconnectToken, pending.SnapshotGeneration);
+				AbortReadyCommit(player, "Failed to acknowledge Ready");
 				return;
 			}
 
@@ -193,11 +195,20 @@ namespace ONI_Together.Networking
 
 		private static bool SendReadyAccepted(
 			ulong clientId, ulong reconnectToken, long snapshotGeneration)
-			=> PacketSender.SendToPlayer(clientId, new ReadyAcceptedPacket
+		{
+			bool retained = _completedReadyProofs.IsExact(
+				clientId, reconnectToken, snapshotGeneration);
+			if (!ShouldRetryReadyAcceptance(retained))
+				return false;
+			return PacketSender.SendToPlayer(clientId, new ReadyAcceptedPacket
 			{
 				ReconnectToken = reconnectToken,
 				SnapshotGeneration = snapshotGeneration
 			}, PacketSendMode.ReliableImmediate);
+		}
+
+		internal static bool ShouldRetryReadyAcceptance(bool retainedProof)
+			=> retainedProof;
 
 		private static bool AbortReadyCommit(MultiplayerPlayer player, string reason)
 		{

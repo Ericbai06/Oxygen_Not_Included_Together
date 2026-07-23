@@ -6,6 +6,7 @@ using System.IO;
 using UnityEngine;
 using Shared.Profiling;
 using Shared.Interfaces.Networking;
+using Shared;
 
 namespace ONI_Together.Networking.Packets.World
 {
@@ -51,27 +52,12 @@ namespace ONI_Together.Networking.Packets.World
 		public int ReferenceNetId; // Optional signed host-assigned entity reference; zero means none
 		public string StringValue = ""; // For tag names and text fields
 		public string SecondaryStringValue = ""; // Paired string payloads that must apply atomically
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		private static int _applyDepth;
-#if DEBUG
-		private static BuildingConfigPacket _applyingEvidencePacket;
-		private static bool _originalBlockObserved;
-#endif
-		public static bool IsApplyingPacket
-		{
-			get
-			{
-#if DEBUG
-				if (_applyDepth > 0 && MultiplayerSession.IsClient
-				    && !_originalBlockObserved && _applyingEvidencePacket != null)
-				{
-					_originalBlockObserved = true;
-					_applyingEvidencePacket.LogOriginalBlockedEvidence();
-				}
-#endif
-				return _applyDepth > 0;
-			}
-		}
+		public static bool IsApplyingPacket => _applyDepth > 0;
         
 		// Delay refreshing because things like storage lockers cause lag
 		private static float _lastRefreshTime = -999f;
@@ -102,6 +88,9 @@ namespace ONI_Together.Networking.Packets.World
 			writer.Write(ReferenceNetId);
 			writer.Write(StringValue ?? "");
 			writer.Write(SecondaryStringValue ?? "");
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void Deserialize(BinaryReader reader)
@@ -123,6 +112,9 @@ namespace ONI_Together.Networking.Packets.World
 			ReferenceNetId = reader.ReadInt32();
 			StringValue = reader.ReadString();
 			SecondaryStringValue = reader.ReadString();
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 			if (!IsValidMetadata(GetMetadata())
 			    || SecondaryStringValue.Length > MaxStringLength
 			    || !HasValidAuthorityFields())
@@ -132,6 +124,18 @@ namespace ONI_Together.Networking.Packets.World
 		public void OnDispatched()
 		{
 			using var _ = Profiler.Scope();
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(
+					ScenarioActionProfile, "building-config"))
+					BuildingConfigActionFlow.ExecuteClient(this);
+				else if (ScenarioActionReceiverGate.TryEnter(
+					ScenarioActionProfile, "uproot"))
+					UprootActionFlow.ExecuteClient(this);
+				return;
+			}
+#endif
 			DispatchWithAuthority(PacketHandler.CurrentContext);
 		}
 
@@ -188,10 +192,6 @@ namespace ONI_Together.Networking.Packets.World
 		internal static void ResetSessionState()
 		{
 			_applyDepth = 0;
-#if DEBUG
-			_applyingEvidencePacket = null;
-			_originalBlockObserved = false;
-#endif
 			_lastRefreshTime = -999f;
 			ResetAuthorityState();
 		}

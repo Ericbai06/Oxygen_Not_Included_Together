@@ -1,4 +1,5 @@
 using HarmonyLib;
+using System;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
@@ -19,6 +20,23 @@ namespace ONI_Together.Patches.World
 
 	public static class StoragePatches
 	{
+		private static int _scenarioMutationDepth;
+		private static bool IsScenarioMutation => _scenarioMutationDepth > 0;
+
+		internal static void RunWithoutReplication(System.Action action)
+		{
+			_scenarioMutationDepth++;
+			try { action(); }
+			finally { _scenarioMutationDepth--; }
+		}
+
+		internal static T RunWithoutReplication<T>(Func<T> action)
+		{
+			_scenarioMutationDepth++;
+			try { return action(); }
+			finally { _scenarioMutationDepth--; }
+		}
+
 		internal static StorageReplicationKind RequiredReplication(bool isMinionStorage)
 			=> StorageReplicationKind.Membership
 			   | (isMinionStorage
@@ -35,13 +53,22 @@ namespace ONI_Together.Patches.World
             {
                 using var _ = Profiler.Scope();
 
-                if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
+				if (IsScenarioMutation)
+					return;
+				if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
 				{
 #if DEBUG
 					if (MultiplayerSession.IsClient && __instance != null && go != null)
-						IntegrationScenarioEvidenceCore.Log(
-							"storage", "client-original-blocked", 0, false,
-							"local-remove-replication-blocked");
+					{
+						NetworkIdentity blockedStorageIdentity = __instance.GetNetIdentity();
+						NetworkIdentity itemIdentity = go.GetNetIdentity();
+						if (blockedStorageIdentity?.NetId != 0 && itemIdentity?.NetId != 0)
+							IntegrationScenarioEvidenceCore.Log(StorageItemPacket.CreateEvidence(
+								"client-original-blocked", 0, blockedStorageIdentity.NetId,
+								itemIdentity.NetId, false,
+								go.GetComponent<PrimaryElement>()?.Mass ?? 0f,
+								"sync:5d14bc9ad2b43d9cc86b29b3"));
+					}
 #endif
 					return;
 				}
@@ -69,7 +96,7 @@ namespace ONI_Together.Patches.World
 						ConsumedAmount = primary?.Mass ?? 0f
 					};
 					PacketSender.SendToAllClients(packet);
-					packet.LogHostOutcome();
+					packet.LogHostOutcome("sync:ba4a593770576b565e669e9e");
 				}
 
 				if ((replication & StorageReplicationKind.CarryVisual) != 0)
@@ -128,13 +155,22 @@ namespace ONI_Together.Patches.World
                 using var _ = Profiler.Scope();
                 try
                 {
-                    if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
+					if (IsScenarioMutation)
+						return;
+					if (!MultiplayerSession.IsHost || !MultiplayerSession.InSession)
 					{
 #if DEBUG
 						if (MultiplayerSession.IsClient && __instance != null && go != null)
-							IntegrationScenarioEvidenceCore.Log(
-								"storage", "client-original-blocked", 0, false,
-								"local-store-replication-blocked");
+						{
+							NetworkIdentity blockedStorageIdentity = __instance.GetNetIdentity();
+							NetworkIdentity itemIdentity = go.GetNetIdentity();
+							if (blockedStorageIdentity?.NetId != 0 && itemIdentity?.NetId != 0)
+								IntegrationScenarioEvidenceCore.Log(StorageItemPacket.CreateEvidence(
+									"client-original-blocked", 0, blockedStorageIdentity.NetId,
+									itemIdentity.NetId, true,
+									go.GetComponent<PrimaryElement>()?.Mass ?? 0f,
+									"sync:2c23f0c71f236722412746e8"));
+						}
 #endif
 						return;
 					}
@@ -170,7 +206,7 @@ namespace ONI_Together.Patches.World
 							ElementDiseaseCount = pe?.DiseaseCount ?? 0
 						};
 						PacketSender.SendToAllClients(packet);
-						packet.LogHostOutcome();
+						packet.LogHostOutcome("sync:8ce6bf586d7fef5c6f68b90b");
 					}
 
 					// Carry visuals are additive to authoritative Storage.items membership.

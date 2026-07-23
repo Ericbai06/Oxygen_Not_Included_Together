@@ -10,6 +10,7 @@ namespace ONI_Together.DebugTools
         public string Name { get; }
         public string Category { get; }
         public bool LiveSafe { get; }
+        public string HeadlessUnsupportedReason { get; }
 
         private readonly MethodInfo _method;
 
@@ -22,12 +23,23 @@ namespace ONI_Together.DebugTools
         public bool IsFailed => State == TestState.Failed;
         public bool IsInProgress => State == TestState.InProgress;
 
-        public UnitTest(string name, string category, bool liveSafe, MethodInfo method)
+        public UnitTest(
+            string name,
+            string category,
+            bool liveSafe,
+            MethodInfo method,
+            string headlessUnsupportedReason = null)
         {
+            if (headlessUnsupportedReason != null &&
+                string.IsNullOrWhiteSpace(headlessUnsupportedReason))
+                throw new ArgumentException(
+                    "Headless unsupported reason must be nonempty",
+                    nameof(headlessUnsupportedReason));
             Name = name;
             Category = category;
             LiveSafe = liveSafe;
             _method = method;
+            HeadlessUnsupportedReason = headlessUnsupportedReason;
         }
 
         public void Run(bool liveSession)

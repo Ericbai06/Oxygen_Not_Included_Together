@@ -7,7 +7,8 @@ namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class AutomationHardeningTests
 	{
-		[UnitTest(name: "Debug menu: follows game UI scale", category: "Debug")]
+		[UnitTest(name: "Debug menu: follows game UI scale", category: "Debug",
+			headlessUnsupportedReason: "Requires an active game UI canvas")]
 		public static UnitTestResult DebugMenuFollowsGameUiScale()
 		{
 			KCanvasScaler scaler = UnityEngine.Object.FindAnyObjectByType<KCanvasScaler>();

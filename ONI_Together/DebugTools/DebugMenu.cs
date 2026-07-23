@@ -17,12 +17,21 @@ namespace ONI_Together.DebugTools
 		internal string Command { get; }
 		internal bool Success { get; }
 		internal string Reason { get; }
+		private string Stage { get; }
+		private DeferredDestroyResetEvidence CleanupEvidence { get; }
+		private FaultInjectionReceipt FaultReceipt { get; }
 
-		private DebugCommandOutcome(string command, bool success, string reason)
+		private DebugCommandOutcome(
+			string command, bool success, string reason, string stage = null,
+			DeferredDestroyResetEvidence cleanupEvidence = null,
+			FaultInjectionReceipt faultReceipt = null)
 		{
 			Command = command;
 			Success = success;
 			Reason = reason;
+			Stage = stage;
+			CleanupEvidence = cleanupEvidence;
+			FaultReceipt = faultReceipt;
 		}
 
 		internal static DebugCommandOutcome Ok(string command, string reason)
@@ -31,9 +40,34 @@ namespace ONI_Together.DebugTools
 		internal static DebugCommandOutcome Fail(string command, string reason)
 			=> new DebugCommandOutcome(command, false, reason);
 
+		internal static DebugCommandOutcome FromFaultReceipt(
+			string command, FaultInjectionReceipt receipt)
+			=> new DebugCommandOutcome(
+				command, receipt.Succeeded, receipt.Detail, receipt.Stage,
+				receipt.CleanupEvidence, receipt);
+
 		internal string ToLogLine()
-			=> $"[DebugCommand][{(Success ? "OK" : "FAIL")}] " +
-			   $"command={Command} reason={Reason.Replace('\r', ' ').Replace('\n', ' ')}";
+		{
+			string prefix = $"[DebugCommand][{(Success ? "OK" : "FAIL")}] command={Command}";
+			string reason = Reason.Replace('\r', ' ').Replace('\n', ' ');
+			if (Stage == null) return prefix + " reason=" + reason;
+			DeferredDestroyResetEvidence cleanup = CleanupEvidence;
+			FaultInjectionReceipt receipt = FaultReceipt;
+			return prefix
+			       + " receiptId=" + receipt.ReceiptId
+			       + " caseId=" + receipt.CaseId
+			       + " targetId=" + receipt.TargetId
+			       + " consumed=" + Lower(receipt.Consumed)
+			       + " passed=" + Lower(Success)
+			       + " stage=" + Stage
+			       + " fixtureDisposeRequested=" + Lower(cleanup?.FixtureDisposeRequested ?? false)
+			       + " fixtureDisposeRequestedFrame=" + (cleanup?.FixtureDisposeRequestedFrame ?? 0)
+			       + " fixtureDisposeObservedFrame=" + (cleanup?.FixtureDisposeObservedFrame ?? 0)
+			       + " fixtureAbsent=" + Lower(cleanup?.FixtureAbsent ?? false)
+			       + " reason=" + reason;
+		}
+
+		private static string Lower(bool value) => value ? "true" : "false";
 	}
 #endif
 

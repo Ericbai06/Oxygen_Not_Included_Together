@@ -105,7 +105,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Structure snapshots reject sender values outside receiver bounds");
 		}
 
-		[UnitTest(name: "Snapshot packets: legal boundary values roundtrip", category: "Networking")]
+		[UnitTest(name: "Snapshot packets: legal boundary values roundtrip", category: "Networking",
+			headlessUnsupportedReason: "Requires initialized world grid")]
 		public static UnitTestResult SnapshotBoundaryRoundTrips()
 		{
 			var save = RoundTrip(new SaveFileChunkPacket

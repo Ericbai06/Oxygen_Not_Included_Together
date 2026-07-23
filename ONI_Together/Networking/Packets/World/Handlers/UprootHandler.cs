@@ -20,10 +20,13 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 
 			if (packet.ConfigHash == NetworkingHash.ForConfigKey("UprootPlant")
 			    && packet.ConfigType == BuildingConfigType.Boolean
-			    && packet.Value == 1f
+			    && (packet.Value == 0f || packet.Value == 1f)
 			    && go.TryGetComponent<Uprootable>(out Uprootable uprootable))
 			{
-				uprootable.MarkForUproot();
+				if (packet.Value == 1f)
+					uprootable.MarkForUproot();
+				else
+					uprootable.ForceCancelUproot(null);
 				return true;
 			}
 

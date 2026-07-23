@@ -1,12 +1,13 @@
 using ONI_Together.Networking.Synchronization;
 using ONI_Together.Scripts.Buildings;
+using ONI_Together.DebugTools;
 using UnityEngine;
 
 namespace ONI_Together.Networking.Packets.World
 {
 	public partial class SpawnPrefabPacket
 	{
-		private GameObject CreateAuthoritativeObject()
+		internal GameObject CreateAuthoritativeObject()
 		{
 			if (HasElementData)
 			{
@@ -16,6 +17,10 @@ namespace ONI_Together.Networking.Packets.World
 					prevent_merge: ShouldPreventElementMerge(NetId));
 			}
 			GameObject prefab = Assets.GetPrefab(new Tag(Hash));
+#if DEBUG
+			IFaultInputMutation fault = ProductionFaultInputGates.MissingDlcPrefab(ref prefab);
+			FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: this);
+#endif
 			if (prefab == null || RequiresNativeMaterialization(prefab))
 				return null;
 			GameObject created = Util.KInstantiate(prefab, Position);
@@ -65,9 +70,6 @@ namespace ONI_Together.Networking.Packets.World
 				return false;
 				ConsumePendingPickup(gameObject);
 				DuplicantDeathStatePacket.TryApplyPending(NetId, gameObject);
-#if DEBUG
-				RecordClientLifecycleEvidence();
-#endif
 				return true;
 		}
 

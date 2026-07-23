@@ -36,6 +36,9 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 	public float Speed;
 	public float TimeOffset;
 	public bool IsQueue; // Supports Queue()
+#if DEBUG
+	internal string ScenarioActionProfile = string.Empty;
+#endif
 	bool MultipleAnims => AnimHashes.Count() > 1;
 
     public void Serialize(BinaryWriter writer)
@@ -45,13 +48,16 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 		writer.Write(NetId);
 		writer.Write(TimeStamp);
 		writer.Write((int)Mode);
-		writer.Write(Speed);
-		writer.Write(TimeOffset);
-		writer.Write(IsQueue);
+			writer.Write(Speed);
+			writer.Write(TimeOffset);
+			writer.Write(IsQueue);
 
-		writer.Write(AnimHashes.Count());
-		foreach (var hashedString in AnimHashes)
-			writer.Write(hashedString.hash);
+			writer.Write(AnimHashes.Count());
+			foreach (var hashedString in AnimHashes)
+				writer.Write(hashedString.hash);
+	#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+	#endif
 	}
 
 	public void Deserialize(BinaryReader reader)
@@ -61,16 +67,19 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 		NetId = reader.ReadInt32();
 		TimeStamp = reader.ReadInt64();
 		Mode = (KAnim.PlayMode)reader.ReadInt32();
-		Speed = reader.ReadSingle();
-		TimeOffset = reader.ReadSingle();
-		IsQueue = reader.ReadBoolean();
+			Speed = reader.ReadSingle();
+			TimeOffset = reader.ReadSingle();
+			IsQueue = reader.ReadBoolean();
 
-		int count = reader.ReadInt32();
-		if (count < 0 || count > MaxAnimCount)
-			throw new InvalidDataException($"Invalid animation count: {count}");
-		AnimHashes = new HashedString[count];
-		for (int i = 0; i < count; i++)
-			AnimHashes[i] = new HashedString(reader.ReadInt32());
+			int count = reader.ReadInt32();
+			if (count < 0 || count > MaxAnimCount)
+				throw new InvalidDataException($"Invalid animation count: {count}");
+			AnimHashes = new HashedString[count];
+			for (int i = 0; i < count; i++)
+				AnimHashes[i] = new HashedString(reader.ReadInt32());
+	#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+	#endif
 	}
 
 	private static readonly Dictionary<int, long> LastIdUpdates = [];
@@ -89,29 +98,44 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 
 	public void OnDispatched()
 	{
+#if DEBUG
+		if (!string.IsNullOrEmpty(ScenarioActionProfile))
+		{
+			if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "animation"))
+				AnimationActionFlow.ExecuteClient(this);
+			return;
+		}
+		ApplyRuntimePacket();
+#else
+		ApplyRuntimePacket();
+#endif
+	}
+
+	internal bool ApplyRuntimePacket()
+	{
 		using var _ = Profiler.Scope();
 
 		if (MultiplayerSession.IsHost)
-			return;
+			return false;
 
 		if (!NetworkIdentityRegistry.TryGet(NetId, out var go))
-			return;
+			return false;
 
 		// Keep the last event time per entity so older anim packets cannot rewind newer state.
 		if (LastIdUpdates.TryGetValue(NetId, out var lastTimeStamp) && lastTimeStamp > TimeStamp)
-			return;
+			return false;
 		LastIdUpdates[NetId] = TimeStamp;
 
 
 		if (!AnimHashes.Any())
 		{
 			DebugConsole.LogWarning("emtpy anim list dispatched for " + go.name);
-			return;
+			return false;
 		}
 
 		// Direct animation control for non-duplicant entities.
 		if (!go.TryGetComponent(out KBatchedAnimController kbac))
-			return;
+			return false;
 
 		if (MultipleAnims)
 		{
@@ -157,7 +181,41 @@ public class PlayAnimPacket : IPacket, Shared.Interfaces.Networking.IHostOnlyPac
 		if (go.TryGetComponent<AnimStateSyncer>(out var syncer))
 			syncer.MarkSnapshotReceived();
 		// Force updates for animation to tick properly
+		return true;
 	}
+
+#if DEBUG
+	private void LogClientEvidence(GameObject target, KBatchedAnimController controller)
+	{
+		long revision = TimeStamp > 0 ? TimeStamp : 1;
+		TypedEvidenceEnvelope evidence = CreateEvidence(
+			"client-apply", revision, target, controller,
+			"sync:f60e38b805c1052cff0fec0d");
+		IntegrationScenarioEvidenceCore.Log(evidence);
+		IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+			"final-state", revision, target, controller,
+			"sync:f60e38b805c1052cff0fec0d"));
+	}
+
+	internal static TypedEvidenceEnvelope CreateEvidence(
+		string phase, long revision, GameObject target,
+		KBatchedAnimController controller, string entryId)
+		=> TypedEvidenceRuntimeContext.Create(
+			"animation", phase, revision,
+			new AnimationTarget
+			{
+				MinionNetId = target.GetComponent<NetworkIdentity>()?.NetId ?? 0,
+				TargetNetId = 0,
+				TargetCell = Grid.PosToCell(target),
+			},
+			new AnimationState
+			{
+				Action = "Working",
+				Animation = controller.currentAnim.ToString(),
+				Tool = "None",
+				Progress = 0d,
+			}, entryId);
+#endif
 
 	private void ForceAnimUpdate(KBatchedAnimController kbac)
 	{

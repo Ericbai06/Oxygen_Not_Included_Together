@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.DLC.Frosty;
@@ -258,6 +259,13 @@ namespace ONI_Together.Patches.DLC.Frosty
 
 		internal static bool Prefix(GeothermalController.StatesInstance __instance)
 		{
+#if DEBUG
+			string dlcFamily = null;
+			IFaultInputMutation mutation = ProductionFaultInputGates.FrostyFamily(
+				ref dlcFamily);
+			FaultInjectionUnitySeams.EmitReceipt(
+				mutation, runtimeTarget: __instance);
+#endif
 			if (FrostySyncGuard.IsApplying || !MultiplayerSession.InSession || MultiplayerSession.IsHost)
 				return true;
 			GeothermalControllerSync.SendButtonRequest(__instance);

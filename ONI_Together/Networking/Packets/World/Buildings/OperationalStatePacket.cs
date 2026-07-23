@@ -87,14 +87,14 @@ namespace ONI_Together.Networking.Packets.World.Buildings
 				return;
 
 			ulong current = NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
-			if (!ShouldApplyLifecycle(
+			bool exists = NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity entity);
+			if (!NetworkIdentityRegistry.CanApplyDomainState(
+				    exists, exists && NetworkIdentityRegistry.IsRegistered(entity, NetId),
 				    current, NetworkIdentityRegistry.IsLifecycleTombstoned(NetId),
 				    LifecycleRevision)
 			    || !NetworkIdentityRegistry.IsNewerRevision(
 				    NetworkIdentityRegistry.GetLastStateRevision(NetId, RevisionDomain), Revision)
-			    || !NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity entity)
-			    || entity.LifecycleRevision != LifecycleRevision
-			    || !NetworkIdentityRegistry.IsRegistered(entity, NetId))
+			    || entity.LifecycleRevision != LifecycleRevision)
 				return;
 			if (!entity.TryGetComponent<ClientReceiver_Operational>(out var client))
 				return;

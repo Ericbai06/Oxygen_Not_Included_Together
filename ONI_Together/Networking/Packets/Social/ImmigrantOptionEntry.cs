@@ -299,6 +299,13 @@ namespace ONI_Together.Networking.Packets.Social
 			{
 				Db db = Db.Get();
 				var personality = Db.Get().Personalities.TryGet(PersonalityId);
+#if DEBUG
+				IFaultInputMutation fault = ProductionFaultInputGates.MissingPersonality(
+					ref personality);
+				FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: this);
+				if (personality == null && fault.Applied)
+					return null;
+#endif
 				if (personality == null)
 					personality = db.Personalities.resources.First();
 

@@ -68,7 +68,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		[UnitTest(name: "Ready replay sends every batch before one application proof", category: "Networking")]
+		[UnitTest(name: "Ready replay sends every batch before one application proof",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls GameClient world-load ECall")]
 		public static UnitTestResult ReadyReplayUsesOneFinalApplicationProof()
 			=> Run(ReplayScenario.Success);
 
@@ -140,11 +142,15 @@ namespace ONI_Together.DebugTools.UnitTests
 				: UnitTestResult.Fail("Ready replay batch id is not a strict UInt64 wire value");
 		}
 
-		[UnitTest(name: "Ready replay holds an early commit until its missing batch arrives", category: "Networking")]
+		[UnitTest(name: "Ready replay holds an early commit until its missing batch arrives",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls GameClient world-load ECall")]
 		public static UnitTestResult ReadyReplayCompletesAfterMissingBatchArrives()
 			=> Run(ReplayScenario.MissingBatch);
 
-		[UnitTest(name: "Ready replay rejects stale batches", category: "Networking")]
+		[UnitTest(name: "Ready replay rejects stale batches",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls GameClient world-load ECall")]
 		public static UnitTestResult ReadyReplayRejectsStaleBatches()
 		{
 			UnitTestResult staleGeneration = Run(ReplayScenario.StaleGeneration);
@@ -153,7 +159,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			return Run(ReplayScenario.StaleReplay);
 		}
 
-		[UnitTest(name: "Ready replay application exception withholds final proof", category: "Networking")]
+		[UnitTest(name: "Ready replay application exception withholds final proof",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls GameClient world-load ECall")]
 		public static UnitTestResult ReadyReplayRejectsApplicationFailure()
 			=> Run(ReplayScenario.ApplyFailure);
 

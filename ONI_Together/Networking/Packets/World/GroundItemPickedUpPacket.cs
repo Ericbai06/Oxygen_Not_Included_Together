@@ -19,6 +19,9 @@ namespace ONI_Together.Networking.Packets.World
 
 		public int NetId;
 		public ulong Revision;
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		public GroundItemPickedUpPacket()
 		{
@@ -36,6 +39,9 @@ namespace ONI_Together.Networking.Packets.World
 			ValidateWire();
 			writer.Write(NetId);
 			writer.Write(Revision);
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void Deserialize(BinaryReader reader)
@@ -43,56 +49,99 @@ namespace ONI_Together.Networking.Packets.World
 			using var _ = Profiler.Scope();
 			NetId = reader.ReadInt32();
 			Revision = reader.ReadUInt64();
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 			ValidateWire();
 		}
 
 		public void OnDispatched()
 		{
-			using var _ = Profiler.Scope();
-			DispatchContext context = PacketHandler.CurrentContext;
-			if (MultiplayerSession.IsHost || !context.SenderIsHost
-			    || !PacketHandler.IsCurrentDispatchContext(context))
-				return;
-			ulong current = NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
 #if DEBUG
-			string phase = Revision > current ? "revision-accepted"
-				: Revision == current ? "revision-duplicate" : "revision-out-of-order";
-			IntegrationScenarioEvidenceCore.Log(
-				"pickup", phase, (long)Revision, Revision > current, CanonicalState(NetId));
-#endif
-			if (!NetworkIdentityRegistry.TryAcceptLifecycleRevision(
-				    NetId, Revision, tombstone: true))
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "pickup"))
+					PickupActionFlow.ExecutePickupClient(this);
 				return;
+			}
+#endif
+				DispatchContext context = PacketHandler.CurrentContext;
+				if (!CanApplyRuntimePacket(context)
+				    || !NetworkIdentityRegistry.TryAcceptLifecycleRevision(
+					    NetId, Revision, tombstone: true))
+					return;
+				ApplyRuntimePacket(lifecycleAccepted: true);
+			}
+
+			internal bool ApplyRuntimePacket(bool lifecycleAccepted = false)
+			{
+				using var _ = Profiler.Scope();
+				DispatchContext context = PacketHandler.CurrentContext;
+				if (!CanApplyRuntimePacket(context))
+					return false;
+				if (!lifecycleAccepted
+				    && !NetworkIdentityRegistry.TryAcceptLifecycleRevision(
+					    NetId, Revision, tombstone: true))
+					return false;
 			StorageItemPacket.CancelPending(NetId);
 			SpawnPrefabPacket.CancelPendingBinding(NetId);
 			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
 			{
 				StorePending(NetId, Revision, Time.realtimeSinceStartup);
-				return;
+				return false;
 			}
-			if (ShouldRemoveResolved(identity.LifecycleRevision, Revision)
-			    && identity.GetComponent<Pickupable>() != null)
-				Util.KDestroyGameObject(identity.gameObject);
-#if DEBUG
-			IntegrationScenarioEvidenceCore.Log(
-				"pickup", "client-apply", (long)Revision, true, CanonicalState(NetId));
-			IntegrationScenarioEvidenceCore.Log(
-				"pickup", "final-state", (long)Revision, true, CanonicalState(NetId));
-#endif
+			if (!ApplyResolvedPickup(identity, Revision))
+				return false;
+			return true;
 		}
 
-		internal void LogHostOutcome()
+		private static bool CanApplyRuntimePacket(DispatchContext context)
+			=> !MultiplayerSession.IsHost && context.SenderIsHost
+			   && PacketHandler.IsCurrentDispatchContext(context);
+
+		internal static bool ApplyResolvedPickup(
+			NetworkIdentity identity, ulong revision)
+		{
+			if (identity == null || identity.IsNullOrDestroyed()
+			    || !ShouldRemoveResolved(identity.LifecycleRevision, revision)
+			    || identity.GetComponent<Pickupable>() == null)
+				return false;
+			Util.KDestroyGameObject(identity.gameObject);
+			return true;
+		}
+
+		internal void LogHostOutcome(string entryId)
 		{
 #if DEBUG
-			IntegrationScenarioEvidenceCore.Log(
-				"pickup", "host-submit", (long)Revision, true, CanonicalState(NetId));
-			IntegrationScenarioEvidenceCore.Log(
-				"pickup", "final-state", (long)Revision, true, CanonicalState(NetId));
+			LogEvidence("host-submit", entryId);
+			LogEvidence("final-state", entryId);
 #endif
 		}
 
 		internal static string CanonicalState(int netId)
 			=> netId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":removed";
+
+#if DEBUG
+		private void LogEvidence(string phase, string entryId)
+		{
+			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
+				return;
+			int targetCell = Grid.PosToCell(identity.gameObject);
+			if (!Grid.IsValidCell(targetCell))
+				return;
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				phase, (long)Revision, NetId, targetCell, entryId));
+		}
+
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, int itemNetId, int targetCell, string entryId)
+		{
+			return TypedEvidenceRuntimeContext.Create(
+				"pickup", phase, revision,
+				new PickupTarget { ItemNetId = itemNetId, TargetCell = targetCell },
+				new PickupState { Action = "picked-up", Tombstone = true }, entryId);
+		}
+#endif
 
 		internal static bool ShouldRemoveResolved(
 			ulong entityRevision, ulong tombstoneRevision)
@@ -114,6 +163,7 @@ namespace ONI_Together.Networking.Packets.World
 					PendingPickups.Remove(entry.Key);
 				return true;
 			}
+
 			return false;
 		}
 

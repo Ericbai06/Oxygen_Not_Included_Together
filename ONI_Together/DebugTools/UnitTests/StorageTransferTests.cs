@@ -101,7 +101,8 @@ public static class StorageTransferTests
 			"Every delivered item replays storage disease before exact item state");
 	}
 
-	[UnitTest(name: "Storage snapshot: preserves live item identity", category: "Networking")]
+	[UnitTest(name: "Storage snapshot: preserves live item identity", category: "Networking",
+		headlessUnsupportedReason: "Requires selected non-empty storage building")]
 	public static UnitTestResult SnapshotPreservesLiveItemIdentity()
 	{
 		Storage storage = SelectTool.Instance?.selected?.GetComponent<Storage>();

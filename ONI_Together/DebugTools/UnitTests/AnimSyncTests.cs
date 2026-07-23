@@ -34,7 +34,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		[UnitTest(name: "Anim reconciliation: detects wrong animation", category: "Animation", liveSafe: true)]
+		[UnitTest(name: "Anim reconciliation: detects wrong animation", category: "Animation", liveSafe: true,
+			headlessUnsupportedReason: "Requires a loaded colony with a duplicant")]
 		public static UnitTestResult DetectsWrongAnimation()
 		{
 			var identities = NetworkIdentityRegistry.AllIdentities;
@@ -63,7 +64,8 @@ namespace ONI_Together.DebugTools.UnitTests
 				: UnitTestResult.Fail("No minions with anim controller found");
 		}
 
-		[UnitTest(name: "Anim reconciliation: elapsed time readable", category: "Animation", liveSafe: true)]
+		[UnitTest(name: "Anim reconciliation: elapsed time readable", category: "Animation", liveSafe: true,
+			headlessUnsupportedReason: "Requires a loaded colony with a duplicant")]
 		public static UnitTestResult ElapsedTimeReadable()
 		{
 			var identities = NetworkIdentityRegistry.AllIdentities;
@@ -82,7 +84,8 @@ namespace ONI_Together.DebugTools.UnitTests
 				: UnitTestResult.Fail("No minions found");
 		}
 
-		[UnitTest(name: "Anim reconciliation: reflection helper resolves", category: "Animation")]
+		[UnitTest(name: "Anim reconciliation: reflection helper resolves", category: "Animation",
+			headlessUnsupportedReason: "Requires a loaded colony with animated entities")]
 		public static UnitTestResult ReflectionHelperResolves()
 		{
 			var identities = NetworkIdentityRegistry.AllIdentities;
@@ -294,7 +297,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("AnimStateSyncer relies on the shared coordinator");
 		}
 
-		[UnitTest(name: "Anim sync: non-minion entities discoverable", category: "Animation", liveSafe: true)]
+		[UnitTest(name: "Anim sync: non-minion entities discoverable", category: "Animation", liveSafe: true,
+			headlessUnsupportedReason: "Requires a loaded colony with animated entities")]
 		public static UnitTestResult NonMinionAnimEntitiesDiscoverable()
 		{
 			var identities = NetworkIdentityRegistry.AllIdentities;

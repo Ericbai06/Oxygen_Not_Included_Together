@@ -145,7 +145,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Loading and Ready are bound to the current snapshot generation");
 		}
 
-		[UnitTest(name: "LAN reconnect tokens map concurrent loaders exactly", category: "Sync")]
+			[UnitTest(name: "LAN reconnect tokens map concurrent loaders exactly",
+				category: "Sync",
+				headlessUnsupportedReason: "Touches Unity Time through RiptideServer")]
 		public static UnitTestResult ReconnectTokensMapExactClients()
 		{
 			var server = new RiptideServer();

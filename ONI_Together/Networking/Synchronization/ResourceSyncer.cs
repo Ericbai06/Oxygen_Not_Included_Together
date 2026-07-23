@@ -27,8 +27,30 @@ namespace ONI_Together.Networking.Synchronization
 
 			if (Time.time - _lastSendTime < SYNC_INTERVAL) return;
 
-			var world = ClusterManager.Instance.activeWorld;
-			if (world == null) return;
+			if (!PublishImmediateSnapshot()) return;
+			_lastSendTime = Time.time;
+		}
+
+		internal static bool PublishImmediateSnapshot()
+		{
+			ResourceCountPacket packet = CreateSnapshot();
+			if (packet == null) return false;
+			PacketSender.SendToAllClients(packet, PacketSendMode.Reliable);
+#if DEBUG
+			IntegrationScenarioEvidenceCore.Log(ResourceCountPacket.CreateEvidence(
+				"host-submit", (long)packet.Revision, packet.Resources,
+				"sync:caf3257322aa8047f6dea261"));
+			IntegrationScenarioEvidenceCore.Log(ResourceCountPacket.CreateEvidence(
+				"final-state", (long)packet.Revision, packet.Resources,
+				"sync:caf3257322aa8047f6dea261"));
+#endif
+			return true;
+		}
+
+		internal static ResourceCountPacket CreateSnapshot()
+		{
+			var world = ClusterManager.Instance?.activeWorld;
+			if (world == null) return null;
 
 			// Scan discovered resources
 			// Assuming we want to sync EVERYTHING discovered.
@@ -39,7 +61,7 @@ namespace ONI_Together.Networking.Synchronization
 			// DiscoveredResources.Instance.GetDiscovered() returns a set of Tag.
 
 			var discovered = DiscoveredResources.Instance;
-			if (discovered == null) return;
+			if (discovered == null) return null;
 
 			// Access private keys? Or iterate all known Element/Item tags?
 			// Simpler: Access Assets.GetPrefabsWithTag?
@@ -66,16 +88,7 @@ namespace ONI_Together.Networking.Synchronization
 				}
 			}
 
-			PacketSender.SendToAllClients(packet, PacketSendMode.Reliable);
-#if DEBUG
-			string state = ResourceCountPacket.CanonicalState(packet.Resources);
-			IntegrationScenarioEvidenceCore.Log(
-				"inventory", "host-submit", (long)packet.Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				"inventory", "final-state", (long)packet.Revision, true, state);
-#endif
-
-			_lastSendTime = Time.time;
+			return packet;
 		}
 	}
 
@@ -93,9 +106,9 @@ namespace ONI_Together.Networking.Synchronization
 			{
 				__result = val;
 #if DEBUG
-				IntegrationScenarioEvidenceCore.Log(
-					"inventory", "client-original-blocked", 0, false,
-					ResourceCountPacket.CanonicalState(ResourceSyncer.ClientResources));
+				IntegrationScenarioEvidenceCore.Log(ResourceCountPacket.CreateEvidence(
+					"client-original-blocked", 0, ResourceSyncer.ClientResources,
+					"sync:76d30e1998555570f7e8d547"));
 #endif
 				return false; // Skip original method
 			}

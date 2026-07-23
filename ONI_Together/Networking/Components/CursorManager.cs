@@ -20,6 +20,24 @@ namespace ONI_Together.Networking.Components
 			public int MaxY;
 		}
 
+		internal static bool TryNormalizeViewport(
+			CursorViewport candidate, out CursorViewport normalized)
+		{
+			normalized = candidate;
+			if (!FitsInt16(candidate.MinX) || !FitsInt16(candidate.MinY)
+				|| !FitsInt16(candidate.MaxX) || !FitsInt16(candidate.MaxY))
+				return false;
+
+			normalized.MinX = System.Math.Min(candidate.MinX, candidate.MaxX);
+			normalized.MinY = System.Math.Min(candidate.MinY, candidate.MaxY);
+			normalized.MaxX = System.Math.Max(candidate.MinX, candidate.MaxX);
+			normalized.MaxY = System.Math.Max(candidate.MinY, candidate.MaxY);
+			return true;
+		}
+
+		private static bool FitsInt16(int value)
+			=> value >= short.MinValue && value <= short.MaxValue;
+
 		public static CursorManager Instance { get; private set; }
 
 		public static float SendInterval = 0.1f;
@@ -123,6 +141,18 @@ namespace ONI_Together.Networking.Components
 				maxX = x2; maxY = y2;
 			}
 
+			var viewportCandidate = new CursorViewport
+			{
+				CursorCell = Grid.PosToCell(cursorWorldPos),
+				Width = Grid.WidthInCells,
+				MinX = minX,
+				MinY = minY,
+				MaxX = maxX,
+				MaxY = maxY,
+			};
+			if (!TryNormalizeViewport(viewportCandidate, out CursorViewport viewport))
+				return;
+
 			var interfaceTool = PlayerController.Instance.ActiveTool;
             
 			// Building visualizer
@@ -150,15 +180,6 @@ namespace ONI_Together.Networking.Components
 					buildToolPrefabId = utilityBuildTool.def.PrefabID;
 					allowedToPlaceBuilding = utilityBuildTool.CheckValidPathPiece(Grid.PosToCell(cursorWorldPos));
 
-					var viewport = new CursorViewport
-					{
-						CursorCell = Grid.PosToCell(cursorWorldPos),
-						Width = Grid.WidthInCells,
-						MinX = minX,
-						MinY = minY,
-						MaxX = maxX,
-						MaxY = maxY,
-					};
 					List<BaseUtilityBuildTool.PathNode> viewportPath =
 						SelectViewportPath(utilityBuildTool.path, viewport);
 					utilityPathData = BuildingUtils.EncodeUtilityPath(viewportPath);
@@ -203,10 +224,10 @@ namespace ONI_Together.Networking.Components
 				Position = cursorWorldPos,
 				Color = color,
 				CursorState = cursorState,
-				ViewMinX = minX,
-				ViewMinY = minY,
-				ViewMaxX = maxX,
-				ViewMaxY = maxY,
+				ViewMinX = viewport.MinX,
+				ViewMinY = viewport.MinY,
+				ViewMaxX = viewport.MaxX,
+				ViewMaxY = viewport.MaxY,
 				
 				BuildingPrefabId = buildToolPrefabId,
 				BuildingOrientation = buildingOrientation,

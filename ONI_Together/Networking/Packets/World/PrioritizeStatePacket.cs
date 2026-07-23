@@ -171,6 +171,7 @@ namespace ONI_Together.Networking.Packets.World
 			    || !NetworkIdentityRegistry.IsRegistered(identity, priority.NetId)
 			    || !identity.TryGetComponent(out Prioritizable prioritizable))
 				return false;
+			ulong baseRevision = GetClientRevision(priority.NetId, lifecycle);
 			if (!ShouldAcceptClientRevision(priority.NetId, lifecycle, priority.StateRevision))
 				return false;
 
@@ -184,7 +185,7 @@ namespace ONI_Together.Networking.Packets.World
 				StateRevision = priority.StateRevision
 			};
 #if DEBUG
-			LogAppliedPriorityEvidence(priority);
+			LogAppliedPriorityEvidence(priority, baseRevision);
 #endif
 			return true;
 		}
@@ -303,7 +304,8 @@ namespace ONI_Together.Networking.Packets.World
 			    }, out PrioritizeStatePacket packet))
 			{
 #if DEBUG
-				LogHostPriorityEvidence(packet.Priorities[0]);
+				LogHostPriorityEvidence(
+					packet.Priorities[0], "sync:f307ba1296c754fb5bffc5b1");
 #endif
 				SendToViewingClients(identity, packet, 0);
 			}
@@ -327,7 +329,8 @@ namespace ONI_Together.Networking.Packets.World
 			    }, out PrioritizeStatePacket ack))
 				return false;
 #if DEBUG
-			LogHostPriorityEvidence(ack.Priorities[0]);
+			LogHostPriorityEvidence(
+				ack.Priorities[0], "sync:d9befe16f0438ee10c4e871f");
 #endif
 			PacketSender.SendToPlayer(request.Receipt.SenderId, ack);
 			PrioritizeStatePacket outcome = CreatePacket(request.Identity, new PacketBuildContext
@@ -340,33 +343,60 @@ namespace ONI_Together.Networking.Packets.World
 		}
 
 #if DEBUG
-		private static string GetPriorityEvidenceState(PriorityData priority)
-			=> "net=" + priority.NetId + "|life=" + priority.LifecycleRevision
-			   + "|class=" + priority.PriorityClass + "|value=" + priority.PriorityValue;
-
-		private static void LogHostPriorityEvidence(PriorityData priority)
+		private static void LogHostPriorityEvidence(PriorityData priority, string entryId)
 		{
-			string state = GetPriorityEvidenceState(priority);
-			long revision = (long)priority.StateRevision;
-			IntegrationScenarioEvidenceCore.Log("priority", "host-submit", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("priority", "final-state", revision, true, state);
+			ulong baseRevision = priority.StateRevision - 1;
+			LogPriorityEvidence(priority, baseRevision, "host-submit", priority.StateRevision, entryId);
+			LogPriorityEvidence(priority, baseRevision, "final-state", priority.StateRevision, entryId);
 		}
 
-		private static void LogAppliedPriorityEvidence(PriorityData priority)
+		private static void LogAppliedPriorityEvidence(PriorityData priority, ulong baseRevision)
 		{
-			string state = GetPriorityEvidenceState(priority);
-			long revision = (long)priority.StateRevision;
-			IntegrationScenarioEvidenceCore.Log("priority", "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("priority", "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("priority", "final-state", revision, true, state);
+			const string entryId = "sync:f60e38b805c1052cff0fec0d";
+			LogPriorityEvidence(priority, baseRevision, "revision-accepted", priority.StateRevision, entryId);
+			LogPriorityEvidence(priority, baseRevision, "client-apply", priority.StateRevision, entryId);
+			LogPriorityEvidence(priority, baseRevision, "final-state", priority.StateRevision, entryId);
 			if (!ShouldAcceptClientRevision(priority.NetId, priority.LifecycleRevision,
 				    priority.StateRevision))
-				IntegrationScenarioEvidenceCore.Log(
-					"priority", "revision-duplicate", revision, false, state);
+				LogPriorityEvidence(
+					priority, baseRevision, "revision-duplicate", priority.StateRevision, entryId);
 			ulong older = priority.StateRevision - 1;
 			if (!ShouldAcceptClientRevision(priority.NetId, priority.LifecycleRevision, older))
-				IntegrationScenarioEvidenceCore.Log(
-					"priority", "revision-out-of-order", (long)older, false, state);
+				LogPriorityEvidence(priority, baseRevision, "revision-out-of-order", older, entryId);
+		}
+
+		internal static void LogBlockedPriorityEvidence(
+			PrioritizeTargetRequestPacket request, string entryId)
+		{
+			var priority = new PriorityData
+			{
+				NetId = request.NetId,
+				LifecycleRevision = request.TargetLifecycleRevision,
+				StateRevision = request.BasePriorityRevision,
+				PriorityClass = request.PriorityClass,
+				PriorityValue = request.PriorityValue,
+			};
+			LogPriorityEvidence(
+				priority, request.BasePriorityRevision, "client-original-blocked",
+				request.BasePriorityRevision, entryId);
+		}
+
+		private static void LogPriorityEvidence(
+			PriorityData priority, ulong baseRevision, string phase,
+			ulong revision, string entryId)
+		{
+			IntegrationScenarioEvidenceCore.Log(
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "priority", phase: phase, revision: (long)revision,
+					target: new PriorityTarget { TargetNetId = priority.NetId },
+					state: new PriorityState
+					{
+						LifecycleRevision = (long)priority.LifecycleRevision,
+						BaseRevision = (long)baseRevision,
+						StateRevision = (long)priority.StateRevision,
+						Priority = priority.PriorityValue,
+					},
+					entryId: entryId));
 		}
 #endif
 

@@ -233,7 +233,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("World chunk dimensions are validated before array allocation");
 		}
 
-		[UnitTest(name: "Bounded compressed packets preserve valid payloads", category: "Networking")]
+		[UnitTest(name: "Bounded compressed packets preserve valid payloads", category: "Networking",
+			headlessUnsupportedReason: "Requires initialized world grid")]
 		public static UnitTestResult CompressedPacketRoundTrips()
 		{
 			if (!SnapshotWireBoundsTests.TryGetValidCell(out int cell))

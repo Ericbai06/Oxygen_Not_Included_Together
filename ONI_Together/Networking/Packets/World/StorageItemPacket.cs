@@ -33,6 +33,11 @@ namespace ONI_Together.Networking.Packets.World
 		public float ElementTemperature;
 		public byte ElementDiseaseIdx;
 		public int ElementDiseaseCount;
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+		internal int ScenarioActionItemNetId;
+		internal int ScenarioActionTargetCell;
+#endif
 
         public int MaxPackSize => 500;
 
@@ -106,6 +111,11 @@ namespace ONI_Together.Networking.Packets.World
 				writer.Write(ElementDiseaseIdx);
 				writer.Write(ElementDiseaseCount);
 			}
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+			writer.Write(ScenarioActionItemNetId);
+			writer.Write(ScenarioActionTargetCell);
+#endif
         }
 
         public void Deserialize(BinaryReader reader)
@@ -127,6 +137,14 @@ namespace ONI_Together.Networking.Packets.World
 				ElementDiseaseIdx = reader.ReadByte();
 				ElementDiseaseCount = reader.ReadInt32();
 			}
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+			ScenarioActionItemNetId = reader.ReadInt32();
+			ScenarioActionTargetCell = reader.ReadInt32();
+			if (!string.IsNullOrEmpty(ScenarioActionProfile)
+			    && (ScenarioActionItemNetId == 0 || ScenarioActionTargetCell <= 0))
+				throw new InvalidDataException("Invalid scenario action storage target");
+#endif
 			if (StorageNetId == 0 || Revision == 0 || Revision > long.MaxValue
                 || (FxPrefix != FXPrefix.Delivered && FxPrefix != FXPrefix.PickedUp)
 				|| !FiniteNonNegative(ConsumedAmount)
@@ -136,72 +154,86 @@ namespace ONI_Together.Networking.Packets.World
         }
 
         public void OnDispatched()
-        {
-            using var _ = Profiler.Scope();
+		{
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "pickup"))
+					PickupActionFlow.ExecuteStorageClient(this);
+				return;
+			}
+#endif
+				if (NetId != 0 && !ShouldApplyRevision(
+					    NetworkIdentityRegistry.GetLastStorageSnapshotRevision(StorageNetId),
+					    NetworkIdentityRegistry.GetLastStorageItemRevision(NetId),
+					    NetworkIdentityRegistry.GetLastLifecycleRevision(NetId),
+					    NetworkIdentityRegistry.GetLastLifecycleRevision(StorageNetId),
+					    Revision))
+					return;
+				ApplyRuntimePacket();
+			}
 
-            // FX Only
-            if (NetId == 0)
-            {
-                if (!NetworkIdentityRegistry.TryGetComponent<Storage>(StorageNetId, out var container))
-                    return;
+		internal bool ApplyRuntimePacket()
+		{
+			using var _ = Profiler.Scope();
+			if (NetId == 0)
+			{
+				if (!NetworkIdentityRegistry.TryGetComponent<Storage>(
+					    StorageNetId, out var container))
+					return false;
+				if (PopFXManager.Instance != null && ConsumedPrefabHash != 0)
+					DisplayFX(null, container);
+				return true;
+			}
 
-                if (PopFXManager.Instance != null && ConsumedPrefabHash != 0)
-                {
-                    DisplayFX(null, container); // FX Only
-                }
-                return;
-            }
-
-			ulong current = CurrentRevisionBaseline();
-			if (!ShouldApplyRevision(
+			if (!CanApplyResolvedTransfer(true, true, true, ConsumedAmount)
+			    || !ShouldApplyRevision(
 				    NetworkIdentityRegistry.GetLastStorageSnapshotRevision(StorageNetId),
 				    NetworkIdentityRegistry.GetLastStorageItemRevision(NetId),
 				    NetworkIdentityRegistry.GetLastLifecycleRevision(NetId),
 				    NetworkIdentityRegistry.GetLastLifecycleRevision(StorageNetId), Revision))
+				return false;
+			if (!NetworkIdentityRegistry.TryAcceptStorageTransferRevision(
+				    StorageNetId, NetId, Revision))
+				return false;
+			if (!NetworkIdentityRegistry.TryGetComponent<Pickupable>(
+				    NetId, out var pickupable))
 			{
-				LogRevisionOutcome(current, applied: false);
-				return;
+				UpdatePendingTransfer();
+				return false;
 			}
-			if (!NetworkIdentityRegistry.TryAcceptStorageTransferRevision(StorageNetId, NetId, Revision))
-				return;
-			LogRevisionOutcome(current, applied: true);
+			if (!NetworkIdentityRegistry.TryGetComponent<Storage>(
+				    StorageNetId, out var storage))
+			{
+				UpdatePendingTransfer();
+				return false;
+			}
+			return ApplyTransfer(pickupable.gameObject, storage);
+		}
 
-            if (!NetworkIdentityRegistry.TryGetComponent<Pickupable>(NetId, out var pickupable))
-            {
-                if (FxPrefix == FXPrefix.Delivered)
-                    PendingTransfers[NetId] = this;
-				else
-					PendingTransfers.Remove(NetId);
-                DebugConsole.LogWarning($"[StoreItemPacket] Pickupable NetId {NetId} not yet registered");
-                return;
-            }
-
-            if (!NetworkIdentityRegistry.TryGetComponent<Storage>(StorageNetId, out var storage))
-            {
-                if (FxPrefix == FXPrefix.Delivered)
-                    PendingTransfers[NetId] = this;
-				else
-					PendingTransfers.Remove(NetId);
-                DebugConsole.LogWarning($"[StoreItemPacket] No storage found with NetID: {StorageNetId}");
-                return;
-            }
-
-            ApplyTransfer(pickupable.gameObject, storage);
-        }
-
-		private void ApplyTransfer(GameObject item, Storage storage)
+		private void UpdatePendingTransfer()
 		{
-            if (item == null || storage == null)
-                return;
-			if (!NetworkIdentityRegistry.IsCurrentStorageTransferRevision(StorageNetId, NetId, Revision))
-				return;
+			if (FxPrefix == FXPrefix.Delivered)
+				PendingTransfers[NetId] = this;
+			else
+				PendingTransfers.Remove(NetId);
+		}
 
+		private bool ApplyTransfer(GameObject item, Storage storage)
+		{
+			bool membershipMatches = item != null && storage != null
+				&& (FxPrefix == FXPrefix.Delivered || storage.items.Contains(item));
+			if (!CanApplyResolvedTransfer(
+				    storage != null, item != null, membershipMatches, ConsumedAmount)
+			    || !NetworkIdentityRegistry.IsCurrentStorageTransferRevision(
+				    StorageNetId, NetId, Revision))
+				return false;
 			Pickupable pickupable = item.GetComponent<Pickupable>();
 			if (FxPrefix == FXPrefix.Delivered)
 			{
 				if (!TryStoreDeliveredItem(
 					    item, storage, pickupable, out GameObject authoritativeItem))
-					return;
+					return false;
 				if (ShouldReplayDiseaseTransfer(FxPrefix, DoDiseaseTransfer))
 					HandleDiseaseTransfer(authoritativeItem, storage);
 				ApplyAuthoritativeElementState(authoritativeItem);
@@ -211,13 +243,9 @@ namespace ONI_Together.Networking.Packets.World
 				storage.Remove(item, do_disease_transfer: false);
 				pickupable?.RemovedFromStorage();
 			}
-
 			DisplayFX(item, storage);
-#if DEBUG
-			string state = CanonicalState();
-			IntegrationScenarioEvidenceCore.Log("storage", "client-apply", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("storage", "final-state", (long)Revision, true, state);
-#endif
+			return FxPrefix == FXPrefix.Delivered
+				? storage.items.Contains(item) : !storage.items.Contains(item);
 		}
 
 		private ulong CurrentRevisionBaseline()
@@ -232,17 +260,16 @@ namespace ONI_Together.Networking.Packets.World
 #if DEBUG
 			string phase = Revision > current ? "revision-accepted"
 				: Revision == current ? "revision-duplicate" : "revision-out-of-order";
-			IntegrationScenarioEvidenceCore.Log(
-				"storage", phase, (long)Revision, applied, CanonicalState());
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				phase, "sync:adfe1e0d81e9aa76d6424f1a"));
 #endif
 		}
 
-		internal void LogHostOutcome()
+		internal void LogHostOutcome(string entryId)
 		{
 #if DEBUG
-			string state = CanonicalState();
-			IntegrationScenarioEvidenceCore.Log("storage", "host-submit", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("storage", "final-state", (long)Revision, true, state);
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence("host-submit", entryId));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence("final-state", entryId));
 #endif
 		}
 
@@ -250,6 +277,22 @@ namespace ONI_Together.Networking.Packets.World
 			=> StorageNetId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":"
 			   + NetId.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":present="
 			   + (FxPrefix == FXPrefix.Delivered ? "1" : "0");
+
+#if DEBUG
+		internal TypedEvidenceEnvelope CreateEvidence(string phase, string entryId)
+			=> CreateEvidence(phase, (long)Revision, StorageNetId, NetId,
+				FxPrefix == FXPrefix.Delivered, ConsumedAmount, entryId);
+
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, int storageNetId, int itemNetId,
+			bool membership, float amount, string entryId)
+		{
+			return TypedEvidenceRuntimeContext.Create(
+				"storage", phase, revision,
+				new StorageTarget { StorageNetId = storageNetId, ItemNetId = itemNetId },
+				new StorageState { Membership = membership, Amount = amount }, entryId);
+		}
+#endif
 
 		private bool TryStoreDeliveredItem(
 			GameObject item, Storage storage, Pickupable pickupable,
@@ -318,6 +361,11 @@ namespace ONI_Together.Networking.Packets.World
 			       && incomingRevision > lastItemLifecycleRevision
 			       && incomingRevision > lastStorageLifecycleRevision;
 		}
+
+		internal static bool CanApplyResolvedTransfer(
+			bool storageResolved, bool itemResolved, bool membershipMatches, float amount)
+			=> storageResolved && itemResolved && membershipMatches
+			   && amount > 0f && !float.IsNaN(amount) && !float.IsInfinity(amount);
 
 		internal static bool ShouldUseNonAbsorbingStore(int authoritativeNetId)
 			=> authoritativeNetId != 0;

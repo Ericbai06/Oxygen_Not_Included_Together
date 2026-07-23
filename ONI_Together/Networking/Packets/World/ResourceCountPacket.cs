@@ -21,6 +21,9 @@ namespace ONI_Together.Networking.Packets.World
 
 		public ulong Revision;
 		public Dictionary<string, float> Resources = new Dictionary<string, float>();
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		public void Serialize(BinaryWriter writer)
 		{
@@ -35,6 +38,9 @@ namespace ONI_Together.Networking.Packets.World
 				writer.Write(resource.Key);
 				writer.Write(resource.Value);
 			}
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void Deserialize(BinaryReader reader)
@@ -53,40 +59,46 @@ namespace ONI_Together.Networking.Packets.World
 				    || !IsFinite(value) || value < 0f || !Resources.TryAdd(key, value))
 					throw new InvalidDataException("Invalid resource snapshot entry");
 			}
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 		}
 
 		public void OnDispatched()
+		{
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "inventory"))
+					InventoryActionFlow.ExecuteClient(this);
+				return;
+			}
+			ApplyRuntimePacket();
+#else
+			ApplyRuntimePacket();
+#endif
+		}
+
+		internal bool ApplyRuntimePacket()
 		{
 			using var _ = Profiler.Scope();
 			DispatchContext context = PacketHandler.CurrentContext;
 			if (MultiplayerSession.IsHost || !context.SenderIsHost
 			    || !PacketHandler.IsCurrentDispatchContext(context))
-				return;
+				return false;
 
 			if (_clientEpoch != context.SessionEpoch)
 			{
 				_clientEpoch = context.SessionEpoch;
 				_clientRevision = 0;
 			}
-			string state = CanonicalState(Resources);
 			if (!NetworkIdentityRegistry.IsNewerRevision(_clientRevision, Revision))
-			{
-#if DEBUG
-				IntegrationScenarioEvidenceCore.Log(
-					"inventory", Revision == _clientRevision ? "revision-duplicate" : "revision-out-of-order",
-					(long)Revision, false, state);
-#endif
-				return;
-			}
+				return false;
 
 			_clientRevision = Revision;
 			ResourceSyncer.ClientResources = new Dictionary<string, float>(Resources);
 			ApplyDiscoveries();
-#if DEBUG
-			IntegrationScenarioEvidenceCore.Log("inventory", "revision-accepted", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("inventory", "client-apply", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("inventory", "final-state", (long)Revision, true, state);
-#endif
+			return true;
 		}
 
 		private void ApplyDiscoveries()
@@ -123,6 +135,25 @@ namespace ONI_Together.Networking.Packets.World
 			}
 			return state.Length == 0 ? "empty" : state.ToString();
 		}
+
+#if DEBUG
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, IReadOnlyDictionary<string, float> resources,
+			string entryId)
+		{
+			var values = new List<InventoryResourceState>(resources.Count);
+			foreach (KeyValuePair<string, float> resource in resources.OrderBy(
+				         entry => entry.Key, StringComparer.Ordinal))
+				values.Add(new InventoryResourceState
+				{
+					Tag = resource.Key,
+					Amount = resource.Value,
+				});
+			return TypedEvidenceRuntimeContext.Create(
+				"inventory", phase, revision, new InventoryTarget(),
+				new InventoryState { Resources = values }, entryId);
+		}
+#endif
 
 		private static bool IsFinite(float value)
 			=> !float.IsNaN(value) && !float.IsInfinity(value);

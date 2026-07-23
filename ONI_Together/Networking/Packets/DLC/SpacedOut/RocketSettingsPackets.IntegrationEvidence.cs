@@ -7,17 +7,16 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 	public sealed partial class RocketSettingsStatePacket
 	{
 		private const string RocketEvidenceScenario = "rocket";
+		private const string RocketEvidenceEntryId = "sync:b4c22ab1203aecc282cef612";
 		private static RocketSettingsStatePacket _clientEvidencePacket;
 
 		private void RecordHostEvidence()
 		{
 			if (!MultiplayerSession.IsHost || Revision > long.MaxValue)
 				return;
-			string state = Data.CanonicalEvidenceState();
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "host-submit", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "final-state", (long)Revision, true, state);
+			RocketEvidenceSnapshot evidence = CaptureEvidence(Data, (long)Revision);
+			LogEvidence("host-submit", (long)Revision, evidence);
+			LogEvidence("final-state", (long)Revision, evidence);
 		}
 
 		private void BeginClientEvidence()
@@ -37,9 +36,9 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			RocketSettingsStatePacket packet = _clientEvidencePacket;
 			if (packet == null)
 				return;
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "client-original-blocked", (long)packet.Revision,
-				applied: false, packet.Data.CanonicalEvidenceState());
+			LogEvidence(
+				"client-original-blocked", (long)packet.Revision,
+				CaptureEvidence(packet.Data, (long)packet.Revision));
 		}
 
 		private void RecordClientAppliedEvidence()
@@ -47,20 +46,51 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 			if (!RocketSettingsSync.TryCaptureByTarget(Data, out RocketSettingsPacketData current))
 				return;
 			long revision = (long)Revision;
-			string state = current.CanonicalEvidenceState();
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "final-state", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "revision-duplicate", revision,
-				ShouldAcceptRevision(Revision, Revision), state);
+			RocketEvidenceSnapshot evidence = CaptureEvidence(current, revision);
+			LogEvidence("client-apply", revision, evidence);
+			LogEvidence("revision-accepted", revision, evidence);
+			LogEvidence("final-state", revision, evidence);
+			if (!ShouldAcceptRevision(Revision, Revision))
+				LogEvidence("revision-duplicate", revision, evidence);
 			ulong older = Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				RocketEvidenceScenario, "revision-out-of-order", (long)older,
-				ShouldAcceptRevision(Revision, older), state);
+			if (!ShouldAcceptRevision(Revision, older))
+				LogEvidence("revision-out-of-order", (long)older, evidence);
+		}
+
+		private static void LogEvidence(
+			string phase, long revision, RocketEvidenceSnapshot evidence)
+			=> IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				RocketEvidenceScenario, phase, revision, evidence.Target, evidence.State,
+				RocketEvidenceEntryId));
+
+		private static RocketEvidenceSnapshot CaptureEvidence(
+			RocketSettingsPacketData data, long settingsRevision)
+		{
+			long padNetId = data.HasPad
+				? data.PadNetId
+				: data.HasCurrentPad ? data.CurrentPadNetId : 0;
+			return new RocketEvidenceSnapshot
+			{
+				Target = new RocketTarget
+				{
+					RocketNetId = data.TargetNetId,
+					PadNetId = padNetId,
+				},
+				State = new RocketState
+				{
+					Destination = data.HasDestination
+						? data.DestinationQ + "," + data.DestinationR
+						: "none",
+					CraftPhase = data.CraftPhase.ToString(),
+					SettingsRevision = settingsRevision,
+				},
+			};
+		}
+
+		private sealed class RocketEvidenceSnapshot
+		{
+			internal RocketTarget Target { get; set; }
+			internal RocketState State { get; set; }
 		}
 	}
 }

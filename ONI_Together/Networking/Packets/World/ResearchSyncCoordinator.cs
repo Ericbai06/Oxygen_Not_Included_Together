@@ -84,7 +84,8 @@ namespace ONI_Together.Networking.Packets.World
 				return;
 			PacketSender.SendToAllClients(state, PacketSendMode.ReliableImmediate);
 #if DEBUG
-			LogHostResearchEvidence(state.ResearchRevision, state);
+			LogHostResearchEvidence(state.ResearchRevision, state,
+				"sync:ca9c21c980551435f6399e0f");
 #endif
 		}
 
@@ -101,7 +102,8 @@ namespace ONI_Together.Networking.Packets.World
 			};
 			PacketSender.SendToAllClients(packet, PacketSendMode.ReliableImmediate);
 #if DEBUG
-			LogHostResearchEvidence(packet.ResearchRevision, packet);
+			LogHostResearchEvidence(packet.ResearchRevision, packet,
+				"sync:80d82b4d2b4caebd505d0434");
 #endif
 		}
 
@@ -128,7 +130,8 @@ namespace ONI_Together.Networking.Packets.World
 			};
 			PacketSender.SendToAllClients(packet, PacketSendMode.Unreliable);
 #if DEBUG
-			LogHostResearchEvidence(packet.ResearchRevision, packet);
+			LogHostResearchEvidence(packet.ResearchRevision, packet,
+				"sync:3f710aab91aa65a670ebc193");
 #endif
 		}
 
@@ -194,31 +197,121 @@ namespace ONI_Together.Networking.Packets.World
 				return;
 			PacketSender.SendToAllClients(captured, mode);
 #if DEBUG
-			LogHostResearchEvidence(captured.ResearchRevision, captured);
+			LogHostResearchEvidence(captured.ResearchRevision, captured,
+				"sync:e12ebc359bfd1f5d92fc26f0");
 #endif
 		}
 
 #if DEBUG
-		private static string GetResearchEvidenceState(IPacket packet)
+		private static void LogResearchEvidence(
+			string phase, long revision, IPacket packet, string entryId)
 		{
-			using var stream = new MemoryStream();
-			using var writer = new BinaryWriter(stream);
-			packet.Serialize(writer);
-			writer.Flush();
-			return Convert.ToBase64String(stream.ToArray());
+			if (!TryCreateResearchEvidence(packet, revision,
+			    out ResearchTarget target, out ResearchState state))
+				return;
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				"research", phase, revision, target, state, entryId));
 		}
 
 		private static void LogResearchEvidence(
 			string phase, long revision, bool applied, IPacket packet)
+			=> LogResearchEvidence(phase, revision, packet, ResearchPacketEntryId(packet));
+
+		private static string ResearchPacketEntryId(IPacket packet)
 		{
-			IntegrationScenarioEvidenceCore.Log(
-				"research", phase, revision, applied, GetResearchEvidenceState(packet));
+			return packet switch
+			{
+				ResearchStatePacket _ => "sync:9798fa456138883c55b27497",
+				ResearchCompletePacket _ => "sync:a3506c035192240c88331cf7",
+				ResearchProgressPacket _ => "sync:67909eef61960ac0c8a27023",
+				_ => throw new ArgumentOutOfRangeException(nameof(packet)),
+			};
 		}
 
-		private static void LogHostResearchEvidence(long revision, IPacket packet)
+		private static void LogHostResearchEvidence(
+			long revision, IPacket packet, string entryId)
 		{
-			LogResearchEvidence("host-submit", revision, true, packet);
-			LogResearchEvidence("final-state", revision, true, packet);
+			LogResearchEvidence("host-submit", revision, packet, entryId);
+			LogResearchEvidence("final-state", revision, packet, entryId);
+		}
+
+		private static bool TryCreateResearchEvidence(
+			IPacket packet, long revision, out ResearchTarget target, out ResearchState state)
+		{
+			target = null;
+			state = null;
+			string techId;
+			bool completed;
+			double progress;
+			if (packet is ResearchCompletePacket complete)
+			{
+				techId = complete.TechId;
+				completed = true;
+				progress = 1d;
+			}
+			else if (packet is ResearchProgressPacket sample)
+			{
+				techId = sample.Progress?.TechId;
+				completed = false;
+				progress = TotalProgress(sample.Progress);
+			}
+			else if (packet is ResearchStatePacket snapshot &&
+			         TrySelectSnapshotTech(snapshot, out techId,
+				         out completed, out progress))
+			{
+			}
+			else
+			{
+				return false;
+			}
+			if (string.IsNullOrEmpty(techId))
+				return false;
+			target = new ResearchTarget { TechId = techId };
+			state = new ResearchState
+			{
+				Revision = revision,
+				Completed = completed,
+				Progress = progress,
+			};
+			return true;
+		}
+
+		private static bool TrySelectSnapshotTech(
+			ResearchStatePacket packet, out string techId,
+			out bool completed, out double progress)
+		{
+			techId = packet.ActiveTechId;
+			if (string.IsNullOrEmpty(techId) && packet.QueuedTechIds.Count > 0)
+				techId = packet.QueuedTechIds[0];
+			if (string.IsNullOrEmpty(techId) && packet.ProgressEntries.Count > 0)
+				techId = packet.ProgressEntries[0].TechId;
+			if (string.IsNullOrEmpty(techId) && packet.UnlockedTechIds.Count > 0)
+				techId = packet.UnlockedTechIds[0];
+			if (string.IsNullOrEmpty(techId))
+			{
+				completed = false;
+				progress = 0d;
+				return false;
+			}
+			completed = packet.UnlockedTechIds.Contains(techId);
+			progress = 0d;
+			foreach (ResearchProgressData entry in packet.ProgressEntries)
+				if (entry.TechId == techId)
+				{
+					progress = TotalProgress(entry);
+					break;
+				}
+			return true;
+		}
+
+		private static double TotalProgress(ResearchProgressData progress)
+		{
+			if (progress?.Points == null)
+				return 0d;
+			double total = 0d;
+			foreach (ResearchPointData point in progress.Points)
+				total += point.Points;
+			return total;
 		}
 #endif
 

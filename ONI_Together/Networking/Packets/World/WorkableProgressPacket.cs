@@ -19,6 +19,7 @@ namespace ONI_Together.Networking.Packets.World
 		private float WorkTimeRemaining;
 		private float WorkTimeTotal;
 		internal ulong Revision;
+		internal int RuntimeTargetNetId => TargetNetId;
 
 		public WorkableProgressPacket() { }
 
@@ -217,11 +218,17 @@ namespace ONI_Together.Networking.Packets.World
 		internal static bool ShouldApplyRevision(ulong current, ulong incoming)
 			=> NetworkIdentityRegistry.IsNewerRevision(current, incoming);
 
-		private bool TryApplyWorkableProgress()
+		internal bool TryApplyWorkableProgress()
 		{
 			using var _ = Profiler.Scope();
 
-			if (!NetworkIdentityRegistry.TryGet(TargetNetId, out var identity) || identity == null || identity.gameObject.IsNullOrDestroyed())
+			NetworkIdentityRegistry.TryGet(TargetNetId, out var identity);
+			GameObject target = identity?.gameObject;
+#if DEBUG
+			IFaultInputMutation targetFault = ProductionFaultInputGates.MissingWorkTarget(ref target);
+			FaultInjectionUnitySeams.EmitReceipt(targetFault, runtimeTarget: this);
+#endif
+			if (identity == null || target.IsNullOrDestroyed())
 				return false;
 
 			Workable workable = null;
@@ -231,11 +238,17 @@ namespace ONI_Together.Networking.Packets.World
 				if (workableType == null)
 					return false;
 
-				workable = identity.gameObject.GetComponent(workableType) as Workable;
+				workable = target.GetComponent(workableType) as Workable;
 			}
 
-			workable ??= identity.gameObject.GetComponent<Workable>();
-			if (workable == null)
+			workable ??= target.GetComponent<Workable>();
+			bool workableRegistered = workable != null;
+#if DEBUG
+			IFaultInputMutation registrationFault =
+				ProductionFaultInputGates.UnregisteredWorkable(ref workableRegistered);
+			FaultInjectionUnitySeams.EmitReceipt(registrationFault, runtimeTarget: this);
+#endif
+			if (!workableRegistered || workable == null)
 				return false;
 
 			if (WorkTimeTotal > 0f && !float.IsInfinity(WorkTimeTotal) && !float.IsNaN(WorkTimeTotal))

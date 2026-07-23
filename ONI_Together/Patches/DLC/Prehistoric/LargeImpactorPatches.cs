@@ -143,7 +143,16 @@ namespace ONI_Together.Patches.DLC.Prehistoric
 	{
 		internal static void Postfix(LargeImpactorStatus.Instance __instance)
 		{
+#if DEBUG
+			string dlcFamily = null;
+			IFaultInputMutation mutation = ProductionFaultInputGates.PrehistoricFamily(
+				ref dlcFamily);
+#endif
 			LargeImpactorSync.SendState(__instance);
+#if DEBUG
+			FaultInjectionUnitySeams.EmitReceipt(
+				mutation, runtimeTarget: __instance);
+#endif
 		}
 	}
 

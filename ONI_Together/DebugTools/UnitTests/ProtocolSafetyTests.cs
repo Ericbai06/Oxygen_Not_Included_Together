@@ -138,7 +138,9 @@ public static class ProtocolSafetyTests
         return UnitTestResult.Pass("Bulk count and length bounds are enforced");
     }
 
-	[UnitTest(name: "Protocol compatibility: DLL hash and DLC set are required", category: "Networking")]
+	[UnitTest(name: "Protocol compatibility: DLL hash and DLC set are required",
+		category: "Networking",
+		headlessUnsupportedReason: "Requires live DlcManager state")]
 	public static UnitTestResult DllHashAndDlcSetAreRequired()
 	{
 		bool matches = ProtocolCompatibility.Matches(
@@ -166,7 +168,9 @@ public static class ProtocolSafetyTests
 			: UnitTestResult.Fail("Transport close can overwrite a validation or world-load state");
 	}
 
-	[UnitTest(name: "Protocol compatibility: DLL hash mismatch is rejected", category: "Networking")]
+	[UnitTest(name: "Protocol compatibility: DLL hash mismatch is rejected",
+		category: "Networking",
+		headlessUnsupportedReason: "Requires a file-backed mod assembly")]
 	public static UnitTestResult DllHashMismatchIsRejected()
 	{
 		if (ProtocolCompatibility.ModBuildFingerprint.Length != 64)

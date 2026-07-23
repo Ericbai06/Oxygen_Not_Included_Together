@@ -25,6 +25,10 @@ namespace ONI_Together.Patches.World
 
 				try
 				{
+#if DEBUG
+					if (BuildingConfigProfileRuntime.IsApplyingProfileToggle)
+						return;
+#endif
 					DebugConsole.Log($"[LogicSwitch] Toggle Postfix called on {__instance?.name ?? "null"}");
 
 					if (IgnoreEvents)

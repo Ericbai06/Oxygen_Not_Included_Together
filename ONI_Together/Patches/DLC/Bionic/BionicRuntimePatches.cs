@@ -1,4 +1,5 @@
 using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.DLC.Bionic;
 using UnityEngine;
@@ -100,9 +101,18 @@ namespace ONI_Together.Patches.DLC.Bionic
 	[HarmonyPatch(typeof(Electrobank), nameof(Electrobank.Sim1000ms), typeof(float))]
 	internal static class ElectrobankSim1000Patch
 	{
-		internal static bool Prefix()
-			=> BionicRuntimeSync.ShouldRunAuthoritativeGameplay(
+		internal static bool Prefix(Electrobank __instance)
+		{
+#if DEBUG
+			string dlcFamily = null;
+			IFaultInputMutation mutation = ProductionFaultInputGates.BionicFamily(
+				ref dlcFamily);
+			FaultInjectionUnitySeams.EmitReceipt(
+				mutation, runtimeTarget: __instance);
+#endif
+			return BionicRuntimeSync.ShouldRunAuthoritativeGameplay(
 				MultiplayerSession.InSession, MultiplayerSession.IsHost);
+		}
 
 		internal static void Postfix(Electrobank __instance)
 			=> BionicRuntimeSync.SendState(__instance);

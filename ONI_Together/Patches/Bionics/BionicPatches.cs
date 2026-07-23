@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.DLC.Bionic;
 using ONI_Together.Networking.Packets.World;
@@ -70,8 +71,16 @@ namespace ONI_Together.Patches.Bionics
         [HarmonyPatch(typeof(BionicOilMonitor.Instance), nameof(BionicOilMonitor.Instance.StartSM))]
         public static class BionicOilMonitor_Instance_StartSM_Patch
         {
-            static bool Prefix(BionicOilMonitor.Instance __instance)
+            internal static bool Prefix(BionicOilMonitor.Instance __instance)
             {
+#if DEBUG
+				bool stateBeforeStartSm = false;
+				IFaultInputMutation fault = ProductionFaultInputGates.StateBeforeStartSm(
+					ref stateBeforeStartSm);
+				FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: __instance);
+				if (stateBeforeStartSm)
+					return false;
+#endif
                 if (__instance == null)
                     return false;
 

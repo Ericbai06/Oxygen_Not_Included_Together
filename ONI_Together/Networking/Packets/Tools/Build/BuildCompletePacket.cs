@@ -89,7 +89,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			if (IsAlreadyApplied(def))
 			{
 #if DEBUG
-				LogEvidence("revision-duplicate", false);
+				LogEvidence("revision-duplicate");
 #endif
 				return CompletionResult.Applied;
 			}
@@ -106,9 +106,9 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			}
 			ApplyUtilityConnections(built);
 #if DEBUG
-			LogEvidence("revision-accepted", true);
-			LogEvidence("client-apply", true);
-			LogEvidence("final-state", true);
+			LogEvidence("revision-accepted");
+			LogEvidence("client-apply");
+			LogEvidence("final-state");
 #endif
 			DebugConsole.Log(
 				$"[BuildCompletePacket] Finalized {PrefabID} NetId={NetId} at cell {Cell}");
@@ -120,14 +120,37 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 		{
 			ulong current = NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
 			LogEvidence(
-				LifecycleRevision == current ? "revision-duplicate" : "revision-out-of-order",
-				false);
+				LifecycleRevision == current ? "revision-duplicate" : "revision-out-of-order");
 		}
 
-		private void LogEvidence(string phase, bool applied)
-			=> IntegrationScenarioEvidenceCore.Log(
-				"building-lifecycle", phase, (long)LifecycleRevision, applied,
-				BuildAuthority.EvidenceState(PrefabID, Cell, NetId, LifecycleRevision));
+		private void LogEvidence(string phase)
+		{
+			bool completed = IsEvidenceCompleted();
+			long lifecycle = (long)NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
+			if (lifecycle == 0) lifecycle = (long)LifecycleRevision;
+			IntegrationScenarioEvidenceCore.Log(
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "building-lifecycle", phase: phase,
+					revision: (long)LifecycleRevision,
+					target: new BuildingLifecycleTarget
+					{
+						Prefab = PrefabID, Cell = Cell, NetId = NetId,
+					},
+					state: new BuildingLifecycleState
+					{
+						LifecycleRevision = lifecycle,
+						Queued = IsEvidenceQueued(), Completed = completed,
+					},
+					entryId: "sync:f60e38b805c1052cff0fec0d"));
+		}
+
+		private bool IsEvidenceCompleted()
+			=> NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity)
+			   && identity?.gameObject?.GetComponent<BuildingComplete>() != null;
+
+		private bool IsEvidenceQueued()
+			=> NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity)
+			   && identity?.gameObject?.GetComponent<Constructable>() != null;
 #endif
 
 		private static bool IsAuthoritativeInbound()
@@ -150,26 +173,31 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 
 		private bool IsAlreadyApplied(BuildingDef def)
 		{
-			if (def == null
-			    || !NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
+			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
 				return false;
 			GameObject gameObject = identity.gameObject;
-			return identity.LifecycleRevision == LifecycleRevision
-			       && gameObject.GetComponent<BuildingComplete>()?.Def == def
-			       && Grid.PosToCell(gameObject) == Cell;
+			return IsAlreadyAppliedLifecycle(
+				identity.LifecycleRevision, LifecycleRevision,
+				def != null && gameObject.GetComponent<BuildingComplete>()?.Def == def,
+				Grid.PosToCell(gameObject) == Cell);
 		}
+
+		internal static bool IsAlreadyAppliedLifecycle(
+			ulong current, ulong incoming, bool completedPrefabMatches, bool cellMatches)
+			=> incoming != 0 && current == incoming && completedPrefabMatches && cellMatches;
 
 		private bool TryResolveTarget(BuildingDef def, out GameObject target)
 		{
 			target = null;
-			if (def == null || def.ObjectLayer != ObjectLayer
-			    || !NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity))
+			bool hasIdentity = NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity);
+			if (def == null || !hasIdentity)
 				return false;
 			GameObject candidate = identity.gameObject;
 			Constructable constructable = candidate.GetComponent<Constructable>();
 			Building building = candidate.GetComponent<Building>();
-			if (constructable == null || building?.Def != def
-			    || Grid.PosToCell(candidate) != Cell)
+			if (!BuildLifecycleAdmission.CanComplete(
+				def.ObjectLayer == ObjectLayer, hasIdentity, constructable != null,
+				building?.Def == def, Grid.PosToCell(candidate) == Cell))
 				return false;
 			target = candidate;
 			return true;

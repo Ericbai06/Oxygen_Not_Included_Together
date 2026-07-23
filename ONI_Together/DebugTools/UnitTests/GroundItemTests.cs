@@ -45,7 +45,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Resolved ground items are removed only by a newer tombstone");
 		}
 
-		[UnitTest(name: "GroundItems: NetworkIdentityRegistry accessible", category: "GroundItems")]
+		[UnitTest(name: "GroundItems: NetworkIdentityRegistry accessible",
+			category: "GroundItems",
+			headlessUnsupportedReason: "Requires Unity object registry runtime")]
 		public static UnitTestResult RegistryAccessible()
 		{
 			// TryGetComponent with a non-existent NetId should return false (not throw)
@@ -55,7 +57,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("NetworkIdentityRegistry.TryGetComponent accessible and returns false for unknown NetId");
 		}
 
-		[UnitTest(name: "ClearTool.Instance accessible (sweep relay)", category: "GroundItems", liveSafe: true)]
+		[UnitTest(name: "ClearTool.Instance accessible (sweep relay)", category: "GroundItems", liveSafe: true,
+			headlessUnsupportedReason: "Requires a loaded colony")]
 		public static UnitTestResult ClearToolAccessible()
 		{
 			if (ClearTool.Instance == null)

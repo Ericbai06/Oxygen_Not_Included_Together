@@ -28,6 +28,7 @@ namespace ONI_Together.Networking
 		Release,
 		GridRepair,
 		HardSync,
+		ReportOnly,
 	}
 
 	public static partial class ProductionDesyncRecovery
@@ -219,20 +220,23 @@ namespace ONI_Together.Networking
 				AbortUnstableCheckpoint("host state mutated during comparison");
 				return;
 			}
-			switch (SelectRecoveryAction(_mismatch, _localRepairAttempted))
+			switch (SelectRecoveryAction(
+				_mismatch, _localRepairAttempted, Configuration.Instance.HardSyncOnCycleStart))
 			{
 				case ProductionRecoveryAction.Release: ReleaseMatched(); break;
 				case ProductionRecoveryAction.GridRepair: BeginGridRepair(); break;
+				case ProductionRecoveryAction.ReportOnly: ReleaseMismatched(); break;
 				default: Escalate("domain mismatch: " + _mismatch); break;
 			}
 		}
 
 		public static ProductionRecoveryAction SelectRecoveryAction(
-			ProductionDesyncDomain mismatch, bool localRepairAttempted)
+			ProductionDesyncDomain mismatch, bool localRepairAttempted, bool allowHardSync = true)
 		{
 			if (mismatch == ProductionDesyncDomain.None) return ProductionRecoveryAction.Release;
-			return mismatch == ProductionDesyncDomain.Grid && !localRepairAttempted
-				? ProductionRecoveryAction.GridRepair : ProductionRecoveryAction.HardSync;
+			if (mismatch == ProductionDesyncDomain.Grid && !localRepairAttempted)
+				return ProductionRecoveryAction.GridRepair;
+			return allowHardSync ? ProductionRecoveryAction.HardSync : ProductionRecoveryAction.ReportOnly;
 		}
 
 		private static void BeginGridRepair()
@@ -293,6 +297,22 @@ namespace ONI_Together.Networking
 			SetLocalSpeed(speed);
 			SpeedChangePacket.SubmitLocalChange(speed);
 			DebugConsole.Log("[ProductionDesync] Causal checkpoint matched");
+		}
+
+		private static void ReleaseMismatched()
+		{
+			WorldUpdateBatcher.ResumeRepairDispatch();
+			var release = new ProductionDesyncReleasePacket { ProbeId = _probeId };
+			foreach (ulong clientId in Clients)
+				if (!PacketSender.SendToPlayer(clientId, release))
+					DebugConsole.LogWarning(
+						$"[ProductionDesync] Mismatch release send failed for client {clientId}; cycle hard sync disabled");
+			DebugConsole.LogWarning(
+				$"[ProductionDesync] Mismatch {_mismatch}; cycle hard sync disabled");
+			SpeedChangePacket.SpeedState speed = _previousSpeed;
+			ResetHostState();
+			SetLocalSpeed(speed);
+			SpeedChangePacket.SubmitLocalChange(speed);
 		}
 
 		private static bool Escalate(string reason)

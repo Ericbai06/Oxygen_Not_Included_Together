@@ -13,7 +13,8 @@ namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class SyncTests
 	{
-		[UnitTest(name: "Duplicant positions in sync with host", category: "Sync", liveSafe: true)]
+		[UnitTest(name: "Duplicant positions in sync with host", category: "Sync", liveSafe: true,
+			headlessUnsupportedReason: "Requires active multiplayer session with registered duplicants")]
 		public static UnitTestResult DuplicantPositionsInSync()
 		{
 			if (!MultiplayerSession.InSession)
@@ -134,7 +135,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Invalid workable progress targets are rejected inbound and outbound");
 		}
 
-		[UnitTest(name: "Authoritative state revisions roundtrip and reject stale packets", category: "Sync")]
+		[UnitTest(name: "Authoritative state revisions roundtrip and reject stale packets", category: "Sync",
+			headlessUnsupportedReason: "Requires initialized world grid")]
 		public static UnitTestResult AuthoritativeStateRevisionsRejectStalePackets()
 		{
 			if (!SnapshotWireBoundsTests.TryGetValidCell(out int cell))

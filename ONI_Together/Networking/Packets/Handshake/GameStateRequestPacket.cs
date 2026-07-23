@@ -317,11 +317,14 @@ namespace ONI_Together.Networking.Packets.Handshake
 				ulong acceptedReconnectToken = 0,
 				long admissionGeneration = 0)
 		{
-			using var _ = Profiler.Scope();
+				using var _ = Profiler.Scope();
 
-			var packet = new GameStateRequestPacket();
-			packet.PopulateProtocolMetadata();
-			packet.ProtocolAccepted = protocolAccepted;
+				var packet = new GameStateRequestPacket();
+				if (protocolAccepted)
+					packet.PopulateProtocolMetadata();
+				else
+					packet.PopulateProtocolRejectionMetadata();
+				packet.ProtocolAccepted = protocolAccepted;
 				packet.ProtocolFailureReason = protocolFailureReason ?? string.Empty;
 				packet.ReconnectToken = acceptedReconnectToken;
 				packet.AdmissionGeneration = admissionGeneration;
@@ -359,8 +362,18 @@ namespace ONI_Together.Networking.Packets.Handshake
 			ModVersion = ProtocolCompatibility.ModVersion;
 			GameBuild = ProtocolCompatibility.GameBuild;
 			ModBuildFingerprint = ProtocolCompatibility.ModBuildFingerprint;
-			HasProtocolMetadata = true;
-		}
+				HasProtocolMetadata = true;
+			}
+
+			private void PopulateProtocolRejectionMetadata()
+			{
+				ProtocolVersion = ProtocolCompatibility.CurrentProtocolVersion;
+				PacketRegistryFingerprint = ProtocolCompatibility.PacketFingerprint;
+				ModVersion = string.Empty;
+				GameBuild = 0;
+				ModBuildFingerprint = string.Empty;
+				HasProtocolMetadata = true;
+			}
 
 		private bool IsProtocolCompatible(out string reason)
 		{

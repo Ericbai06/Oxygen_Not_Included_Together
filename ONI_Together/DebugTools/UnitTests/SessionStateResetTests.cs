@@ -146,7 +146,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("Subscriptions and lifecycle flags start clean");
 		}
 
-		[UnitTest(name: "Session reset restores packet processing guards", category: "Networking")]
+			[UnitTest(name: "Session reset restores packet processing guards",
+				category: "Networking",
+				headlessUnsupportedReason: "Touches Unity Time through PacketHandler")]
 		public static UnitTestResult RestoresPacketProcessingGuards()
 		{
 			PacketHandler.readyToProcess = false;

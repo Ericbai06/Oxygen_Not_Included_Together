@@ -28,13 +28,16 @@ namespace ONI_Together.Networking.Packets.Tools
 		public ulong LifecycleRevision;
 		public ulong Revision;
 		public BuildingActionKind Action;
+#if DEBUG
+		private int _evidenceTargetCell = -1;
+#endif
 
 		ulong ISenderBoundRelay.RelaySenderId => SenderId;
 
 		public static BuildingActionPacket CreateLocal(int netId, BuildingActionKind action)
 		{
 			ulong lifecycle = NetworkIdentityRegistry.GetLastLifecycleRevision(netId);
-			return new BuildingActionPacket
+			var packet = new BuildingActionPacket
 			{
 				SenderId = NetworkConfig.GetLocalID(),
 				NetId = netId,
@@ -44,6 +47,10 @@ namespace ONI_Together.Networking.Packets.Tools
 					: 0,
 				Action = action,
 			};
+#if DEBUG
+			packet._evidenceTargetCell = ResolveEvidenceCell(netId);
+#endif
+			return packet;
 		}
 
 		public void Serialize(BinaryWriter writer)
@@ -79,7 +86,7 @@ namespace ONI_Together.Networking.Packets.Tools
 				SenderId = NetworkConfig.GetLocalID();
 				Revision = NetworkIdentityRegistry.NextAuthorityRevision();
 				PacketSender.SendToAllClients(this, PacketSendMode.ReliableImmediate);
-				LogHostOutcome();
+				LogHostOutcome("sync:a3e7af6af9dc30fb90a51e43");
 				return;
 			}
 
@@ -98,9 +105,8 @@ namespace ONI_Together.Networking.Packets.Tools
 				return;
 			ClientRevisions[NetId] = Revision;
 #if DEBUG
-			string state = CanonicalState(NetId, Action);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "client-apply", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "final-state", (long)Revision, true, state);
+			LogEvidence("client-apply", Revision, "sync:f60e38b805c1052cff0fec0d");
+			LogEvidence("final-state", Revision, "sync:f60e38b805c1052cff0fec0d");
 #endif
 		}
 
@@ -123,20 +129,48 @@ namespace ONI_Together.Networking.Packets.Tools
 #if DEBUG
 			string phase = Revision > current ? "revision-accepted"
 				: Revision == current ? "revision-duplicate" : "revision-out-of-order";
-			IntegrationScenarioEvidenceCore.Log(
-				"deconstruct", phase, (long)Revision, Revision > current,
-				CanonicalState(NetId, Action));
+			LogEvidence(phase, Revision, "sync:f60e38b805c1052cff0fec0d");
 #endif
 		}
 
-		internal void LogHostOutcome()
+		internal void LogHostOutcome(string entryId)
 		{
 #if DEBUG
-			string state = CanonicalState(NetId, Action);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "host-submit", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "final-state", (long)Revision, true, state);
+			LogEvidence("host-submit", Revision, entryId);
+			LogEvidence("final-state", Revision, entryId);
 #endif
 		}
+
+#if DEBUG
+		internal void LogOriginalBlocked(string entryId)
+			=> LogEvidence("client-original-blocked", Revision, entryId);
+
+		private void LogEvidence(string phase, ulong revision, string entryId)
+		{
+			IntegrationScenarioEvidenceCore.Log(
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "deconstruct", phase: phase, revision: (long)revision,
+					target: new DeconstructTarget
+					{
+						BuildingNetId = NetId,
+						TargetCell = ResolveTargetCell(),
+					},
+					state: new DeconstructState
+					{
+						Action = Action.ToString(),
+						Tombstone = NetworkIdentityRegistry.IsLifecycleTombstoned(NetId),
+					},
+					entryId: entryId));
+		}
+
+		private int ResolveTargetCell()
+			=> _evidenceTargetCell >= 0
+				? _evidenceTargetCell : ResolveEvidenceCell(NetId);
+
+		private static int ResolveEvidenceCell(int netId)
+			=> NetworkIdentityRegistry.TryGet(netId, out NetworkIdentity identity)
+				? Grid.PosToCell(identity.gameObject) : -1;
+#endif
 
 		private bool IsCurrentLifecycle()
 			=> LifecycleRevision != 0
@@ -148,6 +182,9 @@ namespace ONI_Together.Networking.Packets.Tools
 			if (!NetworkIdentityRegistry.TryGet(NetId, out NetworkIdentity identity)
 			    || identity?.gameObject == null)
 				return false;
+#if DEBUG
+			_evidenceTargetCell = Grid.PosToCell(identity.gameObject);
+#endif
 
 			ProcessingIncoming = true;
 			try

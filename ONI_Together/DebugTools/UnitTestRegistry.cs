@@ -63,7 +63,9 @@ namespace ONI_Together.DebugTools
                         var name = attr.Name ?? $"{type.Name}.{method.Name}";
                         var category = attr.Category ?? "Uncategorized";
 
-                        discovered.Add(new UnitTest(name, category, attr.LiveSafe, method));
+                        discovered.Add(new UnitTest(
+                            name, category, attr.LiveSafe, method,
+                            attr.HeadlessUnsupportedReason));
                     }
                 }
                 if (discovered.Count == 0)

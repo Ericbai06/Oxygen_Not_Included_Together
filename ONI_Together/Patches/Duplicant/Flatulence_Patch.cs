@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using System;
 using System.Collections.Generic;
@@ -31,7 +32,12 @@ namespace ONI_Together.Patches.Duplicant
 				if (__instance.smi.IsNullOrDestroyed() || __instance.smi.IsNullOrStopped())
 					return false;
 
-				bool preview = (__instance.PrefabID() != GameTags.MinionSelectPreview);
+				bool preview = (__instance.PrefabID() == GameTags.MinionSelectPreview);
+#if DEBUG
+				IFaultInputMutation fault = ProductionFaultInputGates.PreviewFlatulence(
+					ref preview);
+				FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: __instance);
+#endif
 				bool client = MultiplayerSession.IsClient;
 
 				if (client || preview)

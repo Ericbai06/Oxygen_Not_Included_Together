@@ -53,8 +53,9 @@ namespace ONI_Together.Networking.Packets.Core
 		    ValidateWire();
 #if DEBUG
 		    if (MultiplayerSession.IsClient && PlayerID == MultiplayerSession.LocalUserID)
-		        IntegrationScenarioEvidenceCore.Log(
-			        "cursor", "client-original-blocked", (long)Revision, false, EvidenceState());
+		        IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+			        "client-original-blocked", (long)Revision,
+			        "sync:3aeb24dde3a9e060ff8c1445"));
 #endif
 		    writer.Write(PlayerID);
 		    writer.Write(SenderConnectionGeneration);
@@ -158,7 +159,7 @@ namespace ONI_Together.Networking.Packets.Core
 
 			if (PlayerID == MultiplayerSession.LocalUserID)
 				return;
-			if (!AcceptRevision(PlayerID, SenderConnectionGeneration, Revision))
+			if (!AcceptDispatchRevision())
 				return;
 			if (!MultiplayerSession.IsConnectedRemotePlayer(PlayerID))
 			{
@@ -317,42 +318,83 @@ namespace ONI_Together.Networking.Packets.Core
 			return true;
 		}
 
+		private bool AcceptDispatchRevision()
+		{
+			#if DEBUG
+			string phase = RevisionPhase(PlayerID, SenderConnectionGeneration, Revision);
+			#endif
+			bool accepted = AcceptRevision(PlayerID, SenderConnectionGeneration, Revision);
+			#if DEBUG
+			if (!MultiplayerSession.IsHost && !accepted)
+				LogClientRevisionEvidence(phase);
+			#endif
+			return accepted;
+		}
+
 #if DEBUG
-		private string EvidenceState()
-			=> string.Join(",",
-				FormattableString.Invariant($"player={PlayerID},generation={SenderConnectionGeneration}"),
-				FormattableString.Invariant($"position={Position.x:R}|{Position.y:R}|{Position.z:R}"),
-				FormattableString.Invariant($"color={Color.r:R}|{Color.g:R}|{Color.b:R}|{Color.a:R}"),
-				$"cursor={(int)CursorState},building={Uri.EscapeDataString(BuildingPrefabId ?? string.Empty)}",
-				$"orientation={(int)BuildingOrientation},allowed={(BuildingAllowed ? 1 : 0)}",
-				FormattableString.Invariant($"dragging={(Dragging ? 1 : 0)},area={AreaDownPos.x:R}|{AreaDownPos.y:R}|{AreaDownPos.z:R}"),
-				FormattableString.Invariant($"dragMode={(int)DragMode},limit={LengthLimit.x:R}|{LengthLimit.y:R}"),
-				$"utility={(HasUtilityPath ? 1 : 0)},path={string.Join(",", UtilityPathData ?? Array.Empty<uint>())}",
-				$"view={ViewMinX}|{ViewMinY}|{ViewMaxX}|{ViewMaxY}");
+		private static string RevisionPhase(
+			ulong playerId, long generation, ulong revision)
+		{
+			if (LatestGenerations.TryGetValue(playerId, out long latest))
+			{
+				if (generation < latest) return "revision-out-of-order";
+				if (generation > latest) return "revision-accepted";
+			}
+			var key = (playerId, generation);
+			if (!LastRevisions.TryGetValue(key, out ulong last) || revision > last)
+				return "revision-accepted";
+			return revision == last ? "revision-duplicate" : "revision-out-of-order";
+		}
+
+		private TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, string entryId)
+			=> TypedEvidenceRuntimeContext.Create(
+				"cursor", phase, revision,
+				new CursorTarget
+				{
+					PlayerId = PlayerID.ToString(System.Globalization.CultureInfo.InvariantCulture),
+				},
+				new CursorEvidenceState
+				{
+					ConnectionGeneration = SenderConnectionGeneration,
+					WorldPosition = new[] { (double)Position.x, Position.y },
+					ViewPosition = new[]
+					{
+						(ViewMinX + ViewMaxX) / 2d,
+						(ViewMinY + ViewMaxY) / 2d,
+					},
+					DragState = Dragging
+						? FormattableString.Invariant(
+							$"{DragMode}:{AreaDownPos.x:R},{AreaDownPos.y:R}:{LengthLimit.x:R},{LengthLimit.y:R}")
+						: "None",
+					BuildState = string.IsNullOrEmpty(BuildingPrefabId)
+						? "None"
+						: $"{BuildingPrefabId}:{BuildingOrientation}:{BuildingAllowed}",
+				}, entryId);
 
 		private void LogHostEvidence()
 		{
-			string state = EvidenceState();
 			long revision = (long)Revision;
-			IntegrationScenarioEvidenceCore.Log("cursor", "host-submit", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("cursor", "final-state", revision, true, state);
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"host-submit", revision, "sync:f60e38b805c1052cff0fec0d"));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"final-state", revision, "sync:f60e38b805c1052cff0fec0d"));
 		}
 
 		private void LogClientEvidence()
 		{
-			string state = EvidenceState();
 			long revision = (long)Revision;
-			IntegrationScenarioEvidenceCore.Log("cursor", "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("cursor", "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				"cursor", "revision-duplicate", revision,
-				AcceptRevision(PlayerID, SenderConnectionGeneration, Revision), state);
-			ulong olderRevision = Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				"cursor", "revision-out-of-order", (long)olderRevision,
-				AcceptRevision(PlayerID, SenderConnectionGeneration, olderRevision), state);
-			IntegrationScenarioEvidenceCore.Log("cursor", "final-state", revision, true, state);
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"revision-accepted", revision, "sync:b3dc3818cae201b355058938"));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"client-apply", revision, "sync:b3dc3818cae201b355058938"));
+			IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				"final-state", revision, "sync:b3dc3818cae201b355058938"));
 		}
+
+		private void LogClientRevisionEvidence(string phase)
+			=> IntegrationScenarioEvidenceCore.Log(CreateEvidence(
+				phase, (long)Revision, "sync:b3dc3818cae201b355058938"));
 #endif
 
 		private IEnumerator InterpolateCursorPosition(PlayerCursor cursor, Transform target, Vector3 targetPos)

@@ -117,7 +117,9 @@ namespace ONI_Together.DebugTools.UnitTests
 				: UnitTestResult.Fail("Stale, out-of-window, or unbounded progress was accepted");
 		}
 
-		[UnitTest(name: "Soak keyframe apply exception reports terminal failure", category: "Networking")]
+		[UnitTest(name: "Soak keyframe apply exception reports terminal failure",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls game runtime during keyframe apply")]
 		public static UnitTestResult KeyframeApplyExceptionReportsFailure()
 		{
 			SoakHashDomainKeyframeTracker.Begin(7, 3, 0);

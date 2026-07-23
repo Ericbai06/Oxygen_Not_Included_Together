@@ -23,6 +23,9 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 		public bool IsAdding;
 		public bool ShouldSave;
 		public float TimeRemaining;
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		public ToggleEffectPacket() { }
 
@@ -55,6 +58,9 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 			IsAdding = reader.ReadBoolean();
 			ShouldSave = reader.ReadBoolean();
 			TimeRemaining = reader.ReadSingle();
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 			if (!IsWireValid())
 				throw new InvalidDataException("Invalid entity effect packet");
 		}
@@ -71,24 +77,43 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 			writer.Write(IsAdding);
 			writer.Write(ShouldSave);
 			writer.Write(TimeRemaining);
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void OnDispatched()
 		{
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "effect"))
+					EffectActionFlow.ExecuteClient(this);
+				return;
+			}
+			ApplyRuntimePacket();
+#else
+			ApplyRuntimePacket();
+#endif
+		}
+
+		internal bool ApplyRuntimePacket()
+		{
 			using var _ = Profiler.Scope();
 			if (!ShouldApply(MultiplayerSession.IsHost, PacketHandler.CurrentContext.SenderIsHost))
-				return;
-			if (!AcceptRevision(MinionNetId, EffectHash, Revision))
-				return;
+				return false;
+			bool accepted = AcceptRevision(MinionNetId, EffectHash, Revision);
+			if (!accepted)
+				return false;
 			if (!NetworkIdentityRegistry.TryGet(MinionNetId, out var identity))
 			{
 				DebugConsole.LogWarning($"Could not find entity {MinionNetId} for effect {EffectId}");
-				return;
+				return false;
 			}
 			if (!identity.TryGetComponent(out Effects effects))
 			{
 				DebugConsole.LogWarning($"Could not find Effects on entity {MinionNetId}");
-				return;
+				return false;
 			}
 			if (IsAdding)
 				EffectsPatch.AddEffect(effects, EffectId, ShouldSave, TimeRemaining);
@@ -97,27 +122,36 @@ namespace ONI_Together.Networking.Packets.DuplicantActions
 #if DEBUG
 			bool active = effects.Get(new HashedString(EffectHash)) != null;
 			if (active != IsAdding)
-				return;
-			string state = EvidenceState(MinionNetId, EffectHash, active);
-			long revision = (long)Revision;
-			IntegrationScenarioEvidenceCore.Log("effect", "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("effect", "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				"effect", "revision-duplicate", revision,
-				AcceptRevision(MinionNetId, EffectHash, Revision), state);
-			ulong olderRevision = Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				"effect", "revision-out-of-order", (long)olderRevision,
-				AcceptRevision(MinionNetId, EffectHash, olderRevision), state);
-			IntegrationScenarioEvidenceCore.Log("effect", "final-state", revision, true, state);
+				return false;
 #endif
+			return true;
 		}
 
 #if DEBUG
-		internal string EvidenceState() => EvidenceState(MinionNetId, EffectHash, IsAdding);
+		internal TypedEvidenceEnvelope CreateEvidence(
+			string phase, string entryId)
+			=> CreateEvidence(
+				phase, (long)Revision, MinionNetId, EffectHash, IsAdding, entryId);
 
-		internal static string EvidenceState(int netId, int effectHash, bool active)
-			=> $"netId={netId},effectHash={effectHash},active={(active ? 1 : 0)}";
+		internal static TypedEvidenceEnvelope CreateEvidence(
+			string phase, long revision, int minionNetId,
+			int effectHash, bool active, string entryId)
+			=> TypedEvidenceRuntimeContext.Create(
+				"effect", phase, revision,
+				new EffectTarget { MinionNetId = minionNetId },
+				new EffectState
+				{
+					EffectHash = effectHash.ToString(System.Globalization.CultureInfo.InvariantCulture),
+					Active = active,
+				}, entryId);
+
+		private static string RevisionPhase(int netId, int effectHash, ulong revision)
+		{
+			var key = (netId, effectHash);
+			if (!LastRevisions.TryGetValue(key, out ulong last) || revision > last)
+				return "revision-accepted";
+			return revision == last ? "revision-duplicate" : "revision-out-of-order";
+		}
 #endif
 
 		internal bool IsWireValid()

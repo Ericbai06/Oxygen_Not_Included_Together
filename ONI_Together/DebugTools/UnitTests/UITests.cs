@@ -11,7 +11,8 @@ namespace ONI_Together.DebugTools.UnitTests
 {
     public static class UITests
     {
-        [UnitTest(name: "Chat window exists and is active", category: "UI", liveSafe: true)]
+        [UnitTest(name: "Chat window exists and is active", category: "UI", liveSafe: true,
+            headlessUnsupportedReason: "Requires a loaded colony")]
         public static UnitTestResult ChatWindowExistsAndActive()
         {
             GameObject chatScreen = GameObject.Find("ChatScreen");
@@ -34,7 +35,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("PingManager instance exists");
         }
 
-        [UnitTest(name: "No ghost cursors present", category: "UI", liveSafe: true)]
+        [UnitTest(name: "No ghost cursors present", category: "UI", liveSafe: true,
+            headlessUnsupportedReason: "Requires active multiplayer session")]
         public static UnitTestResult NoGhostCursorsPresent()
         {
             if (!MultiplayerSession.IsHost && !MultiplayerSession.IsClient)

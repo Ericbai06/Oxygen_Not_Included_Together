@@ -4,6 +4,11 @@ using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.World;
 using ONI_Together.Networking.States;
 using ONI_Together.Networking.Transport.Steam;
+using ONI_Together.Networking.Transport.Steamworks;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 
 namespace ONI_Together.DebugTools
 {
@@ -22,16 +27,82 @@ namespace ONI_Together.DebugTools
 			             && (host
 				             ? GameServer.State == ServerState.Started
 				             : GameClient.State == ClientState.InGame);
-			string reason = $"role={role};host={MultiplayerSession.HostUserID};" +
-			                $"local={MultiplayerSession.LocalUserID};session={(MultiplayerSession.InSession ? 1 : 0)};" +
-			                $"world={(Utils.IsInGame() ? 1 : 0)};state={state};remotes={remotes};" +
-			                $"protocol={ProtocolCompatibility.CurrentProtocolVersion};" +
-			                $"dlc={ProtocolCompatibility.FormatDlcIds(ProtocolCompatibility.ActiveDlcIds)};" +
-			                $"mutationWindow={(mutationWindow ? 1 : 0)};" +
-			                RepairStatus(host) + ";" + NativeTransportStatus();
+			IntegrationPreflightFacts facts = CreatePreflightFacts(
+				host, role, state, remotes, mutationWindow);
+			if (!IntegrationPreflightStatus.TryCreate(facts, out var status, out string error))
+				return DebugCommandOutcome.Fail(
+					"status", "preflightError=" + IntegrationPreflightStatus.Escape(error));
+			string reason = status.Format();
 			return ready
 				? DebugCommandOutcome.Ok("status", reason)
 				: DebugCommandOutcome.Fail("status", reason);
+		}
+
+		private static IntegrationPreflightFacts CreatePreflightFacts(
+			bool host, string role, string state, int remotes, bool mutationWindow)
+		{
+			bool steam = NetworkConfig.IsSteamConfig();
+			string lobbyId = steam
+				? SteamLobby.CurrentLobby.m_SteamID.ToString(CultureInfo.InvariantCulture)
+				: string.Empty;
+			var statusFields = new Dictionary<string, string>(StringComparer.Ordinal)
+			{
+				["host"] = MultiplayerSession.HostUserID.ToString(CultureInfo.InvariantCulture),
+				["local"] = MultiplayerSession.LocalUserID.ToString(CultureInfo.InvariantCulture),
+				["session"] = MultiplayerSession.InSession ? "1" : "0",
+				["world"] = Utils.IsInGame() ? "1" : "0",
+				["state"] = state,
+				["remotes"] = remotes.ToString(CultureInfo.InvariantCulture),
+				["dlc"] = ProtocolCompatibility.FormatDlcIds(ProtocolCompatibility.ActiveDlcIds),
+				["mutationWindow"] = mutationWindow ? "1" : "0",
+			};
+			if (steam) statusFields["lobby"] = lobbyId;
+			AddDelimitedFields(statusFields, RepairStatus(host));
+			AddDelimitedFields(statusFields, NativeTransportStatus());
+
+			return new IntegrationPreflightFacts
+			{
+				GameBuild = BuildWatermark.GetBuildText(),
+				Transport = steam ? IntegrationTransportKind.Steam : IntegrationTransportKind.NonSteam,
+				TransportReady = MultiplayerSession.IsTransportConnected,
+				InSteamLobby = steam && SteamLobby.InLobby,
+				SteamLobbyId = lobbyId,
+				NonSteamSessionIdentity = steam ? string.Empty : GetNonSteamSessionIdentity(host),
+				ActiveDlcIds = ProtocolCompatibility.ActiveDlcIds,
+				Protocol = ProtocolCompatibility.CurrentProtocolVersion,
+				Role = role,
+				StatusFields = statusFields,
+			};
+		}
+
+		private static string GetNonSteamSessionIdentity(bool host)
+		{
+			long generation = MultiplayerSession.ConnectedPlayers.Values
+				.Select(player => player.ConnectionGeneration)
+				.Where(value => value > 0)
+				.DefaultIfEmpty(0)
+				.Max();
+			if (generation <= 0)
+				return string.Empty;
+			string address = host
+				? Configuration.Instance.Host.LanSettings.Ip
+				: MultiplayerSession.ServerIp;
+			int port = host
+				? Configuration.Instance.Host.LanSettings.Port
+				: MultiplayerSession.ServerPort;
+			return $"lan:{address}:{port}/session-{generation}";
+		}
+
+		private static void AddDelimitedFields(
+			IDictionary<string, string> fields, string encodedFields)
+		{
+			foreach (string item in encodedFields.Split(';'))
+			{
+				int separator = item.IndexOf('=');
+				if (separator <= 0)
+					throw new InvalidOperationException("Integration status field is malformed.");
+				fields.Add(item.Substring(0, separator), item.Substring(separator + 1));
+			}
 		}
 
 		private static bool IsIntegrationMutationWindowOpen()

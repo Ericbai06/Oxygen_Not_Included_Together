@@ -9,7 +9,8 @@ namespace ONI_Together.DebugTools.UnitTests
 {
     public static class DuplicantTests
     {
-        [UnitTest(name: "Duplicant is selected?", category: "Duplicant", liveSafe: true)]
+        [UnitTest(name: "Duplicant is selected?", category: "Duplicant", liveSafe: true,
+            headlessUnsupportedReason: "Requires selected duplicant")]
         public static UnitTestResult HasDuplicantSelected()
         {
             var selected = SelectTool.Instance?.selected;
@@ -21,7 +22,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass($"Selected object is the duplicant: {selected.name}");
         }
         
-        [UnitTest(name: "MinionMultiplayerInitializer present", category: "Duplicant", liveSafe: true)]
+        [UnitTest(name: "MinionMultiplayerInitializer present", category: "Duplicant", liveSafe: true,
+            headlessUnsupportedReason: "Requires selected duplicant")]
         public static UnitTestResult MinionMultiplayerInitializerExists()
         {
             var selected = SelectTool.Instance?.selected;
@@ -32,7 +34,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("MinionMultiplayerInitializer is present");
         }
 
-        [UnitTest(name: "Client init disables AI components", category: "Duplicant", liveSafe: true)]
+        [UnitTest(name: "Client init disables AI components", category: "Duplicant", liveSafe: true,
+            headlessUnsupportedReason: "Requires active client session and selected duplicant")]
         public static UnitTestResult ClientInitDisablesAI()
         {
             if (!MultiplayerSession.InSession)
@@ -60,7 +63,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("AI disabled, ClientReceiver_ChoreErrands present");
         }
 
-        [UnitTest(name: "Host init adds sync components", category: "Duplicant", liveSafe: true)]
+        [UnitTest(name: "Host init adds sync components", category: "Duplicant", liveSafe: true,
+            headlessUnsupportedReason: "Requires active host session and selected duplicant")]
         public static UnitTestResult HostInitAddsSyncComponents()
         {
             if (!MultiplayerSession.InSession)
@@ -82,7 +86,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("DuplicantStateSender and DuplicantChoreBroadcaster present");
         }
 
-        [UnitTest(name: "BaseMinion tag guard", category: "Duplicant", liveSafe: true)]
+        [UnitTest(name: "BaseMinion tag guard", category: "Duplicant", liveSafe: true,
+            headlessUnsupportedReason: "Requires selected duplicant")]
         public static UnitTestResult BaseMinionTagGuard()
         {
             var selected = SelectTool.Instance?.selected;

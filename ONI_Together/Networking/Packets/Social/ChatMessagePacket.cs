@@ -6,8 +6,10 @@ using ONI_Together.Networking.Packets.Core;
 using ONI_Together.UI;
 using Steamworks;
 using System;
+using System.Globalization;
 using System.IO;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using Shared.Interfaces.Networking;
 using Shared.Profiling;
@@ -93,7 +95,7 @@ namespace ONI_Together.Networking.Packets.Social
 				if (!Display())
 					return;
 #if DEBUG
-				LogHostEvidence();
+				LogHostEvidence(HostRelayEntryId);
 #endif
 				PacketSender.SendToAllClients(this, PacketSendMode.ReliableImmediate);
 				return;
@@ -115,7 +117,7 @@ namespace ONI_Together.Networking.Packets.Social
 			if (!Display())
 				return;
 #if DEBUG
-			LogHostEvidence();
+			LogHostEvidence(HostLocalEntryId);
 #endif
 			PacketSender.SendToAllClients(this, PacketSendMode.ReliableImmediate);
 		}
@@ -139,32 +141,31 @@ namespace ONI_Together.Networking.Packets.Social
 		}
 
 #if DEBUG
-		private void LogHostEvidence()
+		private const string HostRelayEntryId = "sync:89f8e30a7cdde2074882edc4";
+		private const string HostLocalEntryId = "sync:152411b58dacc6e2e9b6e504";
+
+		private void LogHostEvidence(string entryId)
 		{
-			string state = EvidenceState();
 			long revision = (long)Sequence;
-			IntegrationScenarioEvidenceCore.Log("chat", "host-submit", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("chat", "final-state", revision, true, state);
+			LogEvidence("host-submit", revision, Sequence, entryId);
+			LogEvidence("final-state", revision, Sequence, entryId);
 		}
 
 		private void LogClientEvidence()
 		{
-			string state = EvidenceState();
 			long revision = (long)Sequence;
-			IntegrationScenarioEvidenceCore.Log("chat", "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("chat", "revision-accepted", revision, true, state);
+			LogEvidence("client-apply", revision, Sequence, HostRelayEntryId);
+			LogEvidence("revision-accepted", revision, Sequence, HostRelayEntryId);
 			ChatScreen.PendingMessage duplicate = EvidenceMessage(Sequence);
-			IntegrationScenarioEvidenceCore.Log(
-				"chat", "revision-duplicate", revision,
-				ChatScreen.ApplyAuthoritativeLive(duplicate), state);
+			ChatScreen.ApplyAuthoritativeLive(duplicate);
+			LogEvidence("revision-duplicate", revision, Sequence, HostRelayEntryId);
 			ulong olderSequence = Sequence - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				"chat", "revision-out-of-order", (long)olderSequence,
-				ChatScreen.ApplyAuthoritativeLive(EvidenceMessage(olderSequence)), state);
+			ChatScreen.ApplyAuthoritativeLive(EvidenceMessage(olderSequence));
+			LogEvidence("revision-out-of-order", (long)olderSequence,
+				olderSequence, HostRelayEntryId);
 			if (SenderId == MultiplayerSession.LocalUserID)
-				IntegrationScenarioEvidenceCore.Log(
-					"chat", "client-original-blocked", revision, false, state);
-			IntegrationScenarioEvidenceCore.Log("chat", "final-state", revision, true, state);
+				LogEvidence("client-original-blocked", revision, Sequence, HostRelayEntryId);
+			LogEvidence("final-state", revision, Sequence, HostRelayEntryId);
 		}
 
 		private ChatScreen.PendingMessage EvidenceMessage(ulong sequence)
@@ -175,9 +176,31 @@ namespace ONI_Together.Networking.Packets.Social
 				message = string.Empty,
 			};
 
-		private string EvidenceState()
-			=> $"sender={SenderId},sequence={Sequence},timestamp={Timestamp}," +
-			   $"name={Uri.EscapeDataString(SenderName)},message={Uri.EscapeDataString(Message)}";
+		private void LogEvidence(string phase, long revision, ulong sequence, string entryId)
+		{
+			var target = new ChatTarget
+			{
+				Sender = SenderId.ToString(CultureInfo.InvariantCulture),
+			};
+			var state = new ChatState
+			{
+				Sequence = (long)sequence,
+				Timestamp = Timestamp,
+				MessageHash = HashMessage(Message),
+			};
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				"chat", phase, revision, target, state, entryId));
+		}
+
+		private static string HashMessage(string message)
+		{
+			using SHA256 hash = SHA256.Create();
+			byte[] digest = hash.ComputeHash(StrictUtf8.GetBytes(message));
+			var result = new StringBuilder("sha256:", 71);
+			foreach (byte value in digest)
+				result.Append(value.ToString("x2", CultureInfo.InvariantCulture));
+			return result.ToString();
+		}
 #endif
 
 		internal static string FormatDisplayMessage(string senderName, Color color, string message)

@@ -67,9 +67,19 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 				return;
 #if DEBUG
 			IntegrationScenarioEvidenceCore.Log(
-				"building-lifecycle", "client-original-blocked",
-				(long)LifecycleRevision, false,
-				BuildAuthority.EvidenceState(PrefabID, Cell, NetId, LifecycleRevision));
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "building-lifecycle", phase: "client-original-blocked",
+					revision: (long)LifecycleRevision,
+					target: new BuildingLifecycleTarget
+					{
+						Prefab = PrefabID, Cell = Cell, NetId = NetId,
+					},
+					state: new BuildingLifecycleState
+					{
+						LifecycleRevision = (long)LifecycleRevision,
+						Queued = !InstantBuild, Completed = InstantBuild,
+					},
+					entryId: "sync:f60e38b805c1052cff0fec0d"));
 #endif
 		}
 

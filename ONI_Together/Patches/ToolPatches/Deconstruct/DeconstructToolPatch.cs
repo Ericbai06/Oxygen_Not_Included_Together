@@ -24,9 +24,7 @@ namespace ONI_Together.Patches.ToolPatches.Deconstruct
 				DeconstructPacket packet = DeconstructPacket.CreateLocal(cell, distFromOrigin);
 				PacketSender.SendToAllOtherPeers(packet);
 #if DEBUG
-				IntegrationScenarioEvidenceCore.Log(
-					"deconstruct", "client-original-blocked", 0, false,
-					DeconstructPacket.CanonicalState(cell, distFromOrigin));
+				packet.LogOriginalBlocked("sync:cf4cb1fd5a23fdf78e8e377f");
 #endif
 				return false;
 			}
@@ -42,7 +40,7 @@ namespace ONI_Together.Patches.ToolPatches.Deconstruct
 			ProcessingLocalDrag = false;
 			DeconstructPacket packet = DeconstructPacket.CreateLocal(cell, distFromOrigin);
 			PacketSender.SendToAllClients(packet, PacketSendMode.ReliableImmediate);
-			packet.LogHostOutcome();
+			packet.LogHostOutcome("sync:5f6c9ca4e746a7fe30f0eba4");
 		}
 
 		public static System.Exception Finalizer(System.Exception __exception)

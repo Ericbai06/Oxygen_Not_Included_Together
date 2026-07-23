@@ -82,11 +82,22 @@ namespace ONI_Together.DebugTools
 				return DebugCommandOutcome.Fail(
 					command, placed ? "state-publish-failed" : error);
 			IntegrationScenarioEvidenceCore.Log(
-				"building-lifecycle", "host-submit",
-				(long)publishedState.LifecycleRevision, true,
-				BuildAuthority.EvidenceState(
-					publishedState.PrefabID, publishedState.Cell,
-					publishedState.NetId, publishedState.LifecycleRevision));
+				TypedEvidenceRuntimeContext.Create(
+					scenario: "building-lifecycle", phase: "host-submit",
+					revision: (long)publishedState.LifecycleRevision,
+					target: new BuildingLifecycleTarget
+					{
+						Prefab = publishedState.PrefabID,
+						Cell = publishedState.Cell,
+						NetId = publishedState.NetId,
+					},
+					state: new BuildingLifecycleState
+					{
+						LifecycleRevision = (long)publishedState.LifecycleRevision,
+						Queued = !publishedState.InstantBuild,
+						Completed = publishedState.InstantBuild,
+					},
+					entryId: "sync:c898f1c14a6f951b3ef66100"));
 			return DebugCommandOutcome.Ok(
 				command, $"prefab={prefabId};cell={cell};material={materialTag}");
 		}

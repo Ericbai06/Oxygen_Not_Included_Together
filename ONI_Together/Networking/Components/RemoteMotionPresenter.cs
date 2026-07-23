@@ -106,6 +106,14 @@ namespace ONI_Together.Networking.Components
 			ApplyOrientation();
 		}
 
+#if DEBUG
+		internal void ApplyProfileState(EntityMotionState state)
+		{
+			ApplyAuthoritativeSnapshot(state);
+			QueueState(state);
+		}
+#endif
+
 		internal static void PublishTransition(Navigator navigator, NavGrid.Transition transition)
 		{
 			if (!TryGetHostPresenter(navigator, out RemoteMotionPresenter presenter)) return;
@@ -147,12 +155,9 @@ namespace ONI_Together.Networking.Components
 #if DEBUG
 					foreach (EntityMotionState state in batch.States)
 					{
-						string evidenceState = EntityMotionBatchPacket.EvidenceState(state);
 						long revision = (long)state.Revision;
-						IntegrationScenarioEvidenceCore.Log(
-							"motion", "host-submit", revision, true, evidenceState);
-						IntegrationScenarioEvidenceCore.Log(
-							"motion", "final-state", revision, true, evidenceState);
+						IntegrationScenarioEvidenceCore.Log(EntityMotionBatchPacket.CreateEvidence(
+							"host-submit", revision, state, "sync:55ff306bf78efab7f31ac7b3"));
 					}
 #endif
 					PacketSender.SendToPlayer(recipient.Key, batch, PacketSendMode.Unreliable);

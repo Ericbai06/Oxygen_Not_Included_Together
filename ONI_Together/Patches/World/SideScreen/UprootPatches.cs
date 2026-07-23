@@ -44,6 +44,10 @@ namespace ONI_Together.Patches.World.SideScreen
 			if (BuildingConfigPacket.IsApplyingPacket || !MultiplayerSession.InSession
 			    || !MultiplayerSession.IsHost || __instance.IsNullOrDestroyed())
 				return;
+#if DEBUG
+			if (UprootProfileRuntime.IsApplyingProfileMutation)
+				return;
+#endif
 
 			Send(__instance);
 		}

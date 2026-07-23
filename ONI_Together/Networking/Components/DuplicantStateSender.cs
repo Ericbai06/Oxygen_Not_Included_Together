@@ -31,12 +31,6 @@ namespace ONI_Together.Networking.Components
 				enabled = false;
 				if (_identity == null)
 					DebugConsole.LogWarning($"[DuplicantStateSender] {gameObject.name} missing NetworkIdentity");
-#if DEBUG
-				else
-					IntegrationScenarioEvidenceCore.Log(
-						"animation", "client-original-blocked", 0, false,
-						$"netId={_identity.NetId},senderEnabled=0");
-#endif
 			}
 		}
 
@@ -250,12 +244,15 @@ namespace ONI_Together.Networking.Components
 		private static void LogHostEvidence(
 			string scenario, DuplicantPresentationEntry entry)
 		{
-			string state = DuplicantPresentationBatchPacket.EvidenceState(entry);
 			long revision = (long)entry.Revision;
 			IntegrationScenarioEvidenceCore.Log(
-				scenario, "host-submit", revision, true, state);
+				DuplicantPresentationBatchPacket.CreateEvidence(
+					scenario, "host-submit", revision, entry,
+					"sync:cad302971a2eeca5ea74d230"));
 			IntegrationScenarioEvidenceCore.Log(
-				scenario, "final-state", revision, true, state);
+				DuplicantPresentationBatchPacket.CreateEvidence(
+					scenario, "final-state", revision, entry,
+					"sync:cad302971a2eeca5ea74d230"));
 		}
 #endif
 	}

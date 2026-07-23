@@ -75,7 +75,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass("LAN UDP port is bounded to 1..65534");
 		}
 
-        [UnitTest(name: "Server is running", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "Server is running", category: "Networking", liveSafe: true,
+            headlessUnsupportedReason: "Requires active multiplayer session")]
         public static UnitTestResult ServerStarts()
         {
             if (!MultiplayerSession.InSession)
@@ -87,7 +88,9 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("Server is running");
         }
 
-        [UnitTest(name: "Using Steamworks Transport", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "Using Steamworks Transport", category: "Networking",
+            liveSafe: true,
+            headlessUnsupportedReason: "Requires selected network transport")]
         public static UnitTestResult IsSteamTransport()
         {
             if (NetworkConfig.transport != NetworkConfig.NetworkTransport.STEAMWORKS)
@@ -95,7 +98,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("Transport is Steamworks");
         }
 
-        [UnitTest(name: "Using Riptide Transport", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "Using Riptide Transport", category: "Networking", liveSafe: true,
+            headlessUnsupportedReason: "Requires selected Riptide transport")]
         public static UnitTestResult IsRiptideTransport()
         {
             if (NetworkConfig.transport != NetworkConfig.NetworkTransport.RIPTIDE)
@@ -117,7 +121,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("No duplicate network identities found");
         }
 
-        [UnitTest(name: "TCP file transfer server ready (host, LAN)", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "TCP file transfer server ready (host, LAN)", category: "Networking", liveSafe: true,
+            headlessUnsupportedReason: "Requires active LAN host session")]
         public static UnitTestResult TcpTransferServerReady()
         {
             if (!MultiplayerSession.IsHost)
@@ -158,7 +163,8 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("GantryToggle receive handler is registered");
         }
 
-        [UnitTest(name: "All expected clients connected", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "All expected clients connected", category: "Networking", liveSafe: true,
+            headlessUnsupportedReason: "Requires active multiplayer session")]
         public static UnitTestResult AllClientsConnected()
         {
             if (!MultiplayerSession.InSession)
@@ -185,7 +191,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			return UnitTestResult.Pass($"{expectedRemoteClients} remote clients connected and tracked in session");
         }
 
-        [UnitTest(name: "Packet routing: host never sends to itself", category: "Networking", liveSafe: true)]
+        [UnitTest(name: "Packet routing: host never sends to itself", category: "Networking", liveSafe: true,
+            headlessUnsupportedReason: "Requires active multiplayer session")]
         public static UnitTestResult PacketRouting()
         {
             if (!MultiplayerSession.InSession)

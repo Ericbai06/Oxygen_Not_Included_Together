@@ -139,10 +139,11 @@ namespace ONI_Together.Networking.Packets.Architecture
 			{
 				if (
 #if DEBUG
-				    !BypassReadyGateForTests &&
+					    !BypassReadyGateForTests &&
 #endif
-				    !CanProcessNow())
-					return false;
+					    !IsProtocolAdmissionFrame(data)
+					    && !CanProcessNow())
+						return false;
 				return ProcessIncoming(data, context);
 			}
 			catch (Exception ex)
@@ -168,9 +169,16 @@ namespace ONI_Together.Networking.Packets.Architecture
 				return false;
 			DebugConsole.LogWarning(
 				$"[PacketHandler] readyToProcess was false for >{NOT_READY_TIMEOUT}s — force-recovering");
-			_readyToProcess = true;
-			return true;
-		}
+				_readyToProcess = true;
+				return true;
+			}
+
+			private static bool IsProtocolAdmissionFrame(byte[] data)
+			{
+				int packetId = BitConverter.ToInt32(data, 0);
+				return packetId == API_Helper.GetHashCode(typeof(GameStateRequestPacket))
+				       || packetId == API_Helper.GetHashCode(typeof(ProtocolRejectedAckPacket));
+			}
 
 		private static bool ProcessIncoming(byte[] data, DispatchContext context)
 		{
@@ -212,8 +220,10 @@ namespace ONI_Together.Networking.Packets.Architecture
 			return true;
 		}
 
-		internal static bool ShouldTrackIncoming(IPacket packet)
-			=> packet is not DedicatedServerMessagePacket;
+			internal static bool ShouldTrackIncoming(IPacket packet)
+				=> packet is not (DedicatedServerMessagePacket
+					or GameStateRequestPacket
+					or ProtocolRejectedAckPacket);
 
 		internal static bool IsForbiddenReadyReplayFrame(byte[] frame)
 		{

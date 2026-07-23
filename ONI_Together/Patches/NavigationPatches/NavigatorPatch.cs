@@ -22,18 +22,27 @@ namespace ONI_Together.Patches.Navigation
 			if (MultiplayerSession.IsHost)
 				return true;
 
-			LogClientOriginalBlocked(ni.NetId, __instance);
+			LogClientOriginalBlocked(
+				ni.NetId, __instance, "sync:8455e7c42e18cbf4467c2f64");
 			return false;
 		}
 
-		internal static void LogClientOriginalBlocked(int netId, Navigator navigator)
+		internal static void LogClientOriginalBlocked(
+			int netId, Navigator navigator, string entryId)
 		{
 #if DEBUG
-			string state = $"netId={netId},position={navigator.transform.position}";
-			IntegrationScenarioEvidenceCore.Log(
-				"motion", "client-original-blocked", 0, false, state);
-			IntegrationScenarioEvidenceCore.Log(
-				"remote-dig", "client-original-blocked", 0, false, state);
+			UnityEngine.Vector3 position = navigator.transform.position;
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				"motion", "client-original-blocked", 0,
+				new MotionTarget { EntityNetId = netId },
+				new MotionState
+				{
+					Tick = PresentationTickClock.CurrentTick,
+					StartPosition = new[] { (double)position.x, position.y },
+					EndPosition = new[] { (double)position.x, position.y },
+					NavigationState = "Blocked:" + navigator.CurrentNavType,
+					MotionRevision = 0,
+				}, entryId));
 #endif
 		}
 	}
@@ -54,7 +63,8 @@ namespace ONI_Together.Patches.Navigation
 			{
 				if (MultiplayerSession.IsHost)
 					return true;
-				NavigatorPatch.LogClientOriginalBlocked(netIdentity.NetId, __instance);
+				NavigatorPatch.LogClientOriginalBlocked(
+					netIdentity.NetId, __instance, "sync:0d9328c2b3fb647b2e60dc6b");
 				return false;
 			}
 

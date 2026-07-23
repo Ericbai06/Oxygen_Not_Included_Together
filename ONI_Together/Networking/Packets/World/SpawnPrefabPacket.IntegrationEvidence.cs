@@ -1,5 +1,4 @@
 ﻿#if DEBUG
-using System;
 using ONI_Together.DebugTools;
 
 namespace ONI_Together.Networking.Packets.World
@@ -7,16 +6,14 @@ namespace ONI_Together.Networking.Packets.World
 	public partial class SpawnPrefabPacket
 	{
 		private const string LifecycleEvidenceScenario = "entity-lifecycle";
+		private const string LifecycleEvidenceEntryId = "sync:cacb70d14a00b307d259a5d2";
 
 		private void RecordHostLifecycleEvidence()
 		{
 			if (!MultiplayerSession.IsHost || Revision > long.MaxValue)
 				return;
-			string state = CaptureLifecycleEvidenceState();
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "host-submit", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "final-state", (long)Revision, true, state);
+			LogLifecycleEvidence("host-submit", (long)Revision);
+			LogLifecycleEvidence("final-state", (long)Revision);
 		}
 
 		private void RecordClientLifecycleEvidence()
@@ -24,42 +21,76 @@ namespace ONI_Together.Networking.Packets.World
 			if (!MultiplayerSession.IsClient || Revision > long.MaxValue)
 				return;
 			long revision = (long)Revision;
-			string state = CaptureLifecycleEvidenceState();
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "client-apply", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "revision-accepted", revision, true, state);
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "final-state", revision, true, state);
+			LogLifecycleEvidence("client-apply", revision);
+			LogLifecycleEvidence("revision-accepted", revision);
+			LogLifecycleEvidence("final-state", revision);
 
-			bool originalApplied = ShouldApply(
-				localIsHost: true, senderIsHost: true, entityExists: true,
-				lastRevision: Revision, incomingRevision: Revision, tombstoned: false);
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "client-original-blocked",
-				revision, originalApplied, state);
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "revision-duplicate", revision,
-				ShouldApply(false, true, true, Revision, Revision, false), state);
+			if (!ShouldApply(
+			    localIsHost: true, senderIsHost: true, entityExists: true,
+			    lastRevision: Revision, incomingRevision: Revision, tombstoned: false))
+				LogLifecycleEvidence("client-original-blocked", revision);
+			if (!ShouldApply(false, true, true, Revision, Revision, false))
+				LogLifecycleEvidence("revision-duplicate", revision);
 			ulong older = Revision - 1;
-			IntegrationScenarioEvidenceCore.Log(
-				LifecycleEvidenceScenario, "revision-out-of-order", (long)older,
-				ShouldApply(false, true, true, Revision, older, false), state);
+			if (!ShouldApply(false, true, true, Revision, older, false))
+				LogLifecycleEvidence("revision-out-of-order", (long)older);
 		}
 
-		private string CaptureLifecycleEvidenceState()
-			=> CanonicalEvidenceStateForTests(
-				NetId, Revision, Hash, WorldId, BindExistingOnly, IsActive);
+		private void LogLifecycleEvidence(string phase, long revision)
+		{
+			string prefab = new Tag(Hash).ToString();
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				LifecycleEvidenceScenario, phase, revision,
+				new EntityLifecycleTarget
+				{
+					NetId = NetId,
+					Prefab = prefab,
+					WorldId = WorldId,
+				},
+				new EntityLifecycleState
+				{
+					LifecycleRevision = (long)Revision,
+					Active = IsActive,
+					Tombstone = false,
+				},
+				LifecycleEvidenceEntryId));
+		}
 
-		internal static string CanonicalEvidenceStateForTests(
-			int netId,
-			ulong revision,
-			int prefabHash,
-			int worldId,
-			bool bindExistingOnly,
-			bool isActive)
-			=> FormattableString.Invariant(
-				$"netId={netId}|revision={revision}|prefabHash={prefabHash}|worldId={worldId}|bindExistingOnly={bindExistingOnly}|isActive={isActive}");
+		internal static TypedEvidenceEnvelope CreateLifecycleEvidenceForTests(
+			string phase, long revision, long netId, string prefab,
+			int worldId, bool active, bool tombstone)
+		{
+			var state = new EntityLifecycleState
+			{
+				LifecycleRevision = revision,
+				Active = active,
+				Tombstone = tombstone,
+			};
+			return new TypedEvidenceEnvelope
+			{
+				SchemaVersion = 1,
+				RunId = "test:spawn-lifecycle",
+				DllHash = "sha256:" + new string('0', 64),
+				Scenario = LifecycleEvidenceScenario,
+				EntryId = LifecycleEvidenceEntryId,
+				Role = "host",
+				SessionEpoch = 0,
+				ConnectionGeneration = 0,
+				SnapshotGeneration = 0,
+				Phase = phase,
+				RevisionDomain = LifecycleEvidenceScenario,
+				Revision = revision,
+				Sequence = 0,
+				Target = new EntityLifecycleTarget
+				{
+					NetId = netId,
+					Prefab = prefab,
+					WorldId = worldId,
+				},
+				State = state,
+				StateHash = TypedEvidenceContract.ComputeStateHash(state),
+			};
+		}
 	}
 }
 #endif

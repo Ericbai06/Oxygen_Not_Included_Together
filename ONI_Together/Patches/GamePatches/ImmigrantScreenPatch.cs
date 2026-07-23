@@ -61,15 +61,6 @@ namespace ONI_Together.Patches.GamePatches
 			}
 			return -1;
 		}
-		static IEnumerator SetMinionDelayed(CharacterContainer container, MinionStartingStats stats)
-		{
-			using var _ = Profiler.Scope();
-
-			// Wait for end of frame to ensure proper initialization
-			yield return SequenceUtil.WaitForNextFrame;
-			container.SetMinion(stats);
-			DebugConsole.Log($"[ImmigrantScreen] SetMinionDelayed: Set minion '{stats.Name}' in container");
-		}
 		static IEnumerator SetCarePackageInfoDelayed(CarePackageContainer carePackageContainer, CarePackageInfo pkg)
 		{
 			using var _ = Profiler.Scope();
@@ -139,10 +130,27 @@ namespace ONI_Together.Patches.GamePatches
 				if(deliverable is MinionStartingStats stats)
 				{
 					CharacterContainer characterContainer = Util.KInstantiateUI<CharacterContainer>(instance.containerPrefab.gameObject, instance.containerParent);
+#if DEBUG
+					bool minionFirst = false;
+					IFaultInputMutation fault = ProductionFaultInputGates.MinionBeforeController(
+						ref minionFirst);
+					if (minionFirst)
+					{
+						characterContainer.SetMinion(stats);
+						characterContainer.SetController(instance);
+					}
+					else
+					{
+						characterContainer.SetController(instance);
+						characterContainer.SetMinion(stats);
+					}
+					FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: instance);
+#else
 					characterContainer.SetController(instance);
+					characterContainer.SetMinion(stats);
+#endif
 					characterContainer.SetReshufflingState(canRerollMinions);
 
-					Game.Instance.StartCoroutine(SetMinionDelayed(characterContainer, stats));
 					instance.containers.Add(characterContainer);
 				}
 				else if(deliverable is CarePackageInfo pkg)

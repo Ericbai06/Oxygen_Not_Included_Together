@@ -60,7 +60,7 @@ namespace ONI_Together.Networking
 
 		public static bool TryAcceptLifecycleRevision(int netId, ulong revision, bool tombstone)
 		{
-			if (!IsNewerRevision(GetLastLifecycleRevision(netId), revision))
+			if (!ShouldAcceptLifecycleRevision(GetLastLifecycleRevision(netId), revision))
 				return false;
 			lifecycleRevisions[netId] = revision;
 			if (tombstone)
@@ -70,6 +70,19 @@ namespace ONI_Together.Networking
 			BuildCompletePacket.ReleaseForLifecycle(netId, revision, tombstone);
 			return true;
 		}
+
+		internal static bool ShouldAcceptLifecycleRevision(ulong current, ulong incoming)
+			=> IsNewerRevision(current, incoming);
+
+		internal static bool CanApplyDomainState(
+			bool identityExists, bool registered, ulong currentLifecycle,
+			bool tombstoned, ulong incomingLifecycle)
+			=> identityExists && registered && incomingLifecycle != 0
+			   && currentLifecycle == incomingLifecycle && !tombstoned;
+
+		internal static bool CanAdmitPrefab(
+			int prefabHash, bool prefabAvailable, bool elementAvailable)
+			=> prefabHash != 0 && (prefabAvailable || elementAvailable);
 
 		public static bool TryBindAuthoritativeLifecycle(
 			GameObject gameObject, int netId, ulong revision)

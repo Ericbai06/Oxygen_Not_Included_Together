@@ -338,7 +338,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		[UnitTest(name: "Riptide timeout is 30000 ms", category: "Transport", liveSafe: true)]
+		[UnitTest(name: "Riptide timeout is 30000 ms", category: "Transport",
+			liveSafe: true,
+			headlessUnsupportedReason: "Requires active Riptide transport")]
 		public static UnitTestResult RiptideTimeoutCorrect()
 		{
 			if (!NetworkConfig.IsLanConfig())
@@ -395,7 +397,8 @@ namespace ONI_Together.DebugTools.UnitTests
 					"Pending connection retained Riptide's short quality-disconnect window");
 		}
 
-		[UnitTest(name: "Connection stable", category: "Transport", liveSafe: true)]
+		[UnitTest(name: "Connection stable", category: "Transport", liveSafe: true,
+			headlessUnsupportedReason: "Requires active Riptide multiplayer session")]
 		public static UnitTestResult ConnectionStable()
 		{
 			if (!MultiplayerSession.InSession)

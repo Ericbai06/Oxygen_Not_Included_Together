@@ -95,12 +95,14 @@ namespace ONI_Together.Networking.Packets.World.Handlers
 			=> _semanticsByHash[configHash] = BuildingConfigMutationSemantics.MustExecuteAction;
 
 		public static BuildingConfigMutationSemantics GetMutationSemantics(int configHash)
-		{
-			if (!_initialized) Initialize();
-			return _semanticsByHash.TryGetValue(configHash, out var semantics)
-				? semantics
+			=> IsIntrinsicAction(configHash)
+				? BuildingConfigMutationSemantics.MustExecuteAction
 				: BuildingConfigMutationSemantics.StateAssignment;
-		}
+
+		private static bool IsIntrinsicAction(int configHash)
+			=> configHash == NetworkingHash.ForConfigKey("UprootPlant")
+			   || configHash == NetworkingHash.ForConfigKey("DoorUnseal")
+			   || configHash == NetworkingHash.ForConfigKey("CounterReset");
 
 		/// <summary>
 		/// Attempts to handle a building configuration packet.

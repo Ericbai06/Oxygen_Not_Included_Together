@@ -120,11 +120,10 @@ namespace ONI_Together.Patches.Duplicant
 					? new ToggleEffectPacket(identity, current)
 					: new ToggleEffectPacket(identity, new HashedString(effectHash));
 #if DEBUG
-				string state = packet.EvidenceState();
-				IntegrationScenarioEvidenceCore.Log(
-					"effect", "host-submit", (long)packet.Revision, true, state);
-				IntegrationScenarioEvidenceCore.Log(
-					"effect", "final-state", (long)packet.Revision, true, state);
+				IntegrationScenarioEvidenceCore.Log(packet.CreateEvidence(
+					"host-submit", "sync:7b437cf8911c72ec2c6ddf76"));
+				IntegrationScenarioEvidenceCore.Log(packet.CreateEvidence(
+					"final-state", "sync:7b437cf8911c72ec2c6ddf76"));
 #endif
 				PacketSender.SendToAllClients(packet);
 			}
@@ -181,13 +180,6 @@ namespace ONI_Together.Patches.Duplicant
 				bool hasIdentity = TryGetIdentity(__instance, out NetworkIdentity identity);
 				bool shouldRun = ShouldRunMutation(MultiplayerSession.InSession,
 					MultiplayerSession.IsHost, IsApplyingPacket, hasIdentity);
-#if DEBUG
-				if (!shouldRun)
-					IntegrationScenarioEvidenceCore.Log(
-						"effect", "client-original-blocked", 0, false,
-						ToggleEffectPacket.EvidenceState(
-							identity.NetId, newEffect?.IdHash.hash ?? 0, active: true));
-#endif
 				return shouldRun;
 			}
 
@@ -209,13 +201,6 @@ namespace ONI_Together.Patches.Duplicant
 				bool hasIdentity = TryGetIdentity(__instance, out NetworkIdentity identity);
 				bool shouldRun = ShouldRunMutation(MultiplayerSession.InSession,
 					MultiplayerSession.IsHost, IsApplyingPacket, hasIdentity);
-#if DEBUG
-				if (!shouldRun)
-					IntegrationScenarioEvidenceCore.Log(
-						"effect", "client-original-blocked", 0, false,
-						ToggleEffectPacket.EvidenceState(
-							identity.NetId, effect_id.hash, active: false));
-#endif
 				return shouldRun;
 			}
 

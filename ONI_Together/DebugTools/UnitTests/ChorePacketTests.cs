@@ -97,7 +97,9 @@ namespace ONI_Together.DebugTools.UnitTests
             return UnitTestResult.Pass("Subscribe packet roundtripped");
         }
 
-        [UnitTest(name: "ClientReceiver_ChoreErrands splits current from upcoming", category: "Chores")]
+        [UnitTest(name: "ClientReceiver_ChoreErrands splits current from upcoming",
+            category: "Chores",
+            headlessUnsupportedReason: "Calls Unity-backed chore receiver")]
         public static UnitTestResult ReceiverSplitsCurrent()
         {
             var receiver = new ClientReceiver_ChoreErrands();

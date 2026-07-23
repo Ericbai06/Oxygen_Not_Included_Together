@@ -117,23 +117,28 @@ namespace ONI_Together.Networking
 		{
 			using var _ = Profiler.Scope();
 
-			if (netId == 0)
+			bool hasExisting = identities.TryGetValue(netId, out NetworkIdentity existing);
+			if (!CanRegisterExisting(netId, hasExisting,
+				!hasExisting || ReferenceEquals(existing, entity)))
+			{
+				if (hasExisting)
+					DebugConsole.LogError(
+						$"[NetEntityRegistry] NetId collision {netId}: {existing.name} vs {entity.name}");
 				return false;
-
-			if (!identities.TryGetValue(netId, out NetworkIdentity existing))
+			}
+			if (!hasExisting)
 			{
 				identities[netId] = entity;
 				if (!MultiplayerSession.InSession || MultiplayerSession.IsHost)
 					BeginLifecycle(netId);
 				return true;
 			}
-
-			if (ReferenceEquals(existing, entity))
-				return true;
-
-			DebugConsole.LogError($"[NetEntityRegistry] NetId collision {netId}: {existing.name} vs {entity.name}");
-			return false;
+			return true;
 		}
+
+		internal static bool CanRegisterExisting(
+			int netId, bool hasExisting, bool sameIdentity)
+			=> netId != 0 && (!hasExisting || sameIdentity);
 
 		public static bool RegisterOverride(NetworkIdentity entity, int netId)
 		{

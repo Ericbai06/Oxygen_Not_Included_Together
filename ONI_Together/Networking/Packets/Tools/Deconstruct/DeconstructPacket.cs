@@ -12,6 +12,9 @@ namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 	{
 		private static ulong _clientRevision;
 		private static long _clientEpoch;
+#if DEBUG
+		private int _evidenceBuildingNetId;
+#endif
 
 		public ulong SenderId;
 		public ulong Revision;
@@ -27,7 +30,7 @@ namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 
 		internal static DeconstructPacket CreateLocal(int targetCell, int distance)
 		{
-			return new DeconstructPacket
+			var packet = new DeconstructPacket
 			{
 				cell = targetCell,
 				distFromOrigin = distance,
@@ -36,6 +39,10 @@ namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 					? NetworkIdentityRegistry.NextAuthorityRevision()
 					: 0,
 			};
+#if DEBUG
+			packet._evidenceBuildingNetId = ResolveBuildingNetId(targetCell);
+#endif
+			return packet;
 		}
 
 		public override void Serialize(BinaryWriter writer)
@@ -82,9 +89,8 @@ namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 			base.OnDispatched();
 			_clientRevision = Revision;
 #if DEBUG
-			string state = CanonicalState(cell, distFromOrigin);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "client-apply", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "final-state", (long)Revision, true, state);
+			LogEvidence("client-apply", Revision, "sync:69ec0b319cb1b56d3833df00");
+			LogEvidence("final-state", Revision, "sync:69ec0b319cb1b56d3833df00");
 #endif
 		}
 
@@ -103,20 +109,44 @@ namespace ONI_Together.Networking.Packets.Tools.Deconstruct
 #if DEBUG
 			string phase = Revision > _clientRevision ? "revision-accepted"
 				: Revision == _clientRevision ? "revision-duplicate" : "revision-out-of-order";
-			IntegrationScenarioEvidenceCore.Log(
-				"deconstruct", phase, (long)Revision, Revision > _clientRevision,
-				CanonicalState(cell, distFromOrigin));
+			LogEvidence(phase, Revision, "sync:69ec0b319cb1b56d3833df00");
 #endif
 		}
 
-		internal void LogHostOutcome()
+		internal void LogHostOutcome(string entryId = "sync:b39d9aed5709080211e3bdba")
 		{
 #if DEBUG
-			string state = CanonicalState(cell, distFromOrigin);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "host-submit", (long)Revision, true, state);
-			IntegrationScenarioEvidenceCore.Log("deconstruct", "final-state", (long)Revision, true, state);
+			LogEvidence("host-submit", Revision, entryId);
+			LogEvidence("final-state", Revision, entryId);
 #endif
 		}
+
+#if DEBUG
+		internal void LogOriginalBlocked(string entryId)
+			=> LogEvidence("client-original-blocked", Revision, entryId);
+
+		private void LogEvidence(string phase, ulong revision, string entryId)
+		{
+			if (_evidenceBuildingNetId == 0)
+				_evidenceBuildingNetId = ResolveBuildingNetId(cell);
+			IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				"deconstruct", phase, (long)revision,
+				new DeconstructTarget
+				{
+					BuildingNetId = _evidenceBuildingNetId,
+					TargetCell = cell,
+				},
+				new DeconstructState { Action = "drag", Tombstone = false }, entryId));
+		}
+
+		private static int ResolveBuildingNetId(int targetCell)
+		{
+			if (!Grid.IsValidCell(targetCell))
+				return 0;
+			UnityEngine.GameObject building = Grid.Objects[targetCell, (int)ObjectLayer.Building];
+			return building?.GetComponent<ONI_Together.Networking.Components.NetworkIdentity>()?.NetId ?? 0;
+		}
+#endif
 
 		private void ValidateWire()
 		{

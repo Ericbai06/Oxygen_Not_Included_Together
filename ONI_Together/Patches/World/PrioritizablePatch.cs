@@ -49,11 +49,8 @@ namespace ONI_Together.Patches.World
 			{
 				PacketSender.SendToAllOtherPeers(request);
 #if DEBUG
-				string state = "net=" + request.NetId + "|life=" + request.TargetLifecycleRevision
-				               + "|class=" + request.PriorityClass + "|value=" + request.PriorityValue;
-				IntegrationScenarioEvidenceCore.Log(
-					"priority", "client-original-blocked", (long)request.BasePriorityRevision,
-					false, state);
+				PrioritizeStatePacket.LogBlockedPriorityEvidence(
+					request, "sync:a953b61fac04863eb59c6ec0");
 #endif
 			}
 			return false;

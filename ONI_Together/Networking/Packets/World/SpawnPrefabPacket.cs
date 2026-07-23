@@ -15,6 +15,10 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
     public int WorldId = -1;
     public bool BindExistingOnly;
     public bool IsActive = true;
+#if DEBUG
+	internal string ScenarioActionProfile = string.Empty;
+	internal bool ScenarioActionTerminal;
+#endif
 
     public bool HasElementData = false;
     public float Mass;
@@ -100,9 +104,6 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
         if (Revision == 0)
             Revision = NetworkIdentityRegistry.BeginLifecycle(NetId);
 		ValidateForWire();
-#if DEBUG
-		RecordHostLifecycleEvidence();
-#endif
         writer.Write(NetId);
         writer.Write(Revision);
         writer.Write(Hash);
@@ -110,6 +111,10 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
         writer.Write(WorldId);
         writer.Write(BindExistingOnly);
         writer.Write(IsActive);
+#if DEBUG
+		writer.Write(ScenarioActionProfile ?? string.Empty);
+		writer.Write(ScenarioActionTerminal);
+#endif
 		SerializeAuthorityState(writer);
         writer.Write(HasElementData);
         if (!HasElementData) return;
@@ -131,6 +136,10 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 		if (NetId == 0 || Revision == 0)
 			throw new InvalidDataException("Invalid spawn lifecycle metadata");
         IsActive = reader.ReadBoolean();
+#if DEBUG
+		ScenarioActionProfile = reader.ReadString();
+		ScenarioActionTerminal = reader.ReadBoolean();
+#endif
 		DeserializeAuthorityState(reader);
         HasElementData = reader.ReadBoolean();
         if (!HasElementData)
@@ -149,6 +158,23 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
     }
 
     public void OnDispatched()
+	{
+#if DEBUG
+		if (!string.IsNullOrEmpty(ScenarioActionProfile))
+		{
+			if (ScenarioActionReceiverGate.TryEnter(
+				ScenarioActionProfile, "entity-lifecycle"))
+				EntityLifecycleActionFlow.ExecuteClient(this);
+			else if (ScenarioActionReceiverGate.TryEnter(
+				ScenarioActionProfile, "pickup"))
+				PickupActionFlow.ExecuteSpawnClient(this);
+			return;
+		}
+#endif
+		ApplyRuntimePacket();
+	}
+
+	private void ApplyRuntimePacket()
     {
         ulong lastRevision = NetworkIdentityRegistry.GetLastLifecycleRevision(NetId);
 		bool entityExists = NetworkIdentityRegistry.Exists(NetId);
@@ -170,28 +196,6 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 		FinishCreatedRuntimeObject(displaced);
 	}
 
-	private bool TryFinishClaimedRuntimeObject(
-		NetworkIdentityRegistry.IdentityClaim displaced)
-	{
-		NetworkIdentityRegistry.IdentityClaim claim;
-		bool claimed = BindExistingOnly
-			? NetworkIdentityRegistry.TryBeginAuthorityBindingClaim(
-				Hash, Position, WorldId, NetId, out claim)
-			: NetworkIdentityRegistry.TryBeginUnassignedClaim(
-				Hash, Position, WorldId, NetId, out claim);
-		if (!claimed)
-			return false;
-		if (FinishRuntimeMaterialization(claim.GameObject))
-		{
-			RetireDisplaced(displaced);
-			return true;
-		}
-		NetworkIdentityRegistry.RollbackClaim(claim);
-		NetworkIdentityRegistry.RollbackClaim(displaced);
-		StorePendingBinding(this);
-		return true;
-	}
-
 	private void FinishCreatedRuntimeObject(
 		NetworkIdentityRegistry.IdentityClaim displaced)
 	{
@@ -210,7 +214,6 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 	            return;
 	        }
 		RetireDisplaced(displaced);
-		RecordClientReplayExpectation();
 	}
 
 	private bool TryReconcileOccupied(
@@ -266,15 +269,6 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 		return true;
 	}
 
-	private static void RetireDisplaced(NetworkIdentityRegistry.IdentityClaim displaced)
-	{
-		GameObject gameObject = displaced?.GameObject;
-		if (gameObject == null || gameObject.IsNullOrDestroyed())
-			return;
-		gameObject.SetActive(false);
-		Util.KDestroyGameObject(gameObject);
-	}
-
 	private void RollbackCreatedMaterialization(
 		GameObject gameObject,
 		NetworkIdentityRegistry.LifecycleRevisionState previousLifecycle)
@@ -303,15 +297,19 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 		ulong incomingRevision,
 		bool tombstoned)
 		=> ShouldApply(localIsHost, senderIsHost, entityExists)
-		   && incomingRevision != 0 && incomingRevision >= lastRevision
+		   && HasValidLifecycleMetadata(1, incomingRevision, 1)
+		   && incomingRevision >= lastRevision
 		   && (incomingRevision > lastRevision || !entityExists && !tombstoned);
+
+	internal static bool HasValidLifecycleMetadata(int netId, ulong revision, int prefabHash)
+		=> netId != 0 && revision != 0 && prefabHash != 0;
 
 	internal bool CanApplySnapshot()
 		=> GetSnapshotApplicabilityFailure() == null;
 
 	internal string GetSnapshotApplicabilityFailure()
 	{
-		if (NetId == 0 || Revision == 0 || Hash == 0
+		if (!HasValidLifecycleMetadata(NetId, Revision, Hash)
 		    || float.IsNaN(Position.x) || float.IsInfinity(Position.x)
 		    || float.IsNaN(Position.y) || float.IsInfinity(Position.y)
 		    || float.IsNaN(Position.z) || float.IsInfinity(Position.z))
@@ -331,13 +329,12 @@ public partial class SpawnPrefabPacket : IPacket, IHostOnlyPacket
 					Hash, Position, WorldId, NetId)
 				? null
 				: DescribeExistingBindingFailure(identity);
-		if (HasElementData)
-			return ElementLoader.GetElement(new Tag(Hash))?.substance != null
-				? null
-				: "element substance is unavailable";
-		return Assets.GetPrefab(new Tag(Hash)) != null
-			? null
-			: "prefab is unavailable";
+		bool elementAvailable = HasElementData
+		                        && ElementLoader.GetElement(new Tag(Hash))?.substance != null;
+		bool prefabAvailable = !HasElementData && Assets.GetPrefab(new Tag(Hash)) != null;
+		if (NetworkIdentityRegistry.CanAdmitPrefab(Hash, prefabAvailable, elementAvailable))
+			return null;
+		return HasElementData ? "element substance is unavailable" : "prefab is unavailable";
 	}
 
 	private bool CanReconcileOccupiedIdentity(NetworkIdentity identity)

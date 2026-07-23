@@ -18,6 +18,7 @@ namespace Shared.Helpers
 			var startTime = System.DateTime.Now;
 			var PacketsToRegister = asm.GetTypes().Where(p =>
 				!p.IsInterface &&
+				 !p.IsAbstract &&
 				 p.GetInterfaces().Contains(typeof(IPacket)) &&
 				 !p.GetInterfaces().Contains(typeof(IPacketSkipsRegistration)));
 

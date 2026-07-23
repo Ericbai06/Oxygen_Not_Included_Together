@@ -97,9 +97,6 @@ namespace ONI_Together.Networking.Packets.World
 			BaseStateRevision = 0;
 			StateRevision = NextHostRevision(ConfigKey.From(this));
 			RememberHostSnapshot();
-#if DEBUG
-			LogHostBuildingConfigEvidence();
-#endif
 		}
 
 		private void PrepareClientRequest()
@@ -169,9 +166,6 @@ namespace ONI_Together.Networking.Packets.World
 				return;
 			PromoteRequestToOutcome(identity, semantics);
 			SendAcceptedOutcome(context.SenderId);
-#if DEBUG
-			LogHostBuildingConfigEvidence();
-#endif
 		}
 
 		private void SendAcceptedOutcome(ulong requesterId)
@@ -220,30 +214,33 @@ namespace ONI_Together.Networking.Packets.World
 		}
 
 		private void ApplyHostOutcome(DispatchContext context)
+			=> TryApplyHostOutcome(context);
+
+		private bool TryApplyHostOutcome(DispatchContext context)
 		{
 			if (ClientRequestId != 0 || StateRevision == 0 || Sender != context.SenderId
 			    || !PacketHandler.IsCurrentDispatchContext(context))
-				return;
+				return false;
 			if (!TryGetCurrentIdentity(NetId, TargetLifecycleRevision, out NetworkIdentity identity))
-				return;
+				return false;
 			ConfigKey key = ConfigKey.From(this);
 			if (!NetworkIdentityRegistry.IsNewerRevision(GetRevision(ClientRevisions, key), StateRevision)
 			    || !ApplyPacket(identity))
-				return;
+				return false;
 			ClientRevisions[key] = StateRevision;
-#if DEBUG
-			LogAppliedBuildingConfigEvidence(key);
-#endif
+			return true;
 		}
+
+#if DEBUG
+		internal void PrepareProfileSend() => PrepareForSerialize();
+
+		internal bool ApplyProfileClient()
+			=> MultiplayerSession.IsClient && PacketHandler.CurrentContext.SenderIsHost
+			   && TryApplyHostOutcome(PacketHandler.CurrentContext);
+#endif
 
 		private bool ApplyPacket(NetworkIdentity identity)
 		{
-#if DEBUG
-			BuildingConfigPacket previousEvidencePacket = _applyingEvidencePacket;
-			bool previousOriginalBlockObserved = _originalBlockObserved;
-			_applyingEvidencePacket = this;
-			_originalBlockObserved = false;
-#endif
 			BeginApplyingPacket();
 			try
 			{
@@ -255,10 +252,6 @@ namespace ONI_Together.Networking.Packets.World
 			finally
 			{
 				EndApplyingPacket();
-#if DEBUG
-				_applyingEvidencePacket = previousEvidencePacket;
-				_originalBlockObserved = previousOriginalBlockObserved;
-#endif
 			}
 		}
 
@@ -276,39 +269,119 @@ namespace ONI_Together.Networking.Packets.World
 			return "building-config";
 		}
 
-		private string GetBuildingConfigEvidenceState()
-			=> "net=" + NetId + "|life=" + TargetLifecycleRevision + "|cell=" + Cell
-			   + "|det=" + DeterministicBuildingId + "|config=" + ConfigHash
-			   + "|type=" + (byte)ConfigType + "|index=" + SliderIndex
-			   + "|value=" + Value.ToString("R", CultureInfo.InvariantCulture)
-			   + "|ref=" + ReferenceNetId + "|string=" + Uri.EscapeDataString(StringValue ?? "")
-			   + "|secondary=" + Uri.EscapeDataString(SecondaryStringValue ?? "");
+		private void LogBuildingConfigEvidence(
+			string phase, ulong revision, string entryId)
+		{
+			string scenario = GetBuildingConfigEvidenceScenario();
+			IntegrationScenarioEvidenceCore.Log(
+				TypedEvidenceRuntimeContext.Create(
+					scenario: scenario, phase: phase, revision: (long)revision,
+					target: GetBuildingConfigEvidenceTarget(scenario),
+					state: GetBuildingConfigEvidenceState(scenario),
+					entryId: entryId));
+		}
 
-		private void LogBuildingConfigEvidence(string phase, ulong revision, bool applied)
-			=> IntegrationScenarioEvidenceCore.Log(
-				GetBuildingConfigEvidenceScenario(), phase, (long)revision, applied,
-				GetBuildingConfigEvidenceState());
+		private ITypedEvidenceTarget GetBuildingConfigEvidenceTarget(string scenario)
+		{
+			return scenario switch
+			{
+				"door" => new DoorTarget { TargetNetId = NetId },
+				"uproot" => new UprootTarget { TargetNetId = NetId },
+				"toggle" => new ToggleTarget { TargetNetId = NetId },
+				_ => new BuildingConfigTarget { TargetNetId = NetId },
+			};
+		}
+
+		private ITypedEvidenceState GetBuildingConfigEvidenceState(string scenario)
+		{
+			long lifecycle = (long)TargetLifecycleRevision;
+			long stateRevision = (long)StateRevision;
+			return scenario switch
+			{
+				"door" => new DoorState
+				{
+					LifecycleRevision = lifecycle, StateRevision = stateRevision,
+					Control = GetDoorControl(),
+				},
+				"uproot" => new UprootState
+				{
+					LifecycleRevision = lifecycle, StateRevision = stateRevision,
+					Uprooted = Value > 0.5f,
+				},
+				"toggle" => new ONI_Together.DebugTools.ToggleState
+				{
+					LifecycleRevision = lifecycle, StateRevision = stateRevision,
+					Toggled = Value > 0.5f,
+				},
+				_ => new BuildingConfigState
+				{
+					LifecycleRevision = lifecycle,
+					BaseRevision = (long)GetEvidenceBaseRevision(),
+					StateRevision = stateRevision,
+					ConfigKind = ConfigHash.ToString(CultureInfo.InvariantCulture),
+					ConfigValue = GetConfigValue(),
+				},
+			};
+		}
+
+		private ulong GetEvidenceBaseRevision()
+			=> BaseStateRevision != 0 || StateRevision == 0
+				? BaseStateRevision : StateRevision - 1;
+
+		private string GetDoorControl()
+		{
+			if (ConfigHash == NetworkingHash.ForConfigKey("DoorUnseal"))
+				return "Unseal";
+			return Enum.GetName(typeof(Door.ControlState), (int)Value)
+			       ?? ((int)Value).ToString(CultureInfo.InvariantCulture);
+		}
+
+		private string GetConfigValue()
+		{
+			if (ConfigType == BuildingConfigType.String)
+				return StringValue ?? string.Empty;
+			if (ConfigType == BuildingConfigType.Boolean)
+				return Value > 0.5f ? "true" : "false";
+			return Value.ToString("R", CultureInfo.InvariantCulture);
+		}
 
 		private void LogOriginalBlockedEvidence()
-			=> LogBuildingConfigEvidence("client-original-blocked", StateRevision, false);
+			=> LogBuildingConfigEvidence(
+				"client-original-blocked", StateRevision,
+				"sync:f60e38b805c1052cff0fec0d");
 
-		private void LogHostBuildingConfigEvidence()
+		private void LogHostBuildingConfigEvidence(string entryId)
 		{
-			LogBuildingConfigEvidence("host-submit", StateRevision, true);
-			LogBuildingConfigEvidence("final-state", StateRevision, true);
+			LogBuildingConfigEvidence("host-submit", StateRevision, entryId);
+			LogBuildingConfigEvidence("final-state", StateRevision, entryId);
+		}
+
+		private string GetLocalBuildingConfigSendEntryId()
+		{
+			if (ConfigHash == NetworkingHash.ForConfigKey("DoorState")) return "sync:b55ce4ea9939fa1b6b296c23";
+			if (ConfigHash == NetworkingHash.ForConfigKey("DoorUnseal")) return "sync:2ae0aa3184b40e660ee6d2c2";
+			if (ConfigHash == NetworkingHash.ForConfigKey("UprootPlant")) return "sync:9dce9681c9df9ef0bf16b56e";
+			if (ConfigHash == NetworkingHash.ForConfigKey("QueueToggleable")) return "sync:968603477131150d6f009d57";
+			if (ConfigHash == NetworkingHash.ForConfigKey("ToggleableChange")) return "sync:de5ca17eee1407e93107184b";
+			if (ConfigHash == NetworkingHash.ForConfigKey("Capacity")) return "sync:b44f795d15c4ae277c89cd4a";
+			if (ConfigHash == NetworkingHash.ForConfigKey("Threshold")) return "sync:04ad01ef664d38411a873683";
+			if (ConfigHash == NetworkingHash.ForConfigKey("ThresholdDirection")) return "sync:337c4446de4c5a02c9e0053f";
+			if (ConfigHash == NetworkingHash.ForConfigKey("Checkbox")) return "sync:e1bc60fbb54bc74780042e43";
+			return "sync:6eaef0b4077bfdc8e29a6aff";
 		}
 
 		private void LogAppliedBuildingConfigEvidence(ConfigKey key)
 		{
-			LogBuildingConfigEvidence("revision-accepted", StateRevision, true);
-			LogBuildingConfigEvidence("client-apply", StateRevision, true);
-			LogBuildingConfigEvidence("final-state", StateRevision, true);
+			const string entryId = "sync:f60e38b805c1052cff0fec0d";
+			LogBuildingConfigEvidence("revision-accepted", StateRevision, entryId);
+			LogBuildingConfigEvidence("client-apply", StateRevision, entryId);
+			LogBuildingConfigEvidence("final-state", StateRevision, entryId);
 			ulong current = GetRevision(ClientRevisions, key);
 			if (!NetworkIdentityRegistry.IsNewerRevision(current, current))
-				LogBuildingConfigEvidence("revision-duplicate", current, false);
+				LogBuildingConfigEvidence("revision-duplicate", current, entryId);
 			ulong older = current - 1;
 			if (!NetworkIdentityRegistry.IsNewerRevision(current, older))
-				LogBuildingConfigEvidence("revision-out-of-order", older, false);
+				LogBuildingConfigEvidence("revision-out-of-order", older, entryId);
 		}
 #endif
 

@@ -1,4 +1,5 @@
 using HarmonyLib;
+using ONI_Together.DebugTools;
 using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.DLC.Common;
 
@@ -155,7 +156,18 @@ namespace ONI_Together.Patches.DLC.Common
 					MultiplayerSession.IsHost, IsApplyingState);
 
 			internal static void Postfix(POITechItemUnlockWorkable __instance)
-				=> Broadcast(__instance.GetSMI<POITechItemUnlocks.Instance>());
+			{
+#if DEBUG
+				string dlcFamily = null;
+				IFaultInputMutation mutation = ProductionFaultInputGates.CommonFamily(
+					ref dlcFamily);
+#endif
+				Broadcast(__instance.GetSMI<POITechItemUnlocks.Instance>());
+#if DEBUG
+				FaultInjectionUnitySeams.EmitReceipt(
+					mutation, runtimeTarget: __instance);
+#endif
+			}
 		}
 
 		[HarmonyPatch(typeof(POITechItemUnlocks.Instance),

@@ -23,9 +23,7 @@ namespace ONI_Together.Patches.ToolPatches.Deconstruct
 
 			PacketSender.SendToAllOtherPeers(packet);
 #if DEBUG
-			IntegrationScenarioEvidenceCore.Log(
-				"deconstruct", "client-original-blocked", 0, false,
-				BuildingActionPacket.CanonicalState(packet.NetId, packet.Action));
+			packet.LogOriginalBlocked("sync:408a825c6e7bfddc820bc98e");
 #endif
 			return false;
 		}
@@ -36,7 +34,7 @@ namespace ONI_Together.Patches.ToolPatches.Deconstruct
 			    || !TryCreate(__instance, out BuildingActionPacket packet))
 				return;
 			PacketSender.SendToAllClients(packet, PacketSendMode.ReliableImmediate);
-			packet.LogHostOutcome();
+			packet.LogHostOutcome("sync:1bdce19ebb7dcde23da4128b");
 		}
 
 		private static bool ShouldHandle()

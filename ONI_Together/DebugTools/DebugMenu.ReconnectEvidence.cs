@@ -1,4 +1,5 @@
 #if DEBUG
+using System.Globalization;
 using System.Linq;
 using ONI_Together.Misc;
 using ONI_Together.Networking;
@@ -8,6 +9,7 @@ namespace ONI_Together.DebugTools
 	internal static class ReconnectScenarioEvidence
 	{
 		private const string Scenario = "reconnect-world-state";
+		private const string EntryId = "sync:e94ba2a3526636c98ae7e030";
 		private static bool _armed;
 		private static bool _host;
 		private static ulong _peerId;
@@ -27,15 +29,29 @@ namespace ONI_Together.DebugTools
 				reason = "completed-current-connection-generation-required";
 				return false;
 			}
-			if (!TryCaptureState(out string state, out reason))
+			if (!TryCaptureState(
+				peer.ConnectionGeneration, _snapshotGeneration, out ReconnectWorldStateState state,
+				out reason))
 				return false;
 
 			_host = MultiplayerSession.IsHost;
 			_armed = true;
-			IntegrationScenarioEvidenceCore.Log(
-				Scenario, "final-state", _snapshotGeneration, true, state);
+			Log("final-state", _snapshotGeneration, state);
 			reason = $"peer={_peerId};connectionGeneration={_connectionGeneration};" +
 			         $"snapshotGeneration={_snapshotGeneration}";
+			return true;
+		}
+
+		internal static bool CancelAutomationArm()
+		{
+			if (!_armed)
+				return false;
+			_armed = false;
+			_peerId = 0;
+			_peer = null;
+			_connection = null;
+			_connectionGeneration = 0;
+			_snapshotGeneration = 0;
 			return true;
 		}
 
@@ -58,34 +74,21 @@ namespace ONI_Together.DebugTools
 				return;
 			bool staleConnectionAccepted =
 				peer.IsCurrentConnection(_connection, _connectionGeneration);
-			if (staleConnectionAccepted || !TryCaptureState(out string state, out _))
+			if (staleConnectionAccepted || !TryCaptureState(
+			    peer.ConnectionGeneration, snapshotGeneration,
+			    out ReconnectWorldStateState state, out _))
 				return;
 
 			if (_host)
 			{
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "host-submit", snapshotGeneration, true, state);
+				Log("host-submit", snapshotGeneration, state);
 			}
 			else
 			{
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "client-apply", snapshotGeneration, true, state);
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "revision-accepted", snapshotGeneration, true, state);
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "revision-duplicate", snapshotGeneration,
-					GameClient.ShouldCompleteReadyAcceptance(
-						GameClient.State, 0, snapshotGeneration), state);
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "revision-out-of-order", _snapshotGeneration,
-					GameClient.ShouldCompleteReadyAcceptance(
-						GameClient.State, 0, _snapshotGeneration), state);
-				IntegrationScenarioEvidenceCore.Log(
-					Scenario, "client-original-blocked", _snapshotGeneration,
-					staleConnectionAccepted, state);
+				Log("client-apply", snapshotGeneration, state);
+				Log("revision-accepted", snapshotGeneration, state);
 			}
-			IntegrationScenarioEvidenceCore.Log(
-				Scenario, "post-reconnect-state", snapshotGeneration, true, state);
+			Log("post-reconnect-state", snapshotGeneration, state);
 			_armed = false;
 			RememberConnection(peer, connection, snapshotGeneration);
 		}
@@ -100,18 +103,43 @@ namespace ONI_Together.DebugTools
 			_snapshotGeneration = snapshotGeneration;
 		}
 
-		private static bool TryCaptureState(out string state, out string reason)
+		private static bool TryCaptureState(
+			long connectionGeneration, long snapshotGeneration,
+			out ReconnectWorldStateState state, out string reason)
 		{
-			state = string.Empty;
+			state = null;
 			if (!SoakStateHash.TryCaptureCurrent(out SoakStateHashes hashes, out reason))
 				return false;
-			state = $"grid:{hashes.GridRecords}:{SoakStateHash.ToHex(hashes.Grid)}," +
-			        $"entity:{hashes.EntityLifecycleRecords}:{SoakStateHash.ToHex(hashes.EntityLifecycle)}," +
-			        $"world:{hashes.WorldMembershipRecords}:{SoakStateHash.ToHex(hashes.WorldMembership)}," +
-			        $"storage:{hashes.StorageMembershipRecords}:{SoakStateHash.ToHex(hashes.StorageMembership)}," +
-			        $"clusterRocket:{hashes.ClusterRocketRecords}:{SoakStateHash.ToHex(hashes.ClusterRocket)}";
+			state = new ReconnectWorldStateState
+			{
+				ConnectionGeneration = connectionGeneration,
+				SnapshotGeneration = snapshotGeneration,
+				Grid = Domain(hashes.GridRecords, hashes.Grid),
+				Entity = Domain(hashes.EntityLifecycleRecords, hashes.EntityLifecycle),
+				World = Domain(hashes.WorldMembershipRecords, hashes.WorldMembership),
+				Storage = Domain(hashes.StorageMembershipRecords, hashes.StorageMembership),
+				ClusterRocket = Domain(hashes.ClusterRocketRecords, hashes.ClusterRocket),
+			};
 			return true;
 		}
+
+		private static ReconnectDomainRecord Domain(int count, byte[] hash)
+			=> new ReconnectDomainRecord
+			{
+				Count = count,
+				Hash = "sha256:" + SoakStateHash.ToHex(hash).ToLowerInvariant(),
+			};
+
+		private static void Log(
+			string phase, long revision, ReconnectWorldStateState state)
+			=> IntegrationScenarioEvidenceCore.Log(TypedEvidenceRuntimeContext.Create(
+				Scenario, phase, revision,
+				new ReconnectWorldStateTarget
+				{
+					PeerId = _peerId.ToString(CultureInfo.InvariantCulture),
+				},
+				state, EntryId, connectionGeneration: state.ConnectionGeneration,
+				snapshotGeneration: state.SnapshotGeneration));
 	}
 
 	public partial class DebugMenu

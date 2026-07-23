@@ -147,7 +147,7 @@ namespace ONI_Together.Networking
 			if (!_applying || _failed || _applied)
 				return false;
 			_applying = false;
-			if (!succeeded)
+			if (ShouldRollbackApply(succeeded))
 			{
 				Fail();
 				return true;
@@ -155,6 +155,8 @@ namespace ONI_Together.Networking
 			_applied = true;
 			return true;
 		}
+
+		internal static bool ShouldRollbackApply(bool succeeded) => !succeeded;
 
 		internal bool IsTimedOut(float now)
 			=> !IsFinite(now) || now >= _idleDeadline || now >= _absoluteDeadline;

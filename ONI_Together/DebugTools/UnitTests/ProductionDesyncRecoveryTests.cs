@@ -43,6 +43,22 @@ namespace ONI_Together.DebugTools.UnitTests
 				: UnitTestResult.Fail("Production recovery could loop or apply an unsafe local repair");
 		}
 
+		[UnitTest(name: "Disabled cycle hard sync does not force reconnect", category: "Networking")]
+		public static UnitTestResult DisabledCycleHardSyncDoesNotForceReconnect()
+		{
+			ProductionDesyncDomain mismatch = ProductionDesyncDomain.EntityLifecycle
+				| ProductionDesyncDomain.Storage;
+			ProductionRecoveryAction disabledCycleAction = ProductionDesyncRecovery.SelectRecoveryAction(
+				mismatch, localRepairAttempted: false, allowHardSync: false);
+			ProductionRecoveryAction enabledCycleAction = ProductionDesyncRecovery.SelectRecoveryAction(
+				mismatch, localRepairAttempted: false, allowHardSync: true);
+			return disabledCycleAction == ProductionRecoveryAction.ReportOnly
+				&& enabledCycleAction == ProductionRecoveryAction.HardSync
+				? UnitTestResult.Pass("Disabled cycle reports multi-domain mismatch without forcing reconnect")
+				: UnitTestResult.Fail(
+					$"Expected disabled=ReportOnly and enabled=HardSync, got disabled={disabledCycleAction}, enabled={enabledCycleAction}");
+		}
+
 		[UnitTest(name: "Production desync report preserves every domain hash", category: "Networking")]
 		public static UnitTestResult ReportRoundTripPreservesDomains()
 		{

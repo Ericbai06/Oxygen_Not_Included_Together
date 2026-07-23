@@ -114,7 +114,9 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		[UnitTest(name: "Fresh snapshot clears stale loading epoch", category: "Networking")]
+		[UnitTest(name: "Fresh snapshot clears stale loading epoch",
+			category: "Networking",
+			headlessUnsupportedReason: "Calls Unity-backed loading reset")]
 		public static UnitTestResult FreshSnapshotClearsStaleLoadingEpoch()
 		{
 			TransportServer originalServer = NetworkConfig.TransportServer;

@@ -214,7 +214,7 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			}
 		}
 
-		private static bool TryGetReplacement(
+		internal static bool TryGetReplacement(
 			BuildingDef def,
 			int cell,
 			Orientation orientation,
@@ -225,10 +225,26 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			if (def.ReplacementLayer == global::ObjectLayer.NumLayers || materials.Count == 0)
 				return false;
 			candidate = def.GetReplacementCandidate(cell);
+#if DEBUG
+			bool destroyDeferred = false;
+			IFaultInputMutation fault = ProductionFaultInputGates.DeferredReplacementDestroy(
+				ref destroyDeferred);
+			FaultInjectionUnitySeams.EnsureExpectedRuntimeTarget(fault, candidate);
+			if (destroyDeferred)
+			{
+				UnityEngine.Object.Destroy(candidate);
+			}
+			FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: candidate);
+#endif
 			bool occupied = false;
 			def.RunOnArea(cell, orientation, offset => occupied |= def.IsReplacementLayerOccupied(offset));
 			BuildingComplete complete = candidate?.GetComponent<BuildingComplete>();
-			if (candidate == null || occupied || complete == null || !complete.Def.Replaceable || !def.CanReplace(candidate))
+			if (
+#if DEBUG
+				destroyDeferred ||
+#endif
+				candidate == null || occupied || complete == null
+			    || !complete.Def.Replaceable || !def.CanReplace(candidate))
 				return false;
 			Tag existingMaterial = candidate.GetComponent<PrimaryElement>()?.Element?.tag ?? Tag.Invalid;
 			if (existingMaterial.GetHash() == (int)SimHashes.StableSnow)

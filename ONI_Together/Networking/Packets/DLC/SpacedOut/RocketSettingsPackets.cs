@@ -198,6 +198,9 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 
 		public RocketSettingsPacketData Data = new();
 		public ulong Revision;
+#if DEBUG
+		internal string ScenarioActionProfile = string.Empty;
+#endif
 
 		public RocketSettingsStatePacket()
 		{
@@ -217,52 +220,55 @@ namespace ONI_Together.Networking.Packets.DLC.SpacedOut
 		{
 				if (Revision == 0 || !Data.IsAuthoritativeWireValid())
 					throw new InvalidDataException("Invalid authoritative rocket snapshot");
-#if DEBUG
-				RecordHostEvidence();
-#endif
 				writer.Write(Revision);
 			Data.Serialize(writer);
+#if DEBUG
+			writer.Write(ScenarioActionProfile ?? string.Empty);
+#endif
 		}
 
 		public void Deserialize(BinaryReader reader)
 		{
 			Revision = reader.ReadUInt64();
 			Data = RocketSettingsPacketData.Deserialize(reader);
+#if DEBUG
+			ScenarioActionProfile = reader.ReadString();
+#endif
 			if (Revision == 0 || !Data.IsAuthoritativeWireValid())
 				throw new InvalidDataException("Invalid authoritative rocket snapshot");
 		}
 
 		public void OnDispatched()
 		{
-			if (!ShouldApply(MultiplayerSession.IsHost, PacketHandler.CurrentContext.SenderIsHost))
+#if DEBUG
+			if (!string.IsNullOrEmpty(ScenarioActionProfile))
+			{
+				if (ScenarioActionReceiverGate.TryEnter(ScenarioActionProfile, "rocket"))
+					RocketActionFlow.ExecuteClient(this);
 				return;
+			}
+			ApplyRuntimePacket();
+#else
+			ApplyRuntimePacket();
+#endif
+		}
+
+		internal bool ApplyRuntimePacket()
+		{
+			if (!ShouldApply(MultiplayerSession.IsHost, PacketHandler.CurrentContext.SenderIsHost))
+				return false;
 			ulong current = LastRevisions.TryGetValue(Data.TargetNetId, out ulong value) ? value : 0;
 			if (!ShouldAcceptRevision(current, Revision))
-				return;
-				bool applied;
-#if DEBUG
-				BeginClientEvidence();
-				try
-				{
-					applied = RocketSettingsSync.TryApply(Data);
-				}
-				finally
-				{
-					EndClientEvidence();
-				}
-#else
-				applied = RocketSettingsSync.TryApply(Data);
-#endif
+				return false;
+				bool applied = RocketSettingsSync.TryApply(Data);
 				if (applied)
 				{
 					LastRevisions[Data.TargetNetId] = Revision;
 					RocketSettingsSync.CompleteRepair(Data.TargetNetId);
-#if DEBUG
-					RecordClientAppliedEvidence();
-#endif
-					return;
+					return true;
 			}
 			RocketSettingsSync.RequestRepair(Data);
+			return false;
 		}
 
 		internal static bool ShouldApply(bool localIsHost, bool senderIsHost)

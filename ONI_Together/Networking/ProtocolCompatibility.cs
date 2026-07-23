@@ -66,11 +66,17 @@ namespace ONI_Together.Networking
 			IEnumerable<string> activeDlcIds)
 		{
 			using var _ = Profiler.Scope();
-
-			return ModBuildFingerprint.Length == 64
-				&& string.Equals(modBuildFingerprint, ModBuildFingerprint, StringComparison.Ordinal)
-				&& ActiveDlcIds.SetEquals(activeDlcIds ?? Array.Empty<string>());
+			return MatchesValues(
+				ModBuildFingerprint, ActiveDlcIds, modBuildFingerprint, activeDlcIds);
 		}
+
+		internal static bool MatchesValues(
+			string localFingerprint, IEnumerable<string> localDlcIds,
+			string remoteFingerprint, IEnumerable<string> remoteDlcIds)
+			=> localFingerprint?.Length == 64
+			   && string.Equals(remoteFingerprint, localFingerprint, StringComparison.Ordinal)
+			   && new HashSet<string>(localDlcIds ?? Array.Empty<string>(), StringComparer.Ordinal)
+				   .SetEquals(remoteDlcIds ?? Array.Empty<string>());
 
 		public static string BuildMismatchReason(
 			string remoteModBuildFingerprint,

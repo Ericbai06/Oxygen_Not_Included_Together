@@ -13,6 +13,9 @@ namespace ONI_Together.Scripts.Duplicants
 		[MyCmpGet] KPrefabID kpref;
 
 		private bool HasInit = false;
+#if DEBUG
+		internal bool IsInitialized => HasInit;
+#endif
 
 		public override void OnSpawn()
 		{
@@ -40,13 +43,27 @@ namespace ONI_Together.Scripts.Duplicants
 			FinalizeInit();
 		}
 
-		void FinalizeInit()
+		internal void FinalizeInit()
 		{
 			using var _ = Profiler.Scope();
 			if (HasInit) return;
 
 			var go = gameObject;
 			if (!kpref?.HasTag(GameTags.BaseMinion) ?? false) return;
+#if DEBUG
+			int componentCount = go.GetComponents<Component>().Length;
+			NetworkIdentity originalIdentity = go.GetComponent<NetworkIdentity>();
+			IFaultInputMutation fault = ProductionFaultInputGates.DestroyedMinionObject(ref go);
+			if (fault.Applied)
+			{
+				bool attachmentRejected = go == null
+					|| go.GetComponents<Component>().Length == componentCount
+					&& go.GetComponent<NetworkIdentity>() == originalIdentity;
+				FaultInjectionUnitySeams.EmitReceipt(fault, attachmentRejected, this);
+				return;
+			}
+			FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: this);
+#endif
 
 			if (MultiplayerSession.IsClient)
 				InitializeClient(go);

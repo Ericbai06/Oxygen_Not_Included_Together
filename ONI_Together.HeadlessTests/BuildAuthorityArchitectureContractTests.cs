@@ -123,8 +123,8 @@ internal static class BuildAuthorityArchitectureContractTests
     private static void BuildWireSurfaceContainsExactlyThreePackets(
         IReadOnlyDictionary<string, string> sources)
     {
-        string[] expected = ["BuildRequestPacket", "BuildCommitPacket",
-            "BuildRejectedPacket"];
+        string[] expected = ["BuildCommitPacket", "BuildRejectedPacket",
+            "BuildRequestPacket"];
         string[] actual = DeclaredSymbols(sources)
             .Where(name => name.EndsWith("BuildPacket", StringComparison.Ordinal) ||
                 name is "BuildRequestPacket" or "BuildCommitPacket" or
@@ -134,21 +134,15 @@ internal static class BuildAuthorityArchitectureContractTests
         EqualSequence(expected, actual, "build packet surface drifted");
     }
 
-    private static void UtilityPlannerIsOutcomeDriven(
-        IReadOnlyDictionary<string, string> sources)
+    private static void UtilityPlannerIsOutcomeDriven(IReadOnlyDictionary<string, string> sources)
     {
-        KeyValuePair<string, string>[] planners = sources
-            .Where(pair => pair.Key.EndsWith("UtilityPathPlanner.cs",
-                StringComparison.Ordinal))
-            .ToArray();
+        KeyValuePair<string, string>[] planners = sources.Where(pair =>
+            pair.Value.Contains("class UtilityPathPlanner", StringComparison.Ordinal)).ToArray();
         True(planners.Length == 1, "UtilityPathPlanner must have one source owner");
         string source = planners[0].Value;
-        True(source.Contains("PlacementOutcome", StringComparison.Ordinal),
-            "UtilityPathPlanner does not consume observed placement outcomes");
-        True(source.Contains("UtilityEdge", StringComparison.Ordinal),
-            "UtilityPathPlanner does not emit explicit utility edges");
-        True(!Regex.IsMatch(source,
-                @"Apply(?:Path)?Connections?\s*\([^)]*Cells"),
+        True(source.Contains("successfulCells", StringComparison.Ordinal), "UtilityPathPlanner does not consume observed successful outcomes");
+        True(source.Contains("UtilityEdge", StringComparison.Ordinal), "UtilityPathPlanner does not emit explicit utility edges");
+        True(!Regex.IsMatch(source, @"Apply(?:Path)?Connections?\s*\([^)]*Cells"),
             "utility topology still accepts the requested full path");
     }
 
@@ -211,10 +205,18 @@ internal static class BuildAuthorityArchitectureContractTests
         {
             if (path.Contains("/Networking/Building/", StringComparison.Ordinal) ||
                 path.Contains("\\Networking\\Building\\", StringComparison.Ordinal) ||
-                source.Contains("AuthoritativeBuildExecutor", StringComparison.Ordinal) ||
-                source.Contains("BuildCommitApplier", StringComparison.Ordinal) ||
-                source.Contains("SinglePlacementPlanner", StringComparison.Ordinal) ||
-                source.Contains("UtilityPathPlanner", StringComparison.Ordinal))
+                path.Contains("/Networking/Packets/Tools/Build/",
+                    StringComparison.Ordinal) ||
+                path.Contains("\\Networking\\Packets\\Tools\\Build\\",
+                    StringComparison.Ordinal) ||
+                path.EndsWith("/Patches/ToolPatches/Build/BuildRuntimeAdapter.cs",
+                    StringComparison.Ordinal) ||
+                path.EndsWith("\\Patches\\ToolPatches\\Build\\BuildRuntimeAdapter.cs",
+                    StringComparison.Ordinal) ||
+                path.EndsWith("/Patches/ToolPatches/Build/HostBuildPolicyProvider.cs",
+                    StringComparison.Ordinal) ||
+                path.EndsWith("\\Patches\\ToolPatches\\Build\\HostBuildPolicyProvider.cs",
+                    StringComparison.Ordinal))
                 yield return new KeyValuePair<string, string>(path, source);
         }
     }

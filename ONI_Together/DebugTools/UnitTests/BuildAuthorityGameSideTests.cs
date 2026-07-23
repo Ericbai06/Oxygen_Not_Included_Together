@@ -185,8 +185,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			    || NetworkIdentityRegistry.CanApplyDomainState(true, true, 7, false, 6)
 			    || NetworkIdentityRegistry.CanApplyDomainState(true, true, 7, true, 7)
 			    || !NetworkIdentityRegistry.CanApplyDomainState(true, true, 7, false, 7)
-			    || !BuildCompletePacket.ShouldApplyLifecycle(7, 8, tombstoned: false)
-			    || BuildCompletePacket.ShouldApplyLifecycle(7, 7, tombstoned: true))
+			    || !BuildLifecycleAdmission.CanComplete(true, true, true, true, true)
+			    || BuildLifecycleAdmission.CanComplete(true, true, false, true, true))
 				return UnitTestResult.Fail("Stale or tombstoned build lifecycle identity was accepted");
 			return UnitTestResult.Pass("Exactly one dedicated publisher owns build lifecycle and stale identities are gated");
 		}

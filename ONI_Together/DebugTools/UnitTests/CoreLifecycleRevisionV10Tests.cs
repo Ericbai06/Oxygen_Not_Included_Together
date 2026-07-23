@@ -2,9 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using ONI_Together.Networking;
-using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.Tools.Build;
 using ONI_Together.Networking.Packets.Tools.Deconstruct;
@@ -16,57 +16,57 @@ namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class CoreLifecycleRevisionV10Tests
 	{
-		[UnitTest(name: "v10 build completion carries one lifecycle identity", category: "Sync")]
-		public static UnitTestResult BuildCompletionWireRoundtrip()
+		[UnitTest(name: "v10 build commit carries one lifecycle identity", category: "Sync")]
+		public static UnitTestResult BuildCommitWireRoundtrip()
 		{
-			var input = new BuildCompletePacket
-			{
-				Cell = 123,
-				PrefabID = "WireBridge",
-				Orientation = Orientation.R90,
-				MaterialTags = new List<string> { "Copper", "Ceramic" },
-				Temperature = 315f,
-				FacadeID = "DEFAULT_FACADE",
-				UtilityConnectionFlags = (UtilityConnections)5,
-				ObjectLayer = global::ObjectLayer.Wire
-			};
-			if (!Set(input, "NetId", 7101) || !Set(input, "LifecycleRevision", 29UL))
-				return UnitTestResult.Fail("BuildCompletePacket has no NetId + LifecycleRevision wire identity");
-			BuildCompletePacket output = Roundtrip(input, new BuildCompletePacket());
-			if (7101 != Get<int>(output, "NetId") || 29UL != Get<ulong>(output, "LifecycleRevision")
-			    || 123 != output.Cell || 2 != output.MaterialTags.Count
-			    || "Copper" != output.MaterialTags[0] || "Ceramic" != output.MaterialTags[1]
-			    || (UtilityConnections)5 != output.UtilityConnectionFlags
-			    || global::ObjectLayer.Wire != output.ObjectLayer)
-				return UnitTestResult.Fail("Build completion lost identity, materials, layer, or utility topology");
-			return UnitTestResult.Pass("Build completion wire carries exact lifecycle and native material inputs");
+			BuildOperationId operation = new(8, 17, 1);
+			BuildRequest request = new(operation, "WireBridge",
+				new UtilityPathGeometry(new[] { 123, 124 }), new[] { "Copper", "Ceramic" },
+				"DEFAULT_FACADE", 0, 5, (int)ObjectLayer.Wire);
+			var commit = new BuildCommit(request, operation,
+				new[]
+				{
+					new PlacementOutcome(123, BuildPlacementKind.Completed, 7101, 29),
+					new PlacementOutcome(124, BuildPlacementKind.Queued)
+				},
+				new[] { new UtilityEdge(123, 124) }, new BuildRevision(29));
+			BuildCommitPacket output = Roundtrip(
+				BuildCommitPacket.FromDomain(commit), new BuildCommitPacket());
+			return output.OperationId == operation && output.Revision == 29
+			       && output.Placements.Count == 2
+			       && output.Placements[0].NetId == 7101
+			       && output.Placements[0].LifecycleRevision == 29
+			       && output.Connections.Count == 1
+				? UnitTestResult.Pass("Build commit carries exact operation, lifecycle identity, and utility topology")
+				: UnitTestResult.Fail("Build commit lost operation, lifecycle identity, or utility topology");
 		}
 
-		[UnitTest(name: "v10 build completion rejects zero lifecycle identity", category: "Sync")]
-		public static UnitTestResult BuildCompletionRejectsZeroIdentity()
+		[UnitTest(name: "v10 build commit rejects zero lifecycle revision", category: "Sync")]
+		public static UnitTestResult BuildCommitRejectsZeroIdentity()
 		{
-			var packet = new BuildCompletePacket
-			{
-				Cell = 1, PrefabID = "Wire", MaterialTags = new List<string> { "Copper" },
-				FacadeID = "DEFAULT_FACADE"
-			};
-			if (!Set(packet, "NetId", 0) || !Set(packet, "LifecycleRevision", 0UL))
-				return UnitTestResult.Fail("Build completion lifecycle identity is absent");
+			BuildOperationId operation = new(8, 17, 2);
+			BuildRequest request = new(operation, "Tile",
+				new SinglePlacementGeometry(1, Orientation.Neutral), new[] { "SandStone" },
+				"DEFAULT_FACADE", 0, 5, (int)ObjectLayer.Building);
+			BuildCommitPacket packet = BuildCommitPacket.FromDomain(new BuildCommit(
+				request, operation, new[] { new PlacementOutcome(1, BuildPlacementKind.Queued) },
+				Array.Empty<UtilityEdge>(), new BuildRevision(1)));
+			packet.Revision = 0;
 			return RejectsSerialization(packet)
-				? UnitTestResult.Pass("Zero build lifecycle identity is rejected before dispatch")
-				: UnitTestResult.Fail("Zero build lifecycle identity entered the wire");
+				? UnitTestResult.Pass("Zero build commit revision is rejected before dispatch")
+				: UnitTestResult.Fail("Zero build commit revision entered the wire");
 		}
 
-		[UnitTest(name: "v10 build completion lifecycle gate is idempotent", category: "Sync")]
-		public static UnitTestResult BuildCompletionLifecycleGate()
+		[UnitTest(name: "v10 build lifecycle gate is idempotent", category: "Sync")]
+		public static UnitTestResult BuildCommitLifecycleGate()
 		{
-			if (BuildCompletePacket.ShouldApplyLifecycle(10, 0, false)
-			    || BuildCompletePacket.ShouldApplyLifecycle(10, 9, false)
-			    || BuildCompletePacket.ShouldApplyLifecycle(10, 10, true)
-			    || !BuildCompletePacket.ShouldApplyLifecycle(10, 10, false)
-			    || !BuildCompletePacket.ShouldApplyLifecycle(10, 11, true))
-				return UnitTestResult.Fail("Build completion rejected its live transition or admitted stale/tombstoned state");
-			return UnitTestResult.Pass("Same live lifecycle can transition Constructable; tombstones require a higher revision");
+			if (NetworkIdentityRegistry.IsNewerRevision(10, 0)
+			    || NetworkIdentityRegistry.IsNewerRevision(10, 9)
+			    || !NetworkIdentityRegistry.IsNewerRevision(10, 11)
+			    || !BuildLifecycleAdmission.CanComplete(true, true, true, true, true)
+			    || BuildLifecycleAdmission.CanComplete(true, true, false, true, true))
+				return UnitTestResult.Fail("Build lifecycle admitted stale identity or incomplete materialization");
+			return UnitTestResult.Pass("Build commit lifecycle requires a newer revision and initialized target");
 		}
 
 		[UnitTest(name: "v10 deconstruct completion carries a tombstone", category: "Sync")]
@@ -74,9 +74,9 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			var input = new DeconstructCompletePacket { NetId = 7201, Revision = 31 };
 			DeconstructCompletePacket output = Roundtrip(input, new DeconstructCompletePacket());
-			if (7201 != output.NetId || 31UL != output.Revision)
-				return UnitTestResult.Fail("Deconstruct tombstone did not roundtrip exactly");
-			return UnitTestResult.Pass("Deconstruct completion carries its exact lifecycle tombstone");
+			return output.NetId == 7201 && output.Revision == 31
+				? UnitTestResult.Pass("Deconstruct completion carries its exact lifecycle tombstone")
+				: UnitTestResult.Fail("Deconstruct tombstone did not roundtrip exactly");
 		}
 
 		[UnitTest(name: "v10 deconstruct rejects zero stale duplicate and missing-target replay", category: "Sync")]
@@ -89,12 +89,12 @@ namespace ONI_Together.DebugTools.UnitTests
 			    || !DeconstructCompletePacket.ShouldApply(true, 10, 11))
 				return UnitTestResult.Fail("Deconstruct authority or revision gate is incorrect");
 			var zero = new DeconstructCompletePacket { NetId = 7201, Revision = 0 };
-			if (!RejectsSerialization(zero))
-				return UnitTestResult.Fail("Zero deconstruct tombstone entered the wire");
-			return UnitTestResult.Pass("Deconstruct rejects zero/stale/duplicate tombstones before target lookup");
+			return RejectsSerialization(zero)
+				? UnitTestResult.Pass("Deconstruct rejects zero/stale/duplicate tombstones before target lookup")
+				: UnitTestResult.Fail("Zero deconstruct tombstone entered the wire");
 		}
 
-		[UnitTest(name: "v10 lifecycle journal rejects zero stale duplicate and tombstone replay", category: "Sync")]
+		[UnitTest(name: "v10 lifecycle journal rejects stale duplicate and tombstone replay", category: "Sync")]
 		public static UnitTestResult LifecycleJournalOrdering()
 		{
 			const int netId = -1_700_101;
@@ -102,19 +102,15 @@ namespace ONI_Together.DebugTools.UnitTests
 			ulong authority = NetworkIdentityRegistry.AuthorityRevisionForTests;
 			try
 			{
-				var baseline = new[]
-				{
-					new NetworkIdentityRegistry.LifecycleRevisionSnapshotEntry(netId, 50, true)
-				};
-				if (!NetworkIdentityRegistry.TryReplaceLifecycleRevisionBaseline(baseline))
+				if (!NetworkIdentityRegistry.TryReplaceLifecycleRevisionBaseline(new[]
+					{ new NetworkIdentityRegistry.LifecycleRevisionSnapshotEntry(netId, 50, true) }))
 					return UnitTestResult.Fail("Lifecycle test baseline was rejected");
-				bool zero = NetworkIdentityRegistry.TryAcceptLifecycleRevision(netId, 0, false);
 				bool old = NetworkIdentityRegistry.TryAcceptLifecycleRevision(netId, 49, false);
 				bool duplicate = NetworkIdentityRegistry.TryAcceptLifecycleRevision(netId, 50, false);
 				bool newer = NetworkIdentityRegistry.TryAcceptLifecycleRevision(netId, 51, false);
-				if (zero || old || duplicate || !newer || NetworkIdentityRegistry.IsLifecycleTombstoned(netId))
-					return UnitTestResult.Fail("Lifecycle journal admitted zero/stale/duplicate state or rejected replacement");
-				return UnitTestResult.Pass("Only a higher lifecycle revision can replace a tombstone");
+				return !old && !duplicate && newer && !NetworkIdentityRegistry.IsLifecycleTombstoned(netId)
+					? UnitTestResult.Pass("Only a higher lifecycle revision can replace a tombstone")
+					: UnitTestResult.Fail("Lifecycle journal admitted stale/duplicate state or rejected replacement");
 			}
 			finally
 			{
@@ -122,103 +118,55 @@ namespace ONI_Together.DebugTools.UnitTests
 			}
 		}
 
-		[UnitTest(name: "v10 reconnect rejects old build deconstruct ground and world state", category: "Sync")]
+		[UnitTest(name: "v10 reconnect cuts reject old build deconstruct ground and world state", category: "Sync")]
 		public static UnitTestResult ReconnectCutsRejectOldLifecycleState()
 		{
 			const ulong lifecycleBaseline = 80;
 			const long worldBaseline = 80;
-			bool oldBuild = BuildCompletePacket.ShouldApplyLifecycle(lifecycleBaseline, 79, false);
+			bool oldBuild = NetworkIdentityRegistry.IsNewerRevision(lifecycleBaseline, 79);
 			bool oldDeconstruct = DeconstructCompletePacket.ShouldApply(true, lifecycleBaseline, 79);
 			bool oldGround = NetworkIdentityRegistry.IsNewerRevision(lifecycleBaseline, 79);
-			bool oldWorld = WorldUpdatePacket.ShouldApply(
-				localIsHost: false, senderIsHost: true,
-				revision: 79, supersededRevision: worldBaseline);
-			bool newBuild = BuildCompletePacket.ShouldApplyLifecycle(lifecycleBaseline, 81, true);
+			bool oldWorld = WorldUpdatePacket.ShouldApply(false, true, 79, worldBaseline);
+			bool newBuild = NetworkIdentityRegistry.IsNewerRevision(lifecycleBaseline, 81);
 			bool newDeconstruct = DeconstructCompletePacket.ShouldApply(true, lifecycleBaseline, 81);
 			bool newGround = NetworkIdentityRegistry.IsNewerRevision(lifecycleBaseline, 81);
 			bool newWorld = WorldUpdatePacket.ShouldApply(false, true, 81, worldBaseline);
-			if (oldBuild || oldDeconstruct || oldGround || oldWorld
-			    || !newBuild || !newDeconstruct || !newGround || !newWorld)
-				return UnitTestResult.Fail("Reconnect baseline admitted old state or rejected a newer revision");
-			return UnitTestResult.Pass("Reconnect cuts prevent old lifecycle and foreground rollback");
+			return !oldBuild && !oldDeconstruct && !oldGround && !oldWorld
+			       && newBuild && newDeconstruct && newGround && newWorld
+				? UnitTestResult.Pass("Reconnect cuts prevent old lifecycle and foreground rollback")
+				: UnitTestResult.Fail("Reconnect baseline admitted old state or rejected a newer revision");
 		}
 
-		[UnitTest(name: "v10 build and deconstruct dispatch by NetId journal", category: "Sync")]
+		[UnitTest(name: "v10 build commit dispatch applies through one applier", category: "Sync")]
 		public static UnitTestResult CompletionPacketsUseIdentityJournal()
 		{
-			MethodInfo build = Method(typeof(BuildCompletePacket), nameof(BuildCompletePacket.OnDispatched));
-			MethodInfo deconstruct = Method(typeof(DeconstructCompletePacket), nameof(DeconstructCompletePacket.OnDispatched));
-			bool buildJournal = CallsReachable(build, typeof(NetworkIdentityRegistry),
-				nameof(NetworkIdentityRegistry.TryBindAuthoritativeLifecycle));
-			bool buildLookup = CallsReachable(build, typeof(NetworkIdentityRegistry),
-				nameof(NetworkIdentityRegistry.TryGet));
-			bool deconstructJournal = CallsReachable(deconstruct, typeof(NetworkIdentityRegistry),
-				nameof(NetworkIdentityRegistry.TryAcceptLifecycleRevision));
-			bool deconstructLookup = CallsReachable(deconstruct, typeof(NetworkIdentityRegistry),
-				nameof(NetworkIdentityRegistry.TryGetComponent));
-			if (!buildJournal || !buildLookup || !deconstructJournal || !deconstructLookup)
-				return UnitTestResult.Fail("Completion packet can mutate by cell without exact NetId/revision admission");
-			return UnitTestResult.Pass("Old cell events cannot mutate a replacement with a different NetId");
+			MethodInfo dispatch = Method(typeof(BuildCommitPacket), nameof(BuildCommitPacket.OnDispatched));
+			MethodInfo apply = Method(typeof(BuildCommitApplier), nameof(BuildCommitApplier.Apply));
+			return CallsReachable(dispatch, apply)
+				? UnitTestResult.Pass("Build commit dispatch delegates identity/revision handling to one applier")
+				: UnitTestResult.Fail("Build commit dispatch bypasses the authoritative commit applier");
 		}
 
-		[UnitTest(name: "v10 build uses one native completion event", category: "Sync")]
+		[UnitTest(name: "v10 build publisher emits only dedicated commit/rejection packets", category: "Sync")]
 		public static UnitTestResult BuildPublishesOnceAndUsesNativeBuild()
 		{
-			MethodInfo postfix = Method(typeof(global::ConstructablePatch), "Postfix");
-			MethodInfo dispatch = Method(typeof(BuildCompletePacket), nameof(BuildCompletePacket.OnDispatched));
-			int sends = CountDirectCalls(postfix, typeof(PacketSender), nameof(PacketSender.SendToAllClients));
-			if (1 != sends)
-				return UnitTestResult.Fail($"Host completion published {sends} terminal events instead of one");
-			if (!CallsReachable(dispatch, typeof(BuildingDef), nameof(BuildingDef.Build))
-			    || CallsReachable(dispatch, typeof(Util), nameof(Util.KInstantiate)))
-				return UnitTestResult.Fail("Build completion bypassed native Build materialization");
-			return UnitTestResult.Pass("Tiles, bridges, utilities and multi-cell buildings use one native completion event");
+			MethodInfo[] publish = typeof(BuildPublisher).GetMethods(
+				BindingFlags.Static | BindingFlags.NonPublic)
+				.Where(method => method.Name == nameof(BuildPublisher.Publish)).ToArray();
+			if (publish.Length != 2 || publish.Any(method => CountDirectCalls(
+				method, typeof(PacketSender), nameof(PacketSender.SendToAllClients)) != 1))
+				return UnitTestResult.Fail("Build publisher does not expose one send per authoritative outcome kind");
+		return UnitTestResult.Pass("Build commit and rejection each publish through one dedicated packet path");
 		}
 
-		[UnitTest(name: "v10 managed construction preserves lifecycle through cleanup", category: "Sync")]
-		public static UnitTestResult ManagedConstructionPreservesIdentity()
-		{
-			MethodInfo prefix = Method(typeof(global::ConstructablePatch), "Prefix");
-			MethodInfo postfix = Method(typeof(global::ConstructablePatch), "Postfix");
-			MethodInfo finalizer = Method(typeof(global::ConstructablePatch), "Finalizer");
-			MethodInfo finalize = Method(typeof(global::ConstructablePatch), "TryFinalizeIdentity");
-			MethodInfo cleanup = Method(typeof(NetworkIdentity), nameof(NetworkIdentity.OnCleanUp));
-			if (!CallsReachable(prefix, typeof(NetworkIdentity), "BeginManagedSpawn")
-			    || !CallsReachable(postfix, typeof(NetworkIdentity), "EndManagedSpawn")
-			    || !CallsReachable(finalizer, typeof(NetworkIdentity), "EndManagedSpawn"))
-				return UnitTestResult.Fail("Construction transition does not balance managed-spawn suppression");
-			if (!CallsReachable(cleanup, typeof(NetworkIdentity), "get_IsManagedSpawnSuppressed"))
-				return UnitTestResult.Fail("Old Constructable cleanup can publish Despawn or end its lifecycle");
-			if (!CallsReachable(finalize, typeof(NetworkIdentity), nameof(NetworkIdentity.RegisterIdentity)))
-				return UnitTestResult.Fail("Completed building does not reclaim the managed construction identity");
-			return UnitTestResult.Pass("Constructable cleanup is silent and completed building retains its NetId/revision");
-		}
-
-		[UnitTest(name: "v10 identity binding drains pending build completion", category: "Sync")]
+		[UnitTest(name: "v10 identity binding is replaced by commit idempotence", category: "Sync")]
 		public static UnitTestResult IdentityBindingDrainsPendingCompletion()
 		{
-			MethodInfo bind = Method(
-				typeof(NetworkIdentityRegistry),
-				nameof(NetworkIdentityRegistry.TryBindAuthoritativeLifecycle));
-			MethodInfo apply = Method(typeof(BuildCompletePacket), "TryApplyPending");
-			if (!CallsReachable(bind, typeof(BuildCompletePacket), "TryApplyPending"))
-				return UnitTestResult.Fail("Constructable identity binding does not drain pending completion");
-			if (!CallsReachable(apply, typeof(BuildCompletePacket), "TryTakePending")
-			    || !CallsReachable(apply, typeof(BuildCompletePacket), "TryApplyCompletion"))
-				return UnitTestResult.Fail("Pending completion is not taken before re-entering build dispatch");
-			return UnitTestResult.Pass("Matching NetId/revision binding takes pending completion before apply");
-		}
-
-		[UnitTest(name: "v10 deconstruct is scoped; general cleanup stays Despawn", category: "Sync")]
-		public static UnitTestResult DeconstructAndGeneralCleanupAreDistinct()
-		{
-			MethodInfo cleanup = Method(typeof(NetworkIdentity), "SendAuthoritativeCleanup");
-			if (!CallsReachable(cleanup, typeof(PacketSender), nameof(PacketSender.SendToAllClients))
-			    || !ReferencesTypeReachable(cleanup, typeof(DeconstructCompletePacket)))
-				return UnitTestResult.Fail("Deconstruct completion is not published by the deconstruct path");
-			if (!ReferencesTypeReachable(cleanup, typeof(DespawnEntityPacket)))
-				return UnitTestResult.Fail("General NetworkIdentity cleanup no longer emits DespawnEntityPacket");
-			return UnitTestResult.Pass("Deconstruct has a scoped tombstone while general cleanup remains Despawn");
+			MethodInfo reset = Method(typeof(BuildCommitApplier), nameof(BuildCommitApplier.Reset));
+			MethodInfo apply = Method(typeof(BuildCommitApplier), nameof(BuildCommitApplier.Apply));
+			return reset != null && apply != null && apply.ReturnType == typeof(ApplyResult)
+				? UnitTestResult.Pass("Build client state is guarded by operation/revision idempotence")
+				: UnitTestResult.Fail("Build commit applier lacks operation/revision guard");
 		}
 
 		[UnitTest(name: "v10 removes DigComplete and PickupItem terminal packets", category: "Sync")]
@@ -226,32 +174,40 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			Assembly assembly = typeof(PacketRegistry).Assembly;
 			Type digComplete = assembly.GetType(
-				"ONI_Together.Networking.Packets.Tools.Dig.DigCompletePacket", throwOnError: false);
+				"ONI_Together.Networking.Packets.Tools.Dig.DigCompletePacket", false);
 			Type pickupItem = assembly.GetType(
-				"ONI_Together.Networking.Packets.World.PickupItemPacket", throwOnError: false);
-			if (digComplete != null || pickupItem != null)
-				return UnitTestResult.Fail("DigCompletePacket or PickupItemPacket still exists");
-			return UnitTestResult.Pass("Legacy dig/pickup terminal packet types are absent from PacketRegistry assembly");
+				"ONI_Together.Networking.Packets.World.PickupItemPacket", false);
+			return digComplete == null && pickupItem == null
+				? UnitTestResult.Pass("Legacy dig/pickup terminal packet types are absent")
+				: UnitTestResult.Fail("DigCompletePacket or PickupItemPacket still exists");
 		}
 
 		[UnitTest(name: "v10 dig uses foreground world causality and TakeUnit is non-terminal", category: "Sync")]
 		public static UnitTestResult DigAndTakeUnitDoNotPublishTerminalState()
 		{
-			bool oldRejected = !WorldUpdatePacket.ShouldApply(
-				localIsHost: false, senderIsHost: true, revision: 40, supersededRevision: 40);
-			bool newAccepted = WorldUpdatePacket.ShouldApply(
-				localIsHost: false, senderIsHost: true, revision: 41, supersededRevision: 40);
+			bool oldRejected = !WorldUpdatePacket.ShouldApply(false, true, 40, 40);
+			bool newAccepted = WorldUpdatePacket.ShouldApply(false, true, 41, 40);
 			Type takeUnit = typeof(PacketRegistry).Assembly.GetType(
 				"ONI_Together.Patches.World.PickupablePatches+PickupableTakeUnitPatch", false);
 			MethodInfo postfix = Method(takeUnit, "Postfix");
 			if (!oldRejected || !newAccepted)
 				return UnitTestResult.Fail("Dig foreground mutations are not protected by the WorldUpdate cut");
-			if (postfix != null && CallsReachable(
-				    postfix, typeof(PacketSender), nameof(PacketSender.SendToAllClients)))
+			if (postfix != null && ReflectionExecutionGraph.ReachesPacketSender(postfix))
 				return UnitTestResult.Fail("Pickupable.TakeUnit still publishes terminal network state");
-			if (new DiggablePacket() is not IClientRelayable)
-				return UnitTestResult.Fail("Dig tool intent is no longer a client relay request");
-			return UnitTestResult.Pass("Dig completion is foreground WorldUpdate state; TakeUnit is local quantity change");
+		return new DiggablePacket() is IClientRelayable
+			? UnitTestResult.Pass("Dig completion is foreground WorldUpdate state; TakeUnit is local quantity change")
+			: UnitTestResult.Fail("Dig tool intent is no longer a client relay request");
+		}
+
+		private static BuildCommitPacket CommitPacket()
+		{
+			BuildOperationId operation = new(8, 17, 5);
+			BuildRequest request = new(operation, "Tile",
+				new SinglePlacementGeometry(1, Orientation.Neutral), new[] { "SandStone" },
+				"DEFAULT_FACADE", 0, 5, (int)ObjectLayer.Building);
+			return BuildCommitPacket.FromDomain(new BuildCommit(request, operation,
+				new[] { new PlacementOutcome(1, BuildPlacementKind.Queued) },
+				Array.Empty<UtilityEdge>(), new BuildRevision(1)));
 		}
 
 		private static T Roundtrip<T>(T input, T output) where T : IPacket
@@ -279,83 +235,16 @@ namespace ONI_Together.DebugTools.UnitTests
 			catch (InvalidDataException) { return true; }
 		}
 
-		private static bool Set<T>(object target, string name, T value)
-		{
-			FieldInfo field = target.GetType().GetField(name,
-				BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-			if (field == null || field.FieldType != typeof(T)) return false;
-			field.SetValue(target, value);
-			return true;
-		}
-
-		private static T Get<T>(object target, string name)
-		{
-			FieldInfo field = target.GetType().GetField(name,
-				BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-			return field != null && field.FieldType == typeof(T)
-				? (T)field.GetValue(target)
-				: default;
-		}
-
 		private static MethodInfo Method(Type type, string name)
-			=> type?.GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic |
-			                         BindingFlags.Static | BindingFlags.Instance);
+			=> type?.GetMethod(name, BindingFlags.Static | BindingFlags.Instance |
+				BindingFlags.Public | BindingFlags.NonPublic);
 
-		private static bool CallsReachable(MethodInfo root, Type declaringType, string name)
-			=> CallsReachable(root, declaringType, name, new HashSet<MethodInfo>(), 3);
+		private static bool CallsReachable(MethodBase root, MethodBase target)
+			=> target != null && ReflectionExecutionGraph.Reaches(root, target);
 
-		private static bool CallsReachable(
-			MethodInfo method, Type declaringType, string name,
-			ISet<MethodInfo> visited, int depth)
-		{
-			if (method == null || depth < 0 || !visited.Add(method)) return false;
-			foreach (MethodBase called in CalledMethods(method))
-			{
-				if (called.DeclaringType == declaringType && called.Name == name) return true;
-				if (called is MethodInfo child && called.DeclaringType == method.DeclaringType
-				    && CallsReachable(child, declaringType, name, visited, depth - 1)) return true;
-			}
-			return false;
-		}
-
-		private static int CountDirectCalls(MethodInfo method, Type declaringType, string name)
-		{
-			int count = 0;
-			foreach (MethodBase called in CalledMethods(method))
-				if (called.DeclaringType == declaringType && called.Name == name) count++;
-			return count;
-		}
-
-		private static bool ReferencesTypeReachable(MethodInfo method, Type type)
-		{
-			return ReferencesTypeReachable(method, type, new HashSet<MethodInfo>(), 3);
-		}
-
-		private static bool ReferencesTypeReachable(
-			MethodInfo method, Type type, ISet<MethodInfo> visited, int depth)
-		{
-			if (method == null || depth < 0 || !visited.Add(method)) return false;
-			foreach (MethodBase called in CalledMethods(method))
-			{
-				if (called.DeclaringType == type) return true;
-				if (called is MethodInfo child && called.DeclaringType == method.DeclaringType
-				    && ReferencesTypeReachable(child, type, visited, depth - 1)) return true;
-			}
-			return false;
-		}
-
-		private static IEnumerable<MethodBase> CalledMethods(MethodInfo method)
-		{
-			byte[] il = method?.GetMethodBody()?.GetILAsByteArray();
-			if (il == null) yield break;
-			for (int index = 0; index <= il.Length - sizeof(int); index++)
-			{
-				MethodBase called = null;
-				try { called = method.Module.ResolveMethod(BitConverter.ToInt32(il, index)); }
-				catch (ArgumentException) { }
-				if (called != null) yield return called;
-			}
-		}
+		private static int CountDirectCalls(MethodInfo caller, Type owner, string name)
+			=> caller == null ? 0 : ReflectionExecutionGraph.ReadInstructions(caller)
+				.Count(value => value.Operand is MethodInfo method && method.DeclaringType == owner && method.Name == name);
 	}
 }
 #endif

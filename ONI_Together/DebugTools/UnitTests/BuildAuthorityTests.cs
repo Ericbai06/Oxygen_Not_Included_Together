@@ -15,6 +15,7 @@ namespace ONI_Together.DebugTools.UnitTests
 		{
 			var direct = new DispatchContext(41, false);
 			var verified = direct.AsVerifiedHostBroadcast();
+			var host = new DispatchContext(1, true);
 			bool executorRejectsInvalid = !AuthoritativeBuildExecutor.Execute(
 				null, new HostBuildPolicy(false), out _, out BuildRejected invalid)
 				&& invalid?.Reason == BuildRejectionReason.InvalidRequest;
@@ -31,7 +32,7 @@ namespace ONI_Together.DebugTools.UnitTests
 			    || BuildCommitPacket.ShouldApply(false, false)
 			    || PacketHandler.CanDispatchPacket(new BuildRejectedPacket(), direct, true)
 			    || !PacketHandler.CanDispatchPacket(
-				    new BuildRejectedPacket(), verified, false)
+				    new BuildRejectedPacket(), host, false)
 			    || !executorRejectsInvalid)
 				return UnitTestResult.Fail("Build authority gate is incorrect");
 			return UnitTestResult.Pass("Only verified client requests reach host; commit and rejection are host-only");

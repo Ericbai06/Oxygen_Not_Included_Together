@@ -42,7 +42,7 @@ public static class ConstructablePatch
 		return __exception;
 	}
 
-	private static BuildCommit Capture(Constructable constructable)
+	internal static BuildCommit Capture(Constructable constructable)
 	{
 		Building building = constructable?.GetComponent<Building>();
 		BuildingDef def = building?.Def;

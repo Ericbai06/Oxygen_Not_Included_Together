@@ -108,7 +108,7 @@ namespace ONI_Together.DebugTools
 				B("work.original-dig-element-null", typeof(DiggableStartWorkFaultPatch), "Prefix", "MissingOriginalDigElement", "originalDigElement=null"),
 				B("work.client-native-start", typeof(WorkableStartWorkAuthorityPatch), "Prefix", "ClientNativeStart", "clientNativeStart=true"),
 				B("building.selected-elements-null", typeof(global::ConstructablePatch), "Capture", "MissingSelectedElements", "selectedElementsTags=null"),
-			B("building.destroy-deferred", typeof(OniBuildRuntimeAdapter), "TryGetReplacement", "DeferredReplacementDestroy", "destroyDeferred=true"),
+			B("building.destroy-deferred", typeof(BuildRuntimeAdapter), "TryGetReplacement", "DeferredReplacementDestroy", "destroyDeferred=true"),
 				B("dlc.prefab-missing", typeof(SpawnPrefabPacket), "CreateAuthoritativeObject", "MissingDlcPrefab", "prefab=null"),
 				B("dlc.state-before-start-sm", typeof(BionicPatches.BionicOilMonitor_Instance_StartSM_Patch), "Prefix", "StateBeforeStartSm", "stateBeforeStartSM=true"),
 				B("dlc.family-aquatic", typeof(MinnowPoiPrefabIdentityPatch), "Postfix", "AquaticFamily", "dlcFamily=Aquatic", typeof(MinnowImperativePOIAConfig)),

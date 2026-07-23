@@ -1,9 +1,13 @@
 using System.Collections.Generic;
 using System.Linq;
 using HarmonyLib;
+#if DEBUG
+using ONI_Together.DebugTools;
+#endif
 using ONI_Together.Networking;
 using ONI_Together.Networking.Components;
 using ONI_Together.Networking.Packets.Tools.Build;
+using Shared.Interfaces.Networking;
 using Shared.Profiling;
 
 [HarmonyPatch(typeof(Constructable), nameof(Constructable.FinishConstruction))]
@@ -24,13 +28,20 @@ public static class ConstructablePatch
 			return;
 		try
 		{
-			if (MultiplayerSession.IsHostInSession)
-				BuildPublisher.Publish(state);
+			if (!MultiplayerSession.IsHostInSession)
+				return;
+			NetworkIdentity.EndManagedSpawn();
+			__state = null;
+			PacketSender.SendToAllClients(
+				BuildCommitPacket.FromDomain(state), PacketSendMode.ReliableImmediate);
 		}
 		finally
 		{
-			NetworkIdentity.EndManagedSpawn();
-			__state = null;
+			if (__state != null)
+			{
+				NetworkIdentity.EndManagedSpawn();
+				__state = null;
+			}
 		}
 	}
 
@@ -52,6 +63,11 @@ public static class ConstructablePatch
 			!BuildLifecycleRegistry.TryGet(identity.NetId, out BuildOperationId operationId))
 			return null;
 		IList<Tag> materials = constructable.SelectedElementsTags;
+#if DEBUG
+		IFaultInputMutation fault = ProductionFaultInputGates.MissingSelectedElements(
+			ref materials);
+		FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: constructable);
+#endif
 		if (materials == null || materials.Count == 0)
 			return null;
 		var request = new BuildRequest(

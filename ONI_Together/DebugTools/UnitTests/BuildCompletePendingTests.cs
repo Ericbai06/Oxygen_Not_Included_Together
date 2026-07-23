@@ -1,111 +1,152 @@
-#if DEBUG
+using System;
 using System.Collections.Generic;
-using ONI_Together.Networking;
 using ONI_Together.Networking.Packets.Tools.Build;
 
 namespace ONI_Together.DebugTools.UnitTests
 {
 	public static class BuildCompletePendingTests
 	{
-		[UnitTest(name: "v10 pending build completion binds once", category: "Sync")]
+		[UnitTest(name: "Build commit applies exactly once", category: "Sync")]
 		public static UnitTestResult PendingCompletionBindsOnce()
 		{
-			BuildCompletePacket.ClearPending();
+			var runtime = new FakeRuntime();
+			IBuildRuntime previous = BuildRuntimeProvider.Current;
 			try
 			{
-				BuildCompletePacket source = Packet(-910001, 17);
-				BuildCompletePacket.StorePendingForTests(source, 100f);
-				if (!BuildCompletePacket.TryTakePendingForTests(
-					    source.NetId, source.LifecycleRevision, out BuildCompletePacket first))
-					return UnitTestResult.Fail("Matching Constructable lifecycle did not take pending completion");
-				bool reentrantTake = BuildCompletePacket.TryTakePendingForTests(
-					source.NetId, source.LifecycleRevision, out _);
-				if (reentrantTake || 0 != BuildCompletePacket.PendingCountForTests)
-					return UnitTestResult.Fail("Pending completion remained visible during Build registration reentry");
-				if (source.NetId != first.NetId || source.LifecycleRevision != first.LifecycleRevision)
-					return UnitTestResult.Fail("Pending completion returned a different lifecycle identity");
-				return UnitTestResult.Pass("Pending completion is removed before apply and cannot apply twice");
+				BuildRuntimeProvider.Current = runtime;
+				BuildCommitApplier.Reset();
+				BuildCommit commit = Commit(new BuildOperationId(8, 17, 1), 17);
+				ApplyResult first = BuildCommitApplier.Apply(commit);
+				ApplyResult duplicate = BuildCommitApplier.Apply(commit);
+				if (!first.Applied || first.Duplicate || !duplicate.Applied || !duplicate.Duplicate
+				    || runtime.ApplyCount != 1)
+					return UnitTestResult.Fail("Build commit was applied more than once");
+				return UnitTestResult.Pass("Commit identity/revision makes client materialization idempotent");
 			}
-			finally { BuildCompletePacket.ClearPending(); }
+			finally
+			{
+				BuildCommitApplier.Reset();
+				BuildRuntimeProvider.Current = previous;
+			}
 		}
 
-		[UnitTest(name: "v10 pending build completion follows lifecycle ordering", category: "Sync")]
+		[UnitTest(name: "Build commit rejects a stale revision for same operation", category: "Sync")]
 		public static UnitTestResult PendingCompletionLifecycleOrdering()
 		{
-			const int netId = -910002;
-			BuildCompletePacket.ClearPending();
+			var runtime = new FakeRuntime();
+			IBuildRuntime previous = BuildRuntimeProvider.Current;
 			try
 			{
-				BuildCompletePacket.StorePendingForTests(Packet(netId, 20), 100f);
-				BuildCompletePacket.StorePendingForTests(Packet(netId, 19), 101f);
-				if (!BuildCompletePacket.HasPendingForTests(netId, 20)
-				    || BuildCompletePacket.HasPendingForTests(netId, 19))
-					return UnitTestResult.Fail("Older lifecycle displaced pending build completion");
-				BuildCompletePacket.StorePendingForTests(Packet(netId, 21), 102f);
-				if (BuildCompletePacket.HasPendingForTests(netId, 20)
-				    || !BuildCompletePacket.HasPendingForTests(netId, 21))
-					return UnitTestResult.Fail("New lifecycle retained old pending completion");
-				BuildCompletePacket.CancelPending(netId, 21);
-				return 0 == BuildCompletePacket.PendingCountForTests
-					? UnitTestResult.Pass("New lifecycle and tombstone retire old pending completion")
-					: UnitTestResult.Fail("Lifecycle tombstone retained pending build completion");
+				BuildRuntimeProvider.Current = runtime;
+				BuildCommitApplier.Reset();
+				BuildOperationId operation = new(8, 17, 2);
+				ApplyResult first = BuildCommitApplier.Apply(Commit(operation, 20));
+				ApplyResult replacement = BuildCommitApplier.Apply(Commit(operation, 19));
+				if (!first.Applied || replacement.Applied || runtime.ApplyCount != 1)
+					return UnitTestResult.Fail("A second lifecycle revision replaced an applied operation");
+				return UnitTestResult.Pass("Applied build operation retains one authoritative revision");
 			}
-			finally { BuildCompletePacket.ClearPending(); }
+			finally
+			{
+				BuildCommitApplier.Reset();
+				BuildRuntimeProvider.Current = previous;
+			}
 		}
 
-		[UnitTest(name: "v10 pending build completion is bounded and expiring", category: "Sync")]
+		[UnitTest(name: "Build execution deduplicates operation requests", category: "Sync")]
 		public static UnitTestResult PendingCompletionBounds()
 		{
-			BuildCompletePacket.ClearPending();
+			var runtime = new FakeRuntime();
+			IBuildRuntime previous = BuildRuntimeProvider.Current;
 			try
 			{
-				for (int index = 0; index <= BuildCompletePacket.MaxPendingCompletions; index++)
-					BuildCompletePacket.StorePendingForTests(
-						Packet(-920000 - index, (ulong)index + 1), 100f + index * 0.001f);
-				if (BuildCompletePacket.MaxPendingCompletions
-				    != BuildCompletePacket.PendingCountForTests)
-					return UnitTestResult.Fail("Pending build completion cache exceeded or undershot its bound");
-				BuildCompletePacket.ClearPending();
-				BuildCompletePacket.StorePendingForTests(Packet(-930001, 1), 100f);
-				BuildCompletePacket.PrunePendingForTests(
-					100f + BuildCompletePacket.PendingLifetimeSeconds - 0.001f);
-				if (1 != BuildCompletePacket.PendingCountForTests)
-					return UnitTestResult.Fail("Pending build completion expired before TTL");
-				BuildCompletePacket.PrunePendingForTests(
-					100f + BuildCompletePacket.PendingLifetimeSeconds);
-				return 0 == BuildCompletePacket.PendingCountForTests
-					? UnitTestResult.Pass("Pending build completion cache has exact capacity and TTL")
-					: UnitTestResult.Fail("Expired pending build completion survived TTL");
+				BuildRuntimeProvider.Current = runtime;
+				AuthoritativeBuildExecutor.Reset();
+				BuildOperationId operation = new(8, 17, 3);
+				BuildRequest request = Request(operation);
+				bool first = AuthoritativeBuildExecutor.Execute(
+					request, new HostBuildPolicy(false), out BuildCommit firstCommit, out _);
+				bool second = AuthoritativeBuildExecutor.Execute(
+					request, new HostBuildPolicy(false), out BuildCommit secondCommit, out _);
+				if (!first || !second || firstCommit?.Revision.Value != secondCommit?.Revision.Value
+				    || runtime.ExecuteCount != 1)
+					return UnitTestResult.Fail("Duplicate operation executed the runtime more than once");
+				return UnitTestResult.Pass("Host returns the original commit for duplicate operation identity");
 			}
-			finally { BuildCompletePacket.ClearPending(); }
+			finally
+			{
+				AuthoritativeBuildExecutor.Reset();
+				BuildRuntimeProvider.Current = previous;
+			}
 		}
 
-		[UnitTest(name: "v10 pending build completion resets with session", category: "Sync")]
+		[UnitTest(name: "Build rejection is remembered without reconnect semantics", category: "Sync")]
 		public static UnitTestResult PendingCompletionSessionReset()
 		{
-			BuildCompletePacket.ClearPending();
-			BuildCompletePacket.StorePendingForTests(Packet(-940001, 3), 100f);
-			SessionStateReset.Reset();
-			return 0 == BuildCompletePacket.PendingCountForTests
-				? UnitTestResult.Pass("Session reset clears pending build completions")
-				: UnitTestResult.Fail("Pending build completion leaked across session reset");
+			var runtime = new FakeRuntime { Reject = true };
+			IBuildRuntime previous = BuildRuntimeProvider.Current;
+			try
+			{
+				BuildRuntimeProvider.Current = runtime;
+				AuthoritativeBuildExecutor.Reset();
+				BuildRequest request = Request(new BuildOperationId(8, 17, 4));
+				bool first = AuthoritativeBuildExecutor.Execute(
+					request, new HostBuildPolicy(false), out _, out BuildRejected firstRejection);
+				bool second = AuthoritativeBuildExecutor.Execute(
+					request, new HostBuildPolicy(false), out _, out BuildRejected secondRejection);
+				if (first || second || firstRejection == null || secondRejection == null
+				    || firstRejection.Reason != BuildRejectionReason.Occupied
+				    || secondRejection.OperationId != request.OperationId || runtime.ExecuteCount != 1)
+					return UnitTestResult.Fail("Normal domain rejection was not remembered idempotently");
+				return UnitTestResult.Pass("Rejected build stays a domain result and does not force transport reconnect");
+			}
+			finally
+			{
+				AuthoritativeBuildExecutor.Reset();
+				BuildRuntimeProvider.Current = previous;
+			}
 		}
 
-		private static BuildCompletePacket Packet(int netId, ulong lifecycle)
+		private static BuildRequest Request(BuildOperationId operation)
+			=> new(operation, "Tile", new SinglePlacementGeometry(
+				10, Orientation.Neutral), new[] { "SandStone" },
+				"DEFAULT_FACADE", 0, 5, (int)ObjectLayer.Building);
+
+		private static BuildCommit Commit(BuildOperationId operation, ulong revision)
+			=> new(Request(operation), operation,
+				new[] { new PlacementOutcome(10, BuildPlacementKind.Queued) },
+				Array.Empty<UtilityEdge>(), new BuildRevision(revision));
+
+		private sealed class FakeRuntime : IBuildRuntime
 		{
-			return new BuildCompletePacket
+			internal int ExecuteCount { get; private set; }
+			internal int ApplyCount { get; private set; }
+			internal bool Reject { get; set; }
+
+			public bool TryExecute(BuildRequest request, HostBuildPolicy policy,
+				out BuildExecutionResult result, out BuildRejected rejection)
 			{
-				Cell = 1,
-				PrefabID = "Wire",
-				Orientation = Orientation.Neutral,
-				MaterialTags = new List<string> { "Copper" },
-				Temperature = 300f,
-				FacadeID = "DEFAULT_FACADE",
-				ObjectLayer = global::ObjectLayer.Wire,
-				NetId = netId,
-				LifecycleRevision = lifecycle
-			};
+				ExecuteCount++;
+				if (Reject)
+				{
+					result = null;
+					rejection = new BuildRejected(
+						request.OperationId, BuildRejectionReason.Occupied, "occupied");
+					return false;
+				}
+				rejection = null;
+				result = new BuildExecutionResult(
+					new[] { new PlacementOutcome(10, policy.InstantBuild
+						? BuildPlacementKind.Completed : BuildPlacementKind.Queued) },
+					Array.Empty<UtilityEdge>());
+				return true;
+			}
+
+			public ApplyResult Apply(BuildCommit commit)
+			{
+				ApplyCount++;
+				return ApplyResult.Success();
+			}
 		}
 	}
 }
-#endif

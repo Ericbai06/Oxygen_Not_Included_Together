@@ -256,9 +256,9 @@ public static class ProtocolSafetyTests
             typeof(TrailDeletePacket), typeof(TrailPointsPacket), typeof(ScheduleBlockUpdatePacket),
             typeof(ScheduleAddPacket), typeof(ScheduleDeletePacket), typeof(ScheduleAssignmentPacket),
             typeof(ScheduleRowPacket), typeof(ScheduleDetailsUpdatePacket), typeof(RedAlertStatePacket),
-            typeof(SpeedChangePacket), typeof(BuildPacket), typeof(BuildingActionPacket),
+            typeof(SpeedChangePacket), typeof(BuildRequestPacket), typeof(BuildingActionPacket),
             typeof(MinionIdentitySetNamePacket), typeof(ConsumablePermissionPacket),
-            typeof(UserNameableChangePacket), typeof(CopySettingsToolPacket), typeof(UtilityBuildPacket),
+            typeof(UserNameableChangePacket), typeof(CopySettingsToolPacket),
             typeof(DragToolPacket)
         };
 
@@ -323,7 +323,7 @@ public static class ProtocolSafetyTests
             new DedicatedServerMessagePacket(), new AllClientsReadyPacket(),
             new ReadyAcceptedPacket(),
             new ChatHistorySyncPacket(), new ToggleMinionKanimEffectPacket(),
-            new BuildCompletePacket(), new DeconstructCompletePacket(),
+            new BuildCommitPacket(), new BuildRejectedPacket(), new DeconstructCompletePacket(),
             new ComplexFabricatorSpawnProductPacket(), new GroundItemPickedUpPacket(),
             new StorageItemPacket(),
             new SpawnPrefabPacket(),

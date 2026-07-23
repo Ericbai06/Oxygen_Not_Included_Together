@@ -27,7 +27,7 @@ namespace ONI_Together.DebugTools
 			                    ?? def.Temperature;
 			GameObject fixture = def.Build(
 				cell, Orientation.Neutral, null, new List<Tag> { material }, temperature,
-				BuildAuthority.DefaultFacade, playsound: false, GameClock.Instance.GetTime());
+				BuildRequestValidator.DefaultFacade, playsound: false, GameClock.Instance.GetTime());
 			TrackUncommittedFixture(context, fixture);
 			BuildingComplete complete = fixture?.GetComponent<BuildingComplete>();
 			if (complete == null)
@@ -127,7 +127,7 @@ namespace ONI_Together.DebugTools
 			IList<Tag> materials = context.Materials.ToList();
 			GameObject replacement = context.BuildingDef.Build(
 				context.Cell, Orientation.Neutral, null, materials,
-				context.DeferredTemperature, BuildAuthority.DefaultFacade,
+				context.DeferredTemperature, BuildRequestValidator.DefaultFacade,
 				playsound: false, GameClock.Instance.GetTime());
 			if (replacement == null || replacement.GetInstanceID()
 			    == context.DeferredDestroyEvidence.OriginalInstanceId)

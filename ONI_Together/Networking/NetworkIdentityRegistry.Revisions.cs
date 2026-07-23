@@ -67,7 +67,6 @@ namespace ONI_Together.Networking
 				lifecycleTombstones.Add(netId);
 			else
 				lifecycleTombstones.Remove(netId);
-			BuildCompletePacket.ReleaseForLifecycle(netId, revision, tombstone);
 			return true;
 		}
 
@@ -102,7 +101,6 @@ namespace ONI_Together.Networking
 			if (accepted)
 			{
 				identity.LifecycleRevision = revision;
-				BuildCompletePacket.TryApplyPending(netId, revision);
 			}
 			return accepted;
 		}

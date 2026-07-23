@@ -12,7 +12,7 @@ namespace ONI_Together.Networking
 {
 	internal static class ProtocolCompatibility
 	{
-		public const int CurrentProtocolVersion = 10;
+		public const int CurrentProtocolVersion = 11;
 
 		private static int? _packetFingerprint;
 		private static string _modVersion;

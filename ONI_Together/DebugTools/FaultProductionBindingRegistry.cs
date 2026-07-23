@@ -64,7 +64,7 @@ namespace ONI_Together.DebugTools
 		{
 			Add(result, "building.complete-before-queued",
 				One(typeof(BuildLifecycleAdmission), "CanComplete"),
-				One(typeof(BuildCompletePacket), "TryResolveTarget"));
+				One(typeof(BuildCommitApplier), "Apply"));
 			Add(result, "building.finish-duplicate",
 				One(typeof(NetworkIdentityRegistry), "ShouldAcceptLifecycleRevision"),
 				One(typeof(NetworkIdentityRegistry), "TryAcceptLifecycleRevision"));

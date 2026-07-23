@@ -62,7 +62,6 @@ namespace ONI_Together.Networking
 		private static void ResetCore()
 		{
 			ChatScreen.ResetSessionState();
-			BuildCompletePacket.ClearPending();
 			GroundItemPickedUpPacket.ClearPending();
 			StorageItemPacket.ClearPending();
 			PresentationTickClock.ResetSessionState();
@@ -108,6 +107,9 @@ namespace ONI_Together.Networking
 			PrioritizeStatePacket.ResetSessionState();
 			DuplicantPriorityPacket.ResetSessionState();
 			NetworkIdentity.ResetSessionState();
+			AuthoritativeBuildExecutor.Reset();
+			BuildCommitApplier.Reset();
+			BuildLifecycleRegistry.Clear();
 			PlantGrowthSyncer.ResetSessionState();
 		}
 

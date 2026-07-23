@@ -109,6 +109,9 @@ namespace ONI_Together.Networking.Packets.Architecture
 		internal static void SetClientSessionEpoch(long epoch)
 			=> Interlocked.Exchange(ref _clientSessionEpoch, epoch);
 
+		internal static long ClientSessionEpoch
+			=> Interlocked.Read(ref _clientSessionEpoch);
+
 		public static bool readyToProcess
 		{
 			get => _readyToProcess;

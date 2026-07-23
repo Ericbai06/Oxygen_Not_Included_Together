@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+#if DEBUG
+using ONI_Together.DebugTools;
+#endif
 using ONI_Together.Networking.Packets.Tools.Build;
 using UnityEngine;
 
@@ -25,6 +28,17 @@ namespace ONI_Together.Patches.ToolPatches.Build
 			out GameObject candidate)
 		{
 			candidate = def?.GetReplacementCandidate(cell);
+			bool deferredDestroy = false;
+#if DEBUG
+			IFaultInputMutation fault = ProductionFaultInputGates.DeferredReplacementDestroy(
+				ref deferredDestroy);
+			FaultInjectionUnitySeams.EnsureExpectedRuntimeTarget(fault, candidate);
+#endif
+			if (deferredDestroy)
+				Object.Destroy(candidate);
+#if DEBUG
+			FaultInjectionUnitySeams.EmitReceipt(fault, runtimeTarget: candidate);
+#endif
 			if (candidate == null || materials == null || materials.Count == 0 ||
 				def.ReplacementLayer == global::ObjectLayer.NumLayers)
 				return false;

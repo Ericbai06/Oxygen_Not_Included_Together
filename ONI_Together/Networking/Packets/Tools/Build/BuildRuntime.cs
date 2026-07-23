@@ -191,6 +191,21 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			}
 			if (!BuildCommitValidator.TryValidate(commit, out string validationError))
 				return ApplyResult.Reject(validationError);
+			foreach (PlacementOutcome outcome in commit.Placements)
+			{
+				if (outcome == null || (outcome.Kind != BuildPlacementKind.Completed &&
+					outcome.Kind != BuildPlacementKind.CompletedReplacement))
+					continue;
+				BuildRequest request = commit.Request;
+				bool layerMatches = request != null && request.ObjectLayer >= 0;
+				bool hasConstructable = request != null;
+				bool prefabMatches = request != null &&
+					BuildRequestValidator.IsBoundedId(request.PrefabId);
+				bool cellMatches = request != null && ContainsCell(request.Geometry, outcome.Cell);
+				if (!BuildLifecycleAdmission.CanComplete(layerMatches, outcome.HasIdentity,
+					hasConstructable, prefabMatches, cellMatches))
+					return ApplyResult.Reject("completed building lifecycle admission rejected");
+			}
 			ApplyResult result;
 			using (BuildMutationContext.Enter(commit.OperationId))
 				result = BuildRuntimeProvider.Current.Apply(commit);
@@ -200,6 +215,26 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 		}
 
 		public static void Reset() => Applied.Clear();
+
+		private static bool ContainsCell(BuildGeometry geometry, int cell)
+		{
+			if (geometry is BuildGeometry.SinglePlacement single)
+				return single.Cell == cell;
+			if (geometry is SinglePlacementGeometry singleGeometry)
+				return singleGeometry.Cell == cell;
+			IReadOnlyList<int> cells = geometry switch
+			{
+				BuildGeometry.UtilityPath utility => utility.Cells,
+				UtilityPathGeometry utilityGeometry => utilityGeometry.Cells,
+				_ => null
+			};
+			if (cells == null)
+				return false;
+			for (int index = 0; index < cells.Count; index++)
+				if (cells[index] == cell)
+					return true;
+			return false;
+		}
 	}
 
 	internal static class NetworkIdentityRevision

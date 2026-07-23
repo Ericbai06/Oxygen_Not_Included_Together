@@ -5,6 +5,7 @@ using System.Threading;
 using HarmonyLib;
 using ONI_Together.DebugTools;
 using ONI_Together.Networking;
+using ONI_Together.Networking.Packets.Architecture;
 using ONI_Together.Networking.Packets.Tools.Build;
 using Shared.Profiling;
 
@@ -13,7 +14,7 @@ namespace ONI_Together.Patches.ToolPatches.Build
 	[HarmonyPatch(typeof(BuildTool), nameof(BuildTool.TryBuild))]
 	public static class BuildToolPatch
 	{
-		private static ulong nextSequence;
+		private static long nextSequence;
 
 		static bool Prefix(BuildTool __instance, int cell)
 		{
@@ -68,7 +69,7 @@ namespace ONI_Together.Patches.ToolPatches.Build
 			=> new(
 				Math.Max(1L, PacketHandler.ClientSessionEpoch),
 				Math.Max(1UL, MultiplayerSession.LocalUserID),
-				Interlocked.Increment(ref nextSequence));
+				unchecked((ulong)Interlocked.Increment(ref nextSequence)));
 
 		private static void ExecuteHost(BuildRequest request)
 		{

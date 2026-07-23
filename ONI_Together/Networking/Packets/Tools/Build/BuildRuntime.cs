@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ONI_Together.Patches.ToolPatches.Build;
 
 namespace ONI_Together.Networking.Packets.Tools.Build
 {
@@ -35,10 +36,10 @@ namespace ONI_Together.Networking.Packets.Tools.Build
 			HostBuildPolicy policy,
 			out BuildExecutionResult result,
 			out BuildRejected rejection)
-			=> OniBuildRuntimeAdapter.TryExecute(request, policy, out result, out rejection);
+			=> BuildRuntimeAdapter.TryExecute(request, policy, out result, out rejection);
 
 		public ApplyResult Apply(BuildCommit commit)
-			=> OniBuildRuntimeAdapter.Apply(commit);
+			=> BuildRuntimeAdapter.Apply(commit);
 	}
 
 	public static class BuildRuntimeProvider

@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace ONI_Together.Patches.ToolPatches.Build
 {
-	internal static class OniBuildRuntimeAdapter
+	internal static class BuildRuntimeAdapter
 	{
 		private static readonly FieldInfo PriorityClassField =
 			typeof(PrioritySetting).GetField(

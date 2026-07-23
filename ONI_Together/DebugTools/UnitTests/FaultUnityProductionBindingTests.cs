@@ -19,7 +19,7 @@ namespace ONI_Together.DebugTools.UnitTests
 				["work.original-dig-element-null"] = ("ONI_Together.Patches.Duplicant.DiggableStartWorkFaultPatch.Prefix", "originalDigElement=null"),
 				["work.client-native-start"] = ("ONI_Together.Patches.World.WorkableStartWorkAuthorityPatch.Prefix", "clientNativeStart=true"),
 				["building.selected-elements-null"] = ("ConstructablePatch.Capture", "selectedElementsTags=null"),
-				["building.destroy-deferred"] = ("ONI_Together.Networking.Packets.Tools.Build.BuildAuthority.TryGetReplacement", "destroyDeferred=true"),
+				["building.destroy-deferred"] = ("ONI_Together.Patches.ToolPatches.Build.BuildRuntimeAdapter.TryGetReplacement", "destroyDeferred=true"),
 				["dlc.prefab-missing"] = ("ONI_Together.Networking.Packets.World.SpawnPrefabPacket.CreateAuthoritativeObject", "prefab=null"),
 				["dlc.state-before-start-sm"] = ("ONI_Together.Patches.Bionics.BionicPatches+BionicOilMonitor_Instance_StartSM_Patch.Prefix", "stateBeforeStartSM=true"),
 				["dlc.family-aquatic"] = ("ONI_Together.Patches.DLC.Aquatic.MinnowPoiPrefabIdentityPatch.Postfix", "dlcFamily=Aquatic"),

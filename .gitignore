@@ -4,6 +4,9 @@
 dist/
 .codex_tmp/
 .codex_handoff.md
+.DS_Store
+.omo/
+mod/ONI_Together_dev/
 
 
 ## || VISUAL STUDIO STUFF BELOW || ##

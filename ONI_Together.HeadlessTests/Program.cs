@@ -76,6 +76,13 @@ internal static partial class Program
                 StringComparison.OrdinalIgnoreCase))
             return SyncCoverageMigrateProcessRedSuite.Run();
 
+        if (args.Length > 0 && (string.Equals(args[0], "build-architecture",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(args[0], "build-architecture-red",
+                    StringComparison.OrdinalIgnoreCase)))
+            return BuildAuthorityArchitectureContractTests.RunCli(
+                Console.Out, Console.Error);
+
         (string Name, Action Test)[] tests =
         [
             ("packet discovery follows runtime registration", PacketDiscoveryFollowsRuntime),
@@ -160,6 +167,7 @@ internal static partial class Program
             ("mixed receipt runs fail closed", SyncCoverageAdversarialTests.MixedReceiptRunsFailClosed),
             ("runtime artifact binds controlled path and control flow", SyncCoverageAdversarialTests.RuntimeArtifactMustBindControlledPathAndControlFlow),
             ("runtime artifact rejects hash root and manual observe", SyncCoverageAdversarialTests.RuntimeArtifactRejectsHashRootAndManualObserve),
+            ("build authority architecture contracts", BuildAuthorityArchitectureContractTests.Run),
         ];
 
         int failures = 0;

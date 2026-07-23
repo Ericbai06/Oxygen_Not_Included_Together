@@ -1,4 +1,3 @@
-using ONI_Together.DebugTools;
 using ONI_Together.Networking.Packets.Tools.Build;
 
 namespace ONI_Together.Patches.ToolPatches.Build
@@ -9,10 +8,8 @@ namespace ONI_Together.Patches.ToolPatches.Build
 		{
 			get
 			{
-				bool sandboxActive = Game.Instance != null && Game.Instance.SandboxModeActive;
-				bool sandboxInstant = SandboxToolParameterMenu.instance?.settings?.InstantBuild == true;
-				return new HostBuildPolicy(
-					DebugHandler.InstantBuildMode || sandboxActive && sandboxInstant);
+				Game game = Game.Instance;
+				return new HostBuildPolicy(game != null && game.DebugOnlyBuildingsAllowed);
 			}
 		}
 	}

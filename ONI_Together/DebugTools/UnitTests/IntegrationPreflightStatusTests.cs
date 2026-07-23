@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using ONI_Together.Networking;
 
 namespace ONI_Together.DebugTools.UnitTests
 {
@@ -24,7 +25,8 @@ namespace ONI_Together.DebugTools.UnitTests
 			bool valid = ContainsField(actual, "build", ExpectedGameBuild)
 			             && ContainsField(actual, "sessionIdentity", "steam:" + SteamLobbyId)
 			             && ContainsField(actual, "dlcFingerprint", expectedDlc)
-			             && ContainsField(actual, "protocol", "10")
+			             && ContainsField(actual, "protocol",
+				                 ProtocolCompatibility.CurrentProtocolVersion.ToString())
 			             && ContainsField(actual, "role", "host")
 			             && !ContainsField(actual, "session", "1");
 			return valid
@@ -111,7 +113,7 @@ namespace ONI_Together.DebugTools.UnitTests
 				InSteamLobby = true,
 				SteamLobbyId = SteamLobbyId,
 				ActiveDlcIds = dlcIds ?? new[] { "EXPANSION1_ID" },
-				Protocol = 10,
+				Protocol = ProtocolCompatibility.CurrentProtocolVersion,
 				Role = "host"
 			};
 
@@ -123,7 +125,7 @@ namespace ONI_Together.DebugTools.UnitTests
 				TransportReady = true,
 				NonSteamSessionIdentity = sessionIdentity,
 				ActiveDlcIds = new[] { "EXPANSION1_ID" },
-				Protocol = 10,
+				Protocol = ProtocolCompatibility.CurrentProtocolVersion,
 				Role = "client"
 			};
 

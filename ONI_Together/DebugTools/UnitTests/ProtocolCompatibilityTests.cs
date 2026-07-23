@@ -36,15 +36,17 @@ namespace ONI_Together.DebugTools.UnitTests
 			public override void OnMessageRecieved() { }
 			public override void KickClient(ulong clientId) => KickCount++;
 		}
-		[UnitTest(name: "Protocol version: presentation wire is v10 only", category: "Networking")]
-		public static UnitTestResult PresentationWireIsVersionTenOnly()
+		[UnitTest(name: "Protocol version: presentation wire is current v11 only", category: "Networking")]
+		public static UnitTestResult PresentationWireIsCurrentVersionOnly()
 		{
-			return ProtocolCompatibility.CurrentProtocolVersion == 10
-			       && ProtocolCompatibility.SupportsVersion(10)
-			       && !ProtocolCompatibility.SupportsVersion(9)
-				? UnitTestResult.Pass("Protocol v10 rejects every legacy wire version")
+			const int expectedProtocolVersion = 11;
+			return ProtocolCompatibility.CurrentProtocolVersion == expectedProtocolVersion
+			       && ProtocolCompatibility.SupportsVersion(expectedProtocolVersion)
+			       && !ProtocolCompatibility.SupportsVersion(expectedProtocolVersion - 1)
+			       && !ProtocolCompatibility.SupportsVersion(expectedProtocolVersion + 1)
+				? UnitTestResult.Pass("Protocol v11 rejects every non-current wire version")
 				: UnitTestResult.Fail(
-					$"Expected v10-only protocol, got {ProtocolCompatibility.CurrentProtocolVersion}");
+					$"Expected current v11-only protocol, got {ProtocolCompatibility.CurrentProtocolVersion}");
 		}
 
 		[UnitTest(name: "Protocol rejection ACK: sender and generation are bound", category: "Networking")]

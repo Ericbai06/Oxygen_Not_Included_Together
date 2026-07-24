@@ -176,11 +176,12 @@ namespace ONI_Together.Patches.ToolPatches.Build
 			if (!Grid.IsValidCell(cell) || !Grid.IsVisible(cell))
 				return false;
 			Vector3 position = Grid.CellToPosCBC(cell, Grid.SceneLayer.Building);
-			GameObject candidate = replacement ? def.GetReplacementCandidate(cell) : null;
-			if (replacement && (candidate == null || !def.CanReplace(candidate)))
-				return false;
 			if (!def.IsValidBuildLocation(null, position, orientation, replacement) ||
 				!def.IsValidPlaceLocation(null, position, orientation, replacement, out _))
+				return false;
+			GameObject candidate = null;
+			if (replacement && !TryGetReplacement(def, cell, orientation,
+				(IReadOnlyList<Tag>)materials, out candidate))
 				return false;
 			if (completed)
 			{

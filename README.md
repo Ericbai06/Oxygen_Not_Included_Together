@@ -1,6 +1,6 @@
 # ONI ONLINE
 
-ONI ONLINE is an independent, unofficial multiplayer fork for Oxygen Not Included. Version 1.0.6 targets game build `U59-740622-S` and uses network protocol version `10`.
+ONI ONLINE is an independent, unofficial multiplayer fork for Oxygen Not Included. Version 1.0.8 targets game build `U59-740622-S` and uses network protocol version `11`.
 
 The project is based on the MIT-licensed [ONI Together](https://github.com/Lyraedan/Oxygen_Not_Included_Together) project by Lyraedan (ItsLuke), Sgt_Imalas, and its contributors. The upstream project remains active. ONI ONLINE has a separate name, Workshop item, release line, and network protocol; it does not replace or represent the upstream project.
 
@@ -42,9 +42,9 @@ Entity lifecycle updates use monotonic revisions and tombstones. Failed identity
 
 ## Relationship to upstream
 
-ONI ONLINE keeps the upstream MIT copyright and license notices and links back to the active ONI Together project. Development continues in this fork because protocol 10 changes the network contract across request authority, transport, replay, reconnect, entity lifecycle, revision handling, DLC synchronization, and the integration-test harness. Those changes are interdependent and are not wire-compatible with the upstream 0.7.x release line. Submitting the entire fork as one pull request would create a large, non-incremental review and mix architectural decisions with individual fixes.
+ONI ONLINE keeps the upstream MIT copyright and license notices and links back to the active ONI Together project. Development continues in this fork because protocol 11 changes the network contract across request authority, transport, replay, reconnect, entity lifecycle, revision handling, DLC synchronization, and the integration-test harness. Those changes are interdependent and are not wire-compatible with the upstream 0.7.x release line. Submitting the entire fork as one pull request would create a large, non-incremental review and mix architectural decisions with individual fixes.
 
-Fixes that can be isolated from protocol 10 and reviewed independently should be proposed upstream as focused pull requests. The separate fork is retained for the protocol-level work and its release history.
+Fixes that can be isolated from protocol 11 and reviewed independently should be proposed upstream as focused pull requests. The separate fork is retained for the protocol-level work and its release history.
 
 ## Validation record
 
@@ -64,9 +64,9 @@ Debug builds expose three in-game entry points:
 - `Shift+F3` discovers and runs all in-game unit tests.
 - `Shift+F4` runs the Riptide loopback smoke test on `127.0.0.1:27777`.
 
-The protocol 10 test harness defines 22 real two-machine business scenarios covering colony controls, buildings, inventory, presentation, entity lifecycle, DLC systems, rockets, and reconnect. Each scenario requires host submission, client application, blocked client-side original execution, revision ordering, and matching final state hashes.
+The protocol 11 test harness defines 22 real two-machine business scenarios covering colony controls, buildings, inventory, presentation, entity lifecycle, DLC systems, rockets, and reconnect. Each scenario requires host submission, client application, blocked client-side original execution, revision ordering, and matching final state hashes.
 
-The v1.0.6 Debug build completed 665 in-game checks on macOS: 641 passed, none failed, and 24 were skipped because their required runtime state was absent. Full protocol 10 two-machine scenario and soak acceptance remains pending for this release candidate.
+The v1.0.8 replacement-admission candidate ran 816 in-game Debug tests on macOS: 799 passed, 15 were skipped because their runtime prerequisites were absent, and two existing unrelated tests failed because the PlanScreen was active and the world-repair staging queue was full. All five replacement tests passed, including same-definition material changes and rotated footprints, and the causal log window contained no duplicate replacement-tile warning. The 83 headless contracts also passed. Full protocol 11 two-machine scenario and soak acceptance remains pending for this release candidate.
 
 The July 20 macOS-to-macOS regression now uses identical Debug DLLs with SHA-256 `7dae355a37ddc67d9bd18aa857831da1edb7f1f6fefb5d9077629866c56796a9`. The in-game suite reported `total=600, passed=574, failed=0, notRun=26`. A loaded Cycle 119 world completed all 1,040 baseline parts in about 300.6 seconds and entered `InGame`, crossing the former 240-second client limit while valid progress renewed the host idle lease. The immediately preceding transport-equivalent build also completed an in-place hard sync with 512 retained reliable frames carrying 4,096-byte payloads: the client applied the full baseline and 2,109,440-byte replay before the host committed Ready. A paused production checkpoint reported `mismatch=None`. Queued Tile construction at cell `94290` passed through client `BuildStatePacket`, remote worker activity, host `BuildCompletePacket`, and client finalization without `Constructable.OnSpawn`, `SelectedElementsTags`, or NetId collision errors.
 
